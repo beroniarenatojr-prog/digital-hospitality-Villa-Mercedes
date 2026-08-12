@@ -1,0 +1,456 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\FacilityStatus;
+use App\Enums\FacilityType;
+use App\Enums\ReservationSource;
+use App\Enums\ReservationStatus;
+use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
+use App\Exceptions\Availability\PackageAvailabilityLimitationException;
+use App\Models\Facility;
+use App\Models\Reservation;
+use App\Services\AvailabilityService;
+use Carbon\Carbon;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
+use Tests\TestCase;
+
+class AvailabilityServiceTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private AvailabilityService $availabilityService;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->availabilityService = new AvailabilityService();
+        $this->artisan('db:seed');
+    }
+
+    private function getFacilityBySlug(string $name): Facility
+    {
+        return Facility::query()->where('slug', Str::slug($name))->firstOrFail();
+    }
+
+    private function createReservation(
+        Facility $facility,
+        string $checkIn,
+        string $checkOut,
+        string $status = ReservationStatus::Approved->value,
+        string $source = ReservationSource::Online->value
+    ): Reservation {
+        return Reservation::factory()->create([
+            'facility_id' => $facility->id,
+            'check_in' => Carbon::parse($checkIn),
+            'check_out' => Carbon::parse($checkOut),
+            'status' => $status,
+            'reservation_source' => $source,
+        ]);
+    }
+
+    public function test_facility_with_no_reservations_is_available(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_exact_same_reservation_period_is_unavailable(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_requested_period_starts_during_existing_reservation(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-14 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-12 14:00:00'),
+            Carbon::parse('2026-06-16 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_requested_period_ends_during_existing_reservation(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-12 14:00:00', '2026-06-16 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-14 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_requested_period_completely_contains_existing_reservation(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-12 14:00:00', '2026-06-14 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-16 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_requested_period_is_completely_inside_existing_reservation(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-16 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-12 14:00:00'),
+            Carbon::parse('2026-06-14 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_requested_period_ends_exactly_when_existing_reservation_starts(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-12 14:00:00', '2026-06-14 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 14:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_requested_period_starts_exactly_when_existing_reservation_ends(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-12 12:00:00'),
+            Carbon::parse('2026-06-14 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_separate_non_overlapping_period_is_available(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-14 14:00:00'),
+            Carbon::parse('2026-06-16 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_pending_reservation_blocks_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Pending->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_approved_reservation_blocks_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Approved->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_cancelled_reservation_does_not_block_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Cancelled->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_rejected_reservation_does_not_block_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Rejected->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_completed_reservation_does_not_block_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Completed->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_walk_in_reservation_blocks_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Approved->value, ReservationSource::WalkIn->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_online_reservation_blocks_availability(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00', ReservationStatus::Approved->value, ReservationSource::Online->value);
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_inactive_facility_is_unavailable(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility->is_active = false;
+        $facility->save();
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+        $this->assertEquals('Facility is not active or has been removed.', $result->reason);
+    }
+
+    public function test_maintenance_facility_is_unavailable(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility->status = FacilityStatus::Maintenance->value;
+        $facility->save();
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+        $this->assertEquals('Facility is under maintenance.', $result->reason);
+    }
+
+    public function test_soft_deleted_facility_cannot_be_booked(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility->delete(); // Soft delete
+
+        $deletedFacility = Facility::withTrashed()->find($facility->id);
+        
+        $result = $this->availabilityService->isAvailable(
+            $deletedFacility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+        $this->assertEquals('Facility is not active or has been removed.', $result->reason);
+    }
+
+    public function test_excluded_reservation_does_not_cause_its_own_conflict(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $reservation = $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00'),
+            $reservation->id
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_excluded_reservation_still_allows_other_conflicting_reservations_to_block(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        $reservationToExclude = $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+        $otherConflict = $this->createReservation($facility, '2026-06-11 14:00:00', '2026-06-13 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-13 12:00:00'),
+            $reservationToExclude->id
+        );
+
+        $this->assertFalse($result->isAvailable);
+        $this->assertEquals($otherConflict->id, $result->conflictingReservationId);
+    }
+
+    public function test_invalid_check_in_check_out_period_is_rejected_via_exception(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        
+        $this->expectException(InvalidAvailabilityPeriodException::class);
+        $this->expectExceptionMessage('Invalid reservation period: check-out must be after check-in.');
+
+        $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-12 12:00:00'),
+            Carbon::parse('2026-06-10 14:00:00') // End before start
+        );
+    }
+
+    public function test_different_facility_does_not_cause_a_conflict(): void
+    {
+        $facility1 = $this->getFacilityBySlug('Deluxe');
+        $facility2 = $this->getFacilityBySlug('Superior Twin');
+
+        $this->createReservation($facility1, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $facility2,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_function_hall_overlap_is_detected(): void
+    {
+        $hall = $this->getFacilityBySlug('Diamond Hall');
+        
+        $this->createReservation($hall, '2026-06-10 08:00:00', '2026-06-10 17:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $hall,
+            Carbon::parse('2026-06-10 10:00:00'),
+            Carbon::parse('2026-06-10 14:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_room_overlap_is_detected(): void
+    {
+        $room = $this->getFacilityBySlug('Deluxe');
+        
+        $this->createReservation($room, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+
+        $result = $this->availabilityService->isAvailable(
+            $room,
+            Carbon::parse('2026-06-11 14:00:00'),
+            Carbon::parse('2026-06-13 12:00:00')
+        );
+
+        $this->assertFalse($result->isAvailable);
+    }
+
+    public function test_multiple_reservations_are_handled_correctly(): void
+    {
+        $facility = $this->getFacilityBySlug('Deluxe');
+        
+        $this->createReservation($facility, '2026-06-10 14:00:00', '2026-06-12 12:00:00');
+        $this->createReservation($facility, '2026-06-14 14:00:00', '2026-06-16 12:00:00');
+
+        // Between the two, should be available
+        $result = $this->availabilityService->isAvailable(
+            $facility,
+            Carbon::parse('2026-06-12 14:00:00'),
+            Carbon::parse('2026-06-14 12:00:00')
+        );
+
+        $this->assertTrue($result->isAvailable);
+    }
+
+    public function test_package_availability_limitation_is_handled_safely(): void
+    {
+        // Let's get or create a package
+        $facilityType = FacilityType::ResortPackage->value;
+        $packageType = \App\Models\FacilityType::firstOrCreate(['slug' => $facilityType], ['name' => 'Resort Package']);
+
+        $package = Facility::factory()->create([
+            'facility_type_id' => $packageType->id,
+            'name' => 'Test Package',
+            'status' => FacilityStatus::Available->value,
+            'is_active' => true,
+        ]);
+        
+        $this->expectException(PackageAvailabilityLimitationException::class);
+        $this->expectExceptionMessage('Resort package availability logic is not yet implemented.');
+
+        $this->availabilityService->isAvailable(
+            $package,
+            Carbon::parse('2026-06-10 14:00:00'),
+            Carbon::parse('2026-06-12 12:00:00')
+        );
+    }
+}
