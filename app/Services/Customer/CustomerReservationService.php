@@ -103,6 +103,35 @@ class CustomerReservationService
     }
 
     /**
+     * Reschedule a reservation owned by the customer.
+     *
+     * @throws ReservationOwnershipException
+     */
+    public function rescheduleReservation(
+        User $customer,
+        Reservation $reservation,
+        Facility $newFacility,
+        Carbon $newCheckIn,
+        Carbon $newCheckOut,
+        int $newGuestCount,
+        array $options = []
+    ): Reservation {
+        $this->verifyOwnership($customer, $reservation);
+
+        // Optional: add business rules here (e.g., cannot reschedule if < 48 hours to check-in)
+
+        return $this->reservationService->reschedule(
+            $reservation,
+            $newFacility,
+            $newCheckIn,
+            $newCheckOut,
+            $customer,
+            $newGuestCount,
+            $options
+        );
+    }
+
+    /**
      * Check facility availability for a requested period.
      *
      * Delegates entirely to AvailabilityService::isAvailable().

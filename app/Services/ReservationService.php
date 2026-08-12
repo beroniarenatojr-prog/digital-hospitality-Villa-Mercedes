@@ -145,6 +145,129 @@ class ReservationService
     }
 
     /**
+     * Reschedule an existing reservation.
+     *
+     * @param Reservation $reservation
+     * @param Facility $newFacility
+     * @param Carbon $newCheckIn
+     * @param Carbon $newCheckOut
+     * @param User $actor
+     * @param int $newGuestCount
+     * @param array{
+     *   early_check_in_hours?: int,
+     *   late_check_out_hours?: int
+     * } $options
+     * @return Reservation
+     *
+     * @throws InvalidReservationTransitionException
+     * @throws ReservationConflictException
+     * @throws \App\Exceptions\Availability\InvalidAvailabilityPeriodException
+     * @throws \App\Exceptions\Pricing\InvalidPricingPeriodException
+     * @throws \App\Exceptions\Pricing\OverlappingSeasonalRatesException
+     * @throws \App\Exceptions\Pricing\NoApplicableRateException
+     */
+    public function reschedule(
+        Reservation $reservation,
+        Facility $newFacility,
+        Carbon $newCheckIn,
+        Carbon $newCheckOut,
+        User $actor,
+        int $newGuestCount,
+        array $options = []
+    ): Reservation {
+        $earlyCheckInHours = $options['early_check_in_hours'] ?? 0;
+        $lateCheckOutHours = $options['late_check_out_hours'] ?? 0;
+
+        if (!in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
+            throw new InvalidReservationTransitionException(
+                "Cannot reschedule a reservation that is currently {$reservation->status->label()}."
+            );
+        }
+
+        return DB::transaction(function () use (
+            $reservation,
+            $newFacility,
+            $newCheckIn,
+            $newCheckOut,
+            $actor,
+            $newGuestCount,
+            $earlyCheckInHours,
+            $lateCheckOutHours
+        ) {
+            // Lock both the old and new facility rows if they differ, or just the new one
+            $lockedNewFacility = Facility::withTrashed()->where('id', $newFacility->id)->lockForUpdate()->firstOrFail();
+
+            // Lock the reservation
+            $lockedReservation = Reservation::where('id', $reservation->id)->lockForUpdate()->firstOrFail();
+
+            // Check availability (excluding this reservation's own ID)
+            $availability = $this->availabilityService->isAvailable(
+                $lockedNewFacility,
+                $newCheckIn,
+                $newCheckOut,
+                $lockedReservation->id,
+                $newGuestCount
+            );
+
+            if (!$availability->isAvailable) {
+                throw new ReservationConflictException(
+                    $availability->reason ?? 'Facility is already booked for the requested period.'
+                );
+            }
+
+            // Calculate new pricing
+            $priceBreakdown = $this->pricingService->calculate(
+                $lockedNewFacility,
+                $newCheckIn,
+                $newCheckOut,
+                $earlyCheckInHours,
+                $lateCheckOutHours,
+                $newGuestCount
+            );
+
+            // Keep the old values for activity logging properties
+            $oldProperties = [
+                'facility_id' => $lockedReservation->facility_id,
+                'check_in' => $lockedReservation->check_in->toDateTimeString(),
+                'check_out' => $lockedReservation->check_out->toDateTimeString(),
+                'guest_count' => $lockedReservation->guest_count,
+                'total_price' => $lockedReservation->total_price,
+            ];
+
+            // Update reservation
+            $lockedReservation->update([
+                'facility_id' => $lockedNewFacility->id,
+                'check_in' => $newCheckIn,
+                'check_out' => $newCheckOut,
+                'guest_count' => $newGuestCount,
+                'base_price' => number_format($priceBreakdown->baseAmount / 100, 2, '.', ''),
+                'additional_charges' => number_format(($priceBreakdown->earlyCheckInCharge + $priceBreakdown->lateCheckOutCharge + $priceBreakdown->extraPersonCharge) / 100, 2, '.', ''),
+                'total_price' => number_format($priceBreakdown->totalAmount / 100, 2, '.', ''),
+            ]);
+
+            $newProperties = [
+                'facility_id' => $lockedNewFacility->id,
+                'check_in' => $newCheckIn->toDateTimeString(),
+                'check_out' => $newCheckOut->toDateTimeString(),
+                'guest_count' => $newGuestCount,
+                'total_price' => $lockedReservation->total_price,
+            ];
+
+            activity()
+                ->performedOn($lockedReservation)
+                ->causedBy($actor)
+                ->event('rescheduled')
+                ->withProperties([
+                    'old' => $oldProperties,
+                    'new' => $newProperties,
+                ])
+                ->log("Reservation rescheduled to new dates/facility.");
+
+            return $lockedReservation;
+        });
+    }
+
+    /**
      * Change the status of a reservation.
      * 
      * Valid transitions:

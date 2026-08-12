@@ -81,4 +81,31 @@ class Reservation extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    /**
+     * Get the total amount of verified payments.
+     */
+    public function getVerifiedTotalPaid(): float
+    {
+        return (float) $this->payments()
+            ->where('status', \App\Enums\PaymentStatus::Verified->value)
+            ->sum('amount');
+    }
+
+    /**
+     * Get the remaining balance due.
+     */
+    public function getRemainingBalance(): float
+    {
+        $balance = (float) $this->total_price - $this->getVerifiedTotalPaid();
+        return max(0.0, $balance);
+    }
+
+    /**
+     * Check if the reservation is fully paid.
+     */
+    public function isFullyPaid(): bool
+    {
+        return $this->getRemainingBalance() <= 0.0;
+    }
 }
