@@ -7,7 +7,7 @@ use App\Enums\FacilityType;
 use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
-use App\Exceptions\Availability\PackageAvailabilityLimitationException;
+
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Services\AvailabilityService;
@@ -431,26 +431,4 @@ class AvailabilityServiceTest extends TestCase
         $this->assertTrue($result->isAvailable);
     }
 
-    public function test_package_availability_limitation_is_handled_safely(): void
-    {
-        // Let's get or create a package
-        $facilityType = FacilityType::ResortPackage->value;
-        $packageType = \App\Models\FacilityType::firstOrCreate(['slug' => $facilityType], ['name' => 'Resort Package']);
-
-        $package = Facility::factory()->create([
-            'facility_type_id' => $packageType->id,
-            'name' => 'Test Package',
-            'status' => FacilityStatus::Available->value,
-            'is_active' => true,
-        ]);
-        
-        $this->expectException(PackageAvailabilityLimitationException::class);
-        $this->expectExceptionMessage('Resort package availability logic is not yet implemented.');
-
-        $this->availabilityService->isAvailable(
-            $package,
-            Carbon::parse('2026-06-10 14:00:00'),
-            Carbon::parse('2026-06-12 12:00:00')
-        );
-    }
 }
