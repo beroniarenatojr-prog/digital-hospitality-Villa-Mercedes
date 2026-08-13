@@ -77,8 +77,9 @@ class ReservationService
             $lateCheckOutHours
         ) {
             // 1. Concurrency Protection
-            // Lock the facility row so no other transaction can concurrently book this facility.
-            $lockedFacility = Facility::withTrashed()->where('id', $facility->id)->lockForUpdate()->firstOrFail();
+            // Lock the facility row and all its related package/component rows in deterministic order.
+            $lockedFacilities = $this->lockFacilityGraph($facility);
+            $lockedFacility = $lockedFacilities->firstWhere('id', $facility->id);
 
             // 2. Check Availability
             $availability = $this->availabilityService->isAvailable(
@@ -194,8 +195,10 @@ class ReservationService
             $earlyCheckInHours,
             $lateCheckOutHours
         ) {
-            // Lock both the old and new facility rows if they differ, or just the new one
-            $lockedNewFacility = Facility::withTrashed()->where('id', $newFacility->id)->lockForUpdate()->firstOrFail();
+            // Lock the old and new facility graphs in deterministic order
+            $oldFacility = Facility::withTrashed()->findOrFail($reservation->facility_id);
+            $lockedFacilities = $this->lockFacilityGraph([$oldFacility, $newFacility]);
+            $lockedNewFacility = $lockedFacilities->firstWhere('id', $newFacility->id);
 
             // Lock the reservation
             $lockedReservation = Reservation::where('id', $reservation->id)->lockForUpdate()->firstOrFail();
@@ -383,5 +386,36 @@ class ReservationService
                 "Invalid status transition from {$currentStatus->label()} to {$newStatus->label()}."
             );
         }
+    }
+    /**
+     * Locks a facility and its related component/parent facilities in a deterministic order to prevent deadlocks.
+     *
+     * @param Facility|Facility[] $facilities
+     * @return \Illuminate\Database\Eloquent\Collection<int, Facility>
+     */
+    private function lockFacilityGraph(Facility|array $facilities): \Illuminate\Database\Eloquent\Collection
+    {
+        $facilities = is_array($facilities) ? $facilities : [$facilities];
+        $ids = [];
+
+        foreach ($facilities as $facility) {
+            $ids[] = $facility->id;
+            
+            $facility->loadMissing('facilityType');
+            $typeSlug = $facility->facilityType?->slug;
+
+            if ($typeSlug === \App\Enums\FacilityType::ResortPackage->value || $typeSlug === \App\Enums\FacilityType::ResortPackage->name) {
+                $componentIds = $facility->packageComponents()->pluck('component_facility_id')->toArray();
+                $ids = array_merge($ids, $componentIds);
+            } else {
+                $parentIds = $facility->partOfPackages()->pluck('package_facility_id')->toArray();
+                $ids = array_merge($ids, $parentIds);
+            }
+        }
+
+        $uniqueIds = array_unique($ids);
+        sort($uniqueIds);
+
+        return Facility::withTrashed()->whereIn('id', $uniqueIds)->orderBy('id')->lockForUpdate()->get();
     }
 }

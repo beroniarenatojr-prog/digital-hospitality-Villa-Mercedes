@@ -100,46 +100,6 @@ class RateSeeder extends Seeder
             }
         }
 
-        $packageRates = [
-            'Day Use Package' => ['amount' => 5000, 'unit' => 'per event', 'extra' => 150],
-            'Night Use Package' => ['amount' => 6000, 'unit' => 'per event', 'extra' => 200],
-            'Overnight Package' => ['amount' => 8000, 'unit' => 'per event', 'extra' => 250],
-            'Private Pool Package' => ['amount' => 4000, 'unit' => 'per event', 'extra' => 200],
-            'Function Hall + Private Pool' => ['amount' => 30000, 'unit' => 'per event', 'extra' => 300],
-            'Sapphire Hall + Pool + Jacuzzi' => ['amount' => 18000, 'unit' => 'per event', 'extra' => 250],
-            'Room Accommodation Package' => ['amount' => 7000, 'unit' => 'per night', 'extra' => 500],
-        ];
 
-        foreach ($packageRates as $name => $rateInfo) {
-            $facility = Facility::query()->where('slug', Str::slug($name))->first();
-            
-            if ($facility) {
-                Rate::query()->firstOrCreate(
-                    [
-                        'facility_id' => $facility->id,
-                        'type' => RateType::Base->value,
-                    ],
-                    [
-                        'name' => 'Base Rate',
-                        'amount' => $rateInfo['amount'],
-                        'unit' => $rateInfo['unit'],
-                    ]
-                );
-
-                if (isset($rateInfo['extra'])) {
-                    Rate::query()->firstOrCreate(
-                        [
-                            'facility_id' => $facility->id,
-                            'name' => 'Extra Person Charge',
-                        ],
-                        [
-                            'type' => RateType::ExtraPerson->value,
-                            'amount' => $rateInfo['extra'],
-                            'unit' => 'per person',
-                        ]
-                    );
-                }
-            }
-        }
     }
 }

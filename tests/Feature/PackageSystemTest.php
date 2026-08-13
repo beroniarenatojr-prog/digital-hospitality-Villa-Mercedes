@@ -34,9 +34,31 @@ class PackageSystemTest extends TestCase
         $this->customerReservationService = app(CustomerReservationService::class);
     }
 
+    private function createRatesForFacility(Facility $facility, int $baseAmount, int $extraAmount, string $unit = 'per event'): void
+    {
+        \App\Models\Rate::create([
+            'facility_id' => $facility->id,
+            'type' => \App\Enums\RateType::Base->value,
+            'name' => 'Base Rate',
+            'amount' => $baseAmount,
+            'unit' => $unit,
+            'is_active' => true,
+        ]);
+        \App\Models\Rate::create([
+            'facility_id' => $facility->id,
+            'type' => \App\Enums\RateType::ExtraPerson->value,
+            'name' => 'Extra Person Charge',
+            'amount' => $extraAmount,
+            'unit' => 'per person',
+            'is_active' => true,
+        ]);
+    }
+
     public function test_capacity_enforcement_succeeds_under_capacity(): void
     {
         $facility = Facility::where('name', 'Deluxe')->first();
+        $this->createRatesForFacility($facility, 2500, 500, 'per night');
+
         $checkIn = now()->addDays(5)->startOfDay();
         $checkOut = now()->addDays(6)->startOfDay();
         
@@ -49,6 +71,8 @@ class PackageSystemTest extends TestCase
     public function test_capacity_enforcement_fails_over_max_capacity(): void
     {
         $facility = Facility::where('name', 'Deluxe')->first();
+        $this->createRatesForFacility($facility, 2500, 500, 'per night');
+
         $checkIn = now()->addDays(5)->startOfDay();
         $checkOut = now()->addDays(6)->startOfDay();
         
@@ -65,6 +89,9 @@ class PackageSystemTest extends TestCase
         $package = Facility::where('name', 'Sapphire Hall + Pool + Jacuzzi')->first();
         $sapphireHall = Facility::where('name', 'Sapphire Hall')->first();
         
+        $this->createRatesForFacility($package, 18000, 250);
+        $this->createRatesForFacility($sapphireHall, 10000, 250);
+
         $checkIn = now()->addDays(10)->startOfDay();
         $checkOut = now()->addDays(11)->startOfDay();
         $admin = User::role('Administrator')->first();
@@ -91,6 +118,9 @@ class PackageSystemTest extends TestCase
         $package = Facility::where('name', 'Sapphire Hall + Pool + Jacuzzi')->first();
         $sapphireHall = Facility::where('name', 'Sapphire Hall')->first();
         
+        $this->createRatesForFacility($package, 18000, 250);
+        $this->createRatesForFacility($sapphireHall, 10000, 250);
+
         $checkIn = now()->addDays(15)->startOfDay();
         $checkOut = now()->addDays(16)->startOfDay();
         $admin = User::role('Administrator')->first();
@@ -114,7 +144,8 @@ class PackageSystemTest extends TestCase
     public function test_package_pricing_includes_extra_person_charges(): void
     {
         $package = Facility::where('name', 'Overnight Package')->first(); // Base: 8000 (per event), capacity: 20, max_capacity: 30, extra: 250
-        
+        $this->createRatesForFacility($package, 8000, 250);
+
         $checkIn = now()->addDays(5)->startOfDay();
         $checkOut = now()->addDays(6)->startOfDay();
         
@@ -130,7 +161,8 @@ class PackageSystemTest extends TestCase
     public function test_room_pricing_includes_extra_person_charges_per_night(): void
     {
         $room = Facility::where('name', 'Room Accommodation Package')->first(); // Base: 7000 (per night), capacity: 4, max_capacity: 6, extra: 500
-        
+        $this->createRatesForFacility($room, 7000, 500, 'per night');
+
         $checkIn = now()->addDays(5)->startOfDay();
         $checkOut = now()->addDays(7)->startOfDay(); // 2 nights
         
@@ -146,7 +178,8 @@ class PackageSystemTest extends TestCase
     public function test_no_extra_charge_when_under_capacity(): void
     {
         $room = Facility::where('name', 'Room Accommodation Package')->first();
-        
+        $this->createRatesForFacility($room, 7000, 500, 'per night');
+
         $checkIn = now()->addDays(5)->startOfDay();
         $checkOut = now()->addDays(7)->startOfDay(); // 2 nights
         

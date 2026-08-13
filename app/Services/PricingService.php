@@ -172,7 +172,7 @@ class PricingService
         $extraPersonRate = $activeRates->firstWhere('type', RateType::ExtraPerson);
 
         if (! $extraPersonRate) {
-            return 0; // No extra person charge configured
+            throw new NoApplicableRateException('An extra person charge is required but no active extra person rate is configured for this facility.');
         }
 
         $ratePerPersonInCents = (int) round($extraPersonRate->amount * 100);

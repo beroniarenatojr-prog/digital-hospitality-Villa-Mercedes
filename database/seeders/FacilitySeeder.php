@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\FacilityStatus;
 use App\Enums\FacilityType as FacilityTypeEnum;
+use App\Models\Amenity;
 use App\Models\Facility;
 use App\Models\FacilityType;
 use Illuminate\Database\Seeder;
@@ -64,15 +65,28 @@ class FacilitySeeder extends Seeder
             );
         }
 
+        // Amenities
+        $amenities = [
+            'Pool Access', 'Gazebo', 'Breakfast', 'Exclusive Pool', 'Lounge Area', 'Private Pool Access', 'Jacuzzi', 'Resort Amenities Bundle'
+        ];
+        
+        $seededAmenities = [];
+        foreach ($amenities as $amenityName) {
+            $seededAmenities[$amenityName] = Amenity::firstOrCreate(
+                ['name' => $amenityName],
+                ['icon' => 'default-icon', 'is_active' => true]
+            );
+        }
+
         // Resort Packages
         $packages = [
-            ['name' => 'Day Use Package', 'capacity' => 30, 'max_capacity' => 50, 'description' => 'Pool access + gazebo, 8AM-5PM', 'components' => []],
-            ['name' => 'Night Use Package', 'capacity' => 30, 'max_capacity' => 50, 'description' => 'Pool access + gazebo, 6PM-12AM', 'components' => []],
-            ['name' => 'Overnight Package', 'capacity' => 20, 'max_capacity' => 30, 'description' => 'Room + pool access + breakfast', 'components' => ['Deluxe']],
-            ['name' => 'Private Pool Package', 'capacity' => 15, 'max_capacity' => 20, 'description' => 'Exclusive pool + lounge area', 'components' => []],
-            ['name' => 'Function Hall + Private Pool', 'capacity' => 100, 'max_capacity' => 150, 'description' => 'Hall rental + private pool access', 'components' => ['Emerald Hall']],
-            ['name' => 'Sapphire Hall + Pool + Jacuzzi', 'capacity' => 80, 'max_capacity' => 100, 'description' => 'Sapphire Hall + pool + Jacuzzi', 'components' => ['Sapphire Hall']],
-            ['name' => 'Room Accommodation Package', 'capacity' => 4, 'max_capacity' => 6, 'description' => 'Room + resort amenities bundle', 'components' => ['Family Room']],
+            ['name' => 'Day Use Package', 'capacity' => 30, 'max_capacity' => 50, 'description' => 'Pool access + gazebo, 8AM-5PM', 'components' => [], 'amenities' => ['Pool Access', 'Gazebo']],
+            ['name' => 'Night Use Package', 'capacity' => 30, 'max_capacity' => 50, 'description' => 'Pool access + gazebo, 6PM-12AM', 'components' => [], 'amenities' => ['Pool Access', 'Gazebo']],
+            ['name' => 'Overnight Package', 'capacity' => 20, 'max_capacity' => 30, 'description' => 'Room + pool access + breakfast', 'components' => ['Deluxe'], 'amenities' => ['Pool Access', 'Breakfast']],
+            ['name' => 'Private Pool Package', 'capacity' => 15, 'max_capacity' => 20, 'description' => 'Exclusive pool + lounge area', 'components' => [], 'amenities' => ['Exclusive Pool', 'Lounge Area']],
+            ['name' => 'Function Hall + Private Pool', 'capacity' => 100, 'max_capacity' => 150, 'description' => 'Hall rental + private pool access', 'components' => ['Emerald Hall'], 'amenities' => ['Private Pool Access']],
+            ['name' => 'Sapphire Hall + Pool + Jacuzzi', 'capacity' => 80, 'max_capacity' => 100, 'description' => 'Sapphire Hall + pool + Jacuzzi', 'components' => ['Sapphire Hall'], 'amenities' => ['Pool Access', 'Jacuzzi']],
+            ['name' => 'Room Accommodation Package', 'capacity' => 4, 'max_capacity' => 6, 'description' => 'Room + resort amenities bundle', 'components' => ['Family Room'], 'amenities' => ['Resort Amenities Bundle']],
         ];
 
         foreach ($packages as $index => $pkg) {
@@ -89,7 +103,7 @@ class FacilitySeeder extends Seeder
                 ]
             );
 
-            // Seed components if any
+            // Seed components if any (these are bookable resources)
             foreach ($pkg['components'] as $componentName) {
                 $component = Facility::where('name', $componentName)->first();
                 if ($component) {
@@ -98,6 +112,17 @@ class FacilitySeeder extends Seeder
                         'component_facility_id' => $component->id,
                     ]);
                 }
+            }
+
+            // Attach descriptive amenities
+            if (isset($pkg['amenities'])) {
+                $amenityIds = [];
+                foreach ($pkg['amenities'] as $amenityName) {
+                    if (isset($seededAmenities[$amenityName])) {
+                        $amenityIds[] = $seededAmenities[$amenityName]->id;
+                    }
+                }
+                $packageFacility->amenities()->syncWithoutDetaching($amenityIds);
             }
         }
     }
