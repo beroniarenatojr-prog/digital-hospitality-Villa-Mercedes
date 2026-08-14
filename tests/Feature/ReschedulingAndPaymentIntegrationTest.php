@@ -240,3 +240,4 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         $this->assertEquals($newCheckIn->toDateTimeString(), $rescheduled->check_in->toDateTimeString());
     }
 }
+
