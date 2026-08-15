@@ -28,7 +28,7 @@ class CustomerReservationController extends Controller
 
     public function show(Request $request, Reservation $reservation): View
     {
-        $reservation = $this->service->getReservation($request->user(), $reservation);
+        $reservation = $this->service->getMyReservation($request->user(), $reservation->id);
 
         return view('customer.reservations.show', compact('reservation'));
     }
@@ -74,4 +74,6 @@ class CustomerReservationController extends Controller
             ->with('success', 'Reservation cancelled successfully.');
     }
 }
+
+
 

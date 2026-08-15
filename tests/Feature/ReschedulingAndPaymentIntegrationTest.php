@@ -204,6 +204,7 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
             Carbon::parse('2026-09-03 12:00:00')
         );
 
+        $this->reservationService->changeStatus($reservation, \App\Enums\ReservationStatus::Approved, $this->admin, 'approved');
         $this->reservationService->cancel($reservation, $this->customer);
 
         $this->expectException(InvalidReservationTransitionException::class);
@@ -240,4 +241,7 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         $this->assertEquals($newCheckIn->toDateTimeString(), $rescheduled->check_in->toDateTimeString());
     }
 }
+
+
+
 

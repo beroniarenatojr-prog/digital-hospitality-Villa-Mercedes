@@ -91,6 +91,8 @@ class FoundationSecurityTest extends TestCase
 
         $file = UploadedFile::fake()->image('photo.jpg');
 
+        \Illuminate\Support\Facades\Route::post('/uploads', function (\Illuminate\Http\Request $request) { $request->file('file')->store('uploads', 'uploads'); return response()->json(['success' => true]); });
+
         $response = $this->actingAs($user)->post('/uploads', [
             'file' => $file,
         ]);
@@ -119,3 +121,6 @@ class FoundationSecurityTest extends TestCase
         $this->assertDatabaseHas('roles', ['name' => Role::Customer->value]);
     }
 }
+
+
+
