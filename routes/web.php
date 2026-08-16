@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\AdminReservationController;
 use App\Http\Controllers\Customer\CustomerInquiryController;
 use App\Http\Controllers\Customer\CustomerPaymentController;
 use App\Http\Controllers\Customer\CustomerReservationController;
+use App\Http\Controllers\Customer\CustomerBookingController;
 use App\Http\Controllers\FacilityController;
 use App\Http\Controllers\FaqController;
 use App\Http\Controllers\PageController;
@@ -38,6 +39,8 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::prefix('customer')->name('customer.')->group(function () {
+        Route::get('/book/{facility}', [CustomerBookingController::class, 'create'])->name('booking.create');
+        Route::post('/book/{facility}/calculate', [CustomerBookingController::class, 'calculate'])->name('booking.calculate');
         Route::get('/reservations', [CustomerReservationController::class, 'index'])->name('reservations.index');
         Route::post('/reservations', [CustomerReservationController::class, 'store'])->name('reservations.store');
         Route::get('/reservations/{reservation}', [CustomerReservationController::class, 'show'])->name('reservations.show');
@@ -102,4 +105,5 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
 });
 
 require __DIR__.'/auth.php';
+
 

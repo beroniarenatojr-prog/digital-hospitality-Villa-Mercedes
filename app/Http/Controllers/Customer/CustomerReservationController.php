@@ -42,7 +42,7 @@ class CustomerReservationController extends Controller
             $facility,
             Carbon::parse($request->validated('check_in')),
             Carbon::parse($request->validated('check_out')),
-            $request->validated('pax')
+            $request->validated('guestCount')
         );
 
         return redirect()->route('customer.reservations.show', $reservation)
@@ -59,7 +59,7 @@ class CustomerReservationController extends Controller
             $facility,
             Carbon::parse($request->validated('check_in')),
             Carbon::parse($request->validated('check_out')),
-            $request->validated('pax')
+            $request->validated('guestCount')
         );
 
         return redirect()->route('customer.reservations.show', $reservation)
@@ -74,6 +74,7 @@ class CustomerReservationController extends Controller
             ->with('success', 'Reservation cancelled successfully.');
     }
 }
+
 
 
 

@@ -17,7 +17,8 @@ class RescheduleReservationRequest extends FormRequest
             'facility_id' => ['required', 'integer', 'exists:facilities,id'],
             'check_in' => ['required', 'date', 'after:now'],
             'check_out' => ['required', 'date', 'after:check_in'],
-            'pax' => ['required', 'integer', 'min:1'],
+            'guestCount' => ['required', 'integer', 'min:1'],
         ];
     }
 }
+

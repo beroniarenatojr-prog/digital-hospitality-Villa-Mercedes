@@ -149,9 +149,9 @@
 
                             {{-- Booking Flow is incomplete, so we provide a disabled/informational CTA per requirements --}}
                             <div class="space-y-3">
-                                <button type="button" disabled class="w-full inline-flex justify-center items-center px-4 py-3 bg-muted border border-transparent rounded-lg font-bold text-muted-foreground uppercase tracking-widest cursor-not-allowed">
-                                    Online Booking Coming Soon
-                                </button>
+                                <x-primary-button tag="a" href="{{ route('customer.booking.create', $facility) }}" class="w-full justify-center text-center">
+                                    Book This Service
+                                </x-primary-button>
                                 <p class="text-xs text-center text-muted-foreground">
                                     For manual reservations, please contact our support desk.
                                 </p>
@@ -164,4 +164,6 @@
         </div>
     </div>
 </x-customer-layout>
+
+
 
