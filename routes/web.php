@@ -25,7 +25,7 @@ Route::get('/halls', [PageController::class, 'halls'])->name('halls');
 Route::get('/packages', [PageController::class, 'packages'])->name('packages');
 
 Route::get('/facilities/{facility}', [FacilityController::class, 'show'])->name('facilities.show');
-Route::get('/facilities', function () { return view('pages.facilities'); })->name('facilities.index');
+Route::redirect('/facilities', '/rooms')->name('facilities.index');
 Route::get('/faq', [FaqController::class, 'index'])->name('faq.index');
 
 // Customer Routes (Verified omitted based on Phase 1 implementation where MustVerifyEmail is not used)
@@ -105,5 +105,6 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
 });
 
 require __DIR__.'/auth.php';
+
 
 
