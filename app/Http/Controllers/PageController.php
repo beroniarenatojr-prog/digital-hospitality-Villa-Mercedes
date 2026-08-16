@@ -3,50 +3,55 @@
 namespace App\Http\Controllers;
 
 use App\Enums\FacilityType;
-use App\Models\Facility;
+use App\Services\FacilityQueryService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class PageController extends Controller
 {
+    public function __construct(
+        private readonly FacilityQueryService $queryService
+    ) {}
+
     public function home(): View
     {
-        return view('pages.home');
+        $featuredRooms = $this->queryService->getFeaturedFacilitiesByType(FacilityType::Room->value, 3);
+        $featuredHalls = $this->queryService->getFeaturedFacilitiesByType(FacilityType::FunctionHall->value, 3);
+        $featuredPackages = $this->queryService->getFeaturedFacilitiesByType(FacilityType::ResortPackage->value, 3);
+
+        return view('pages.home', compact('featuredRooms', 'featuredHalls', 'featuredPackages'));
     }
 
     public function rooms(): View
     {
-        $facilities = Facility::whereHas('facilityType', function ($query) {
-            $query->where('slug', FacilityType::Room->value);
-        })->where('is_active', true)->get();
+        $facilities = $this->queryService->getActiveFacilitiesByType(FacilityType::Room->value);
 
         return view('pages.facilities', [
             'facilities' => $facilities,
             'title' => 'Rooms',
+            'description' => 'Browse our comfortable rooms and accommodations.'
         ]);
     }
 
     public function halls(): View
     {
-        $facilities = Facility::whereHas('facilityType', function ($query) {
-            $query->where('slug', FacilityType::FunctionHall->value);
-        })->where('is_active', true)->get();
+        $facilities = $this->queryService->getActiveFacilitiesByType(FacilityType::FunctionHall->value);
 
         return view('pages.facilities', [
             'facilities' => $facilities,
             'title' => 'Function Halls',
+            'description' => 'Explore our elegant function halls for your special events.'
         ]);
     }
 
     public function packages(): View
     {
-        $facilities = Facility::whereHas('facilityType', function ($query) {
-            $query->where('slug', FacilityType::ResortPackage->value);
-        })->where('is_active', true)->get();
+        $facilities = $this->queryService->getActiveFacilitiesByType(FacilityType::ResortPackage->value);
 
         return view('pages.facilities', [
             'facilities' => $facilities,
             'title' => 'Resort Packages',
+            'description' => 'Discover our exclusive resort packages for an unforgettable experience.'
         ]);
     }
 }
