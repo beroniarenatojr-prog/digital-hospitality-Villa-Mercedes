@@ -137,13 +137,13 @@
 
                     @if($facility->packageComponents->count() > 0)
                         <div class="space-y-2 mb-4">
-                            @foreach($facility->packageComponents as $component)
+                            @foreach($facility->packageComponents as $pkgComponent)
                                 <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
                                     <div>
-                                        <span class="text-sm font-medium text-gray-900">{{ $component->componentFacility->name }}</span>
-                                        <span class="text-xs text-gray-500 ml-2">{{ $component->componentFacility->facilityType->name ?? '' }}</span>
+                                        <span class="text-sm font-medium text-gray-900">{{ $pkgComponent->componentFacility->name }}</span>
+                                        <span class="text-xs text-gray-500 ml-2">{{ $pkgComponent->componentFacility->facilityType->name ?? '' }}</span>
                                     </div>
-                                    <x-badge :status="$component->componentFacility->status->value" />
+                                    <x-badge :status="$pkgComponent->componentFacility->status->value" />
                                 </div>
                             @endforeach
                         </div>
@@ -316,3 +316,4 @@
         </div>
     </div>
 </x-admin-layout>
+
