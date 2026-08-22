@@ -27,6 +27,8 @@ Route::get('/halls', [PageController::class, 'halls'])->name('halls');
 Route::get('/packages', [PageController::class, 'packages'])->name('packages');
 
 Route::get('/facilities/{facility}', [FacilityController::class, 'show'])->name('facilities.show');
+Route::get('/book/{facility}', [CustomerBookingController::class, 'create'])->name('customer.booking.create');
+Route::post('/book/{facility}/calculate', [CustomerBookingController::class, 'calculate'])->name('customer.booking.calculate');
 Route::redirect('/facilities', '/rooms')->name('facilities.index');
 Route::get('/faq', [FaqController::class, 'index'])->name('faq.index');
 
@@ -41,8 +43,6 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::prefix('customer')->name('customer.')->group(function () {
-        Route::get('/book/{facility}', [CustomerBookingController::class, 'create'])->name('booking.create');
-        Route::post('/book/{facility}/calculate', [CustomerBookingController::class, 'calculate'])->name('booking.calculate');
         Route::get('/reservations', [CustomerReservationController::class, 'index'])->name('reservations.index');
         Route::post('/reservations', [CustomerReservationController::class, 'store'])->name('reservations.store');
         Route::get('/reservations/{reservation}', [CustomerReservationController::class, 'show'])->name('reservations.show');
@@ -123,6 +123,7 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
 });
 
 require __DIR__.'/auth.php';
+
 
 
 

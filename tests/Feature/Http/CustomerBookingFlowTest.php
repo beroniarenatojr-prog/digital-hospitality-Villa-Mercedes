@@ -50,13 +50,14 @@ class CustomerBookingFlowTest extends TestCase
         return $facility;
     }
 
-    public function test_unauthenticated_user_redirected_to_login_on_booking_page()
+    public function test_unauthenticated_user_can_access_booking_wizard()
     {
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
 
         $response = $this->get(route('customer.booking.create', $room));
 
-        $response->assertRedirect('/login');
+        $response->assertStatus(200);
+        $response->assertViewIs('customer.booking.create');
     }
 
     public function test_authenticated_customer_can_access_booking_wizard()
@@ -183,4 +184,5 @@ class CustomerBookingFlowTest extends TestCase
         $this->assertEquals($customer->id, $reservation->user_id);
     }
 }
+
 

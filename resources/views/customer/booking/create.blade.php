@@ -133,9 +133,15 @@
                             <x-secondary-button type="button" @click="step = 1" class="w-full sm:w-auto justify-center hover:bg-gray-100 transition-colors">
                                 Edit Details
                             </x-secondary-button>
-                            <x-primary-button type="submit" class="w-full sm:w-auto justify-center shadow-lg hover:-translate-y-0.5 transition-all duration-300">
-                                Confirm & Submit Reservation
-                            </x-primary-button>
+                            @auth
+                                <x-primary-button type="submit" class="w-full sm:w-auto justify-center shadow-lg hover:-translate-y-0.5 transition-all duration-300">
+                                    Confirm & Submit Reservation
+                                </x-primary-button>
+                            @else
+                                <x-primary-button tag="a" href="{{ route('login') }}" class="w-full sm:w-auto justify-center shadow-lg hover:-translate-y-0.5 transition-all duration-300">
+                                    Log in to Submit Reservation
+                                </x-primary-button>
+                            @endauth
                         </div>
                     </form>
                 </div>
@@ -263,3 +269,4 @@
     </script>
     @endpush
 </x-customer-layout>
+
