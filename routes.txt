@@ -1,0 +1,85 @@
+
+  GET|HEAD        / ....................................................................... home › PageController@home
+  GET|HEAD        admin/dashboard ................................................ admin.dashboard › routes/web.php:62
+  GET|HEAD        admin/facilities ...................... admin.facilities.index › Admin\AdminFacilityController@index
+  POST            admin/facilities ...................... admin.facilities.store › Admin\AdminFacilityController@store
+  GET|HEAD        admin/facilities/create ............. admin.facilities.create › Admin\AdminFacilityController@create
+  GET|HEAD        admin/facilities/{facility} ............. admin.facilities.show › Admin\AdminFacilityController@show
+  PUT|PATCH       admin/facilities/{facility} ......... admin.facilities.update › Admin\AdminFacilityController@update
+  DELETE          admin/facilities/{facility} ....... admin.facilities.destroy › Admin\AdminFacilityController@destroy
+  GET|HEAD        admin/facilities/{facility}/edit ........ admin.facilities.edit › Admin\AdminFacilityController@edit
+  POST            admin/facilities/{facility}/rates .............. admin.rates.store › Admin\AdminRateController@store
+  PATCH           admin/facilities/{facility}/status admin.facilities.status › Admin\AdminFacilityController@toggleSt…
+  GET|HEAD        admin/faq-categories ........... admin.faq-categories.index › Admin\AdminFaqCategoryController@index
+  POST            admin/faq-categories ........... admin.faq-categories.store › Admin\AdminFaqCategoryController@store
+  PUT|PATCH       admin/faq-categories/{faq_category} admin.faq-categories.update › Admin\AdminFaqCategoryController@…
+  PATCH           admin/faq-categories/{faq_category}/status admin.faq-categories.status › Admin\AdminFaqCategoryCont…
+  GET|HEAD        admin/faqs ....................................... admin.faqs.index › Admin\AdminFaqController@index
+  POST            admin/faqs ....................................... admin.faqs.store › Admin\AdminFaqController@store
+  PUT|PATCH       admin/faqs/{faq} ............................... admin.faqs.update › Admin\AdminFaqController@update
+  PATCH           admin/faqs/{faq}/status .................. admin.faqs.status › Admin\AdminFaqController@toggleStatus
+  GET|HEAD        admin/inquiries ......................... admin.inquiries.index › Admin\AdminInquiryController@index
+  GET|HEAD        admin/inquiries/{inquiry} ................. admin.inquiries.show › Admin\AdminInquiryController@show
+  POST            admin/inquiries/{inquiry}/respond ... admin.inquiries.respond › Admin\AdminInquiryController@respond
+  PATCH           admin/inquiries/{inquiry}/status admin.inquiries.status › Admin\AdminInquiryController@updateStatus
+  GET|HEAD        admin/payments ........................... admin.payments.index › Admin\AdminPaymentController@index
+  GET|HEAD        admin/payments/{payment} ................... admin.payments.show › Admin\AdminPaymentController@show
+  GET|HEAD        admin/payments/{payment}/proof/download admin.payments.download › Admin\AdminPaymentController@down…
+  PATCH           admin/payments/{payment}/reject ........ admin.payments.reject › Admin\AdminPaymentController@reject
+  PATCH           admin/payments/{payment}/verify ........ admin.payments.verify › Admin\AdminPaymentController@verify
+  GET|HEAD        admin/rates .................................... admin.rates.index › Admin\AdminRateController@index
+  GET|HEAD        admin/rates/{rate} ............................... admin.rates.show › Admin\AdminRateController@show
+  PUT|PATCH       admin/rates/{rate} ........................... admin.rates.update › Admin\AdminRateController@update
+  PATCH           admin/rates/{rate}/status .............. admin.rates.status › Admin\AdminRateController@toggleStatus
+  GET|HEAD        admin/reports .............................. admin.reports.index › Admin\AdminReportController@index
+  GET|HEAD        admin/reservations ............... admin.reservations.index › Admin\AdminReservationController@index
+  POST            admin/reservations ......... admin.reservations.store › Admin\AdminReservationController@storeWalkIn
+  GET|HEAD        admin/reservations/{reservation} ... admin.reservations.show › Admin\AdminReservationController@show
+  PATCH           admin/reservations/{reservation}/approve admin.reservations.approve › Admin\AdminReservationControl…
+  PATCH           admin/reservations/{reservation}/cancel admin.reservations.cancel › Admin\AdminReservationControlle…
+  PATCH           admin/reservations/{reservation}/reject admin.reservations.reject › Admin\AdminReservationControlle…
+  PATCH           admin/reservations/{reservation}/reschedule admin.reservations.reschedule › Admin\AdminReservationC…
+  GET|HEAD        confirm-password ........................ password.confirm › Auth\ConfirmablePasswordController@show
+  POST            confirm-password .......................................... Auth\ConfirmablePasswordController@store
+  GET|HEAD        customer/book/{facility} ....... customer.booking.create › Customer\CustomerBookingController@create
+  POST            customer/book/{facility}/calculate customer.booking.calculate › Customer\CustomerBookingController@…
+  GET|HEAD        customer/inquiries ............. customer.inquiries.index › Customer\CustomerInquiryController@index
+  POST            customer/inquiries ............. customer.inquiries.store › Customer\CustomerInquiryController@store
+  GET|HEAD        customer/inquiries/{inquiry} ..... customer.inquiries.show › Customer\CustomerInquiryController@show
+  GET|HEAD        customer/payments/{payment}/proof/download customer.payments.download › Customer\CustomerPaymentCon…
+  GET|HEAD        customer/reservations ... customer.reservations.index › Customer\CustomerReservationController@index
+  POST            customer/reservations ... customer.reservations.store › Customer\CustomerReservationController@store
+  GET|HEAD        customer/reservations/{reservation} customer.reservations.show › Customer\CustomerReservationContro…
+  PATCH           customer/reservations/{reservation}/cancel customer.reservations.cancel › Customer\CustomerReservat…
+  GET|HEAD        customer/reservations/{reservation}/payments customer.payments.index › Customer\CustomerPaymentCont…
+  POST            customer/reservations/{reservation}/payments customer.payments.store › Customer\CustomerPaymentCont…
+  PATCH           customer/reservations/{reservation}/reschedule customer.reservations.reschedule › Customer\Customer…
+  GET|HEAD        dashboard ............................................................ dashboard › routes/web.php:33
+  POST            email/verification-notification verification.send › Auth\EmailVerificationNotificationController@st…
+  ANY             facilities .............................. facilities.index › Illuminate\Routing › RedirectController
+  GET|HEAD        facilities/{facility} .................................... facilities.show › FacilityController@show
+  GET|HEAD        faq ................................................................ faq.index › FaqController@index
+  GET|HEAD        forgot-password ......................... password.request › Auth\PasswordResetLinkController@create
+  POST            forgot-password ............................ password.email › Auth\PasswordResetLinkController@store
+  GET|HEAD        halls ................................................................. halls › PageController@halls
+  GET|HEAD        login ........................................... login › Auth\AuthenticatedSessionController@create
+  POST            login .................................................... Auth\AuthenticatedSessionController@store
+  POST            logout ........................................ logout › Auth\AuthenticatedSessionController@destroy
+  GET|HEAD        packages ........................................................ packages › PageController@packages
+  PUT             password .......................................... password.update › Auth\PasswordController@update
+  GET|HEAD        profile ...................................................... profile.edit › ProfileController@edit
+  PATCH           profile .................................................. profile.update › ProfileController@update
+  DELETE          profile ................................................ profile.destroy › ProfileController@destroy
+  GET|HEAD        register ........................................... register › Auth\RegisteredUserController@create
+  POST            register ....................................................... Auth\RegisteredUserController@store
+  POST            reset-password ................................... password.store › Auth\NewPasswordController@store
+  GET|HEAD        reset-password/{token} .......................... password.reset › Auth\NewPasswordController@create
+  GET|HEAD        rooms ................................................................. rooms › PageController@rooms
+  GET|HEAD        storage/{path} storage.local › vendor/laravel/framework/src/Illuminate/Filesystem/FilesystemService…
+  PUT             storage/{path} storage.local.upload › vendor/laravel/framework/src/Illuminate/Filesystem/Filesystem…
+  GET|HEAD        up ..... vendor/laravel/framework/src/Illuminate/Foundation/Configuration/ApplicationBuilder.php:219
+  GET|HEAD        verify-email .......................... verification.notice › Auth\EmailVerificationPromptController
+  GET|HEAD        verify-email/{id}/{hash} .......................... verification.verify › Auth\VerifyEmailController
+
+                                                                                                   Showing [81] routes
+

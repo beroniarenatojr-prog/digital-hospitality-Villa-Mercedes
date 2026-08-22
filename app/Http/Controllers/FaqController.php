@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Customer\CustomerFaqService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use App\Models\FaqCategory;
 
 class FaqController extends Controller
 {
@@ -12,11 +13,17 @@ class FaqController extends Controller
         private readonly CustomerFaqService $faqService
     ) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         $categories = $this->faqService->getActiveCategories();
-        $faqs = $this->faqService->getActiveFaqs();
+        
+        $selectedCategory = null;
+        if ($request->filled('category_id')) {
+            $selectedCategory = FaqCategory::find($request->input('category_id'));
+        }
 
-        return view('pages.faq', compact('categories', 'faqs'));
+        $faqs = $this->faqService->getActiveFaqs($selectedCategory);
+
+        return view('pages.faq', compact('categories', 'faqs', 'selectedCategory'));
     }
 }

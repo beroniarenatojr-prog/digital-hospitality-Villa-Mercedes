@@ -5,10 +5,15 @@ namespace App\Services\Admin;
 use App\Enums\FacilityStatus;
 use App\Enums\Role;
 use App\Exceptions\Admin\UnauthorizedAdminActionException;
+use App\Enums\FacilityType;
 use App\Models\Amenity;
 use App\Models\Facility;
+use App\Models\FacilityType as FacilityTypeModel;
+use App\Models\GalleryImage;
+use App\Models\PackageComponent;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -38,7 +43,8 @@ class FacilityManagementService
             $facility->name = $data['name'];
             $facility->slug = $data['slug'] ?? Str::slug($data['name']);
             $facility->description = $data['description'] ?? null;
-            $facility->capacity = $data['capacity'];
+            $facility->capacity = $data['capacity'] ?? $data['base_capacity'] ?? 1;
+            $facility->max_capacity = $data['max_capacity'] ?? $facility->capacity;
             
             if (isset($data['status']) && $data['status'] instanceof FacilityStatus) {
                 $facility->status = $data['status'];
@@ -56,6 +62,10 @@ class FacilityManagementService
                 ->performedOn($facility)
                 ->event('facility_created')
                 ->log("Facility '{$facility->name}' was created.");
+
+            if (!empty($data['images'])) {
+                $this->uploadImages($actor, $facility, $data['images']);
+            }
 
             return $facility;
         });
@@ -84,6 +94,12 @@ class FacilityManagementService
             if (array_key_exists('capacity', $data)) {
                 $facility->capacity = $data['capacity'];
             }
+            if (array_key_exists('base_capacity', $data)) {
+                $facility->capacity = $data['base_capacity'];
+            }
+            if (array_key_exists('max_capacity', $data)) {
+                $facility->max_capacity = $data['max_capacity'];
+            }
             if (array_key_exists('is_active', $data)) {
                 $facility->is_active = $data['is_active'];
             }
@@ -101,6 +117,10 @@ class FacilityManagementService
                 ->performedOn($facility)
                 ->event('facility_updated')
                 ->log("Facility '{$facility->name}' was updated.");
+
+            if (!empty($data['images'])) {
+                $this->uploadImages($actor, $facility, $data['images']);
+            }
 
             return $facility;
         });
@@ -165,5 +185,99 @@ class FacilityManagementService
                 ->event('facility_deleted')
                 ->log("Facility '{$facility->name}' was safely deleted.");
         });
+    }
+
+    /**
+     * Synchronize bookable resource components for a package facility.
+     */
+    public function syncComponents(User $actor, Facility $package, array $componentFacilityIds): void
+    {
+        $this->authorizeAdmin($actor);
+
+        // Ensure the facility is actually a package
+        $packageType = FacilityTypeModel::where('slug', FacilityType::ResortPackage->value)->first();
+        if (!$packageType || $package->facility_type_id !== $packageType->id) {
+            throw new InvalidArgumentException('Only resort packages can have bookable resource components.');
+        }
+
+        // Prevent self-referential components
+        $componentFacilityIds = array_unique($componentFacilityIds);
+        if (in_array($package->id, $componentFacilityIds)) {
+            throw new InvalidArgumentException('A package cannot include itself as a component.');
+        }
+
+        // Verify all component facilities exist and are not packages themselves
+        $existingCount = Facility::whereIn('id', $componentFacilityIds)->count();
+        if ($existingCount !== count($componentFacilityIds)) {
+            throw new InvalidArgumentException('One or more provided facility IDs do not exist.');
+        }
+
+        DB::transaction(function () use ($actor, $package, $componentFacilityIds) {
+            // Delete existing and re-create
+            PackageComponent::where('package_facility_id', $package->id)->delete();
+
+            foreach ($componentFacilityIds as $componentId) {
+                PackageComponent::create([
+                    'package_facility_id' => $package->id,
+                    'component_facility_id' => $componentId,
+                ]);
+            }
+
+            activity()
+                ->causedBy($actor)
+                ->performedOn($package)
+                ->event('package_components_synced')
+                ->log("Package components synchronized for '{$package->name}'.");
+        });
+    }
+
+    /**
+     * Upload images and attach to facility.
+     */
+    public function uploadImages(User $actor, Facility $facility, array $images): void
+    {
+        $this->authorizeAdmin($actor);
+
+        $maxSortOrder = $facility->galleryImages()->max('sort_order') ?? 0;
+
+        foreach ($images as $image) {
+            $path = $image->store('facilities', 'public');
+
+            $facility->galleryImages()->create([
+                'image_path' => $path,
+                'sort_order' => ++$maxSortOrder,
+                'is_active' => true,
+            ]);
+        }
+
+        activity()
+            ->causedBy($actor)
+            ->performedOn($facility)
+            ->event('facility_images_uploaded')
+            ->log(count($images) . " image(s) uploaded for facility '{$facility->name}'.");
+    }
+
+    /**
+     * Delete a specific gallery image.
+     */
+    public function deleteImage(User $actor, Facility $facility, GalleryImage $image): void
+    {
+        $this->authorizeAdmin($actor);
+
+        if ($image->facility_id !== $facility->id) {
+            throw new InvalidArgumentException('Image does not belong to this facility.');
+        }
+
+        if (Storage::disk('public')->exists($image->image_path)) {
+            Storage::disk('public')->delete($image->image_path);
+        }
+
+        $image->delete();
+
+        activity()
+            ->causedBy($actor)
+            ->performedOn($facility)
+            ->event('facility_image_deleted')
+            ->log("An image was deleted from facility '{$facility->name}'.");
     }
 }

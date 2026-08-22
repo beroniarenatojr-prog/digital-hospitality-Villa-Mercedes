@@ -8,9 +8,11 @@ use App\Http\Controllers\Admin\AdminPaymentController;
 use App\Http\Controllers\Admin\AdminRateController;
 use App\Http\Controllers\Admin\AdminReportController;
 use App\Http\Controllers\Admin\AdminReservationController;
+use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Customer\CustomerInquiryController;
 use App\Http\Controllers\Customer\CustomerPaymentController;
 use App\Http\Controllers\Customer\CustomerReservationController;
+use App\Http\Controllers\Customer\CustomerNotificationController;
 use App\Http\Controllers\Customer\CustomerBookingController;
 use App\Http\Controllers\FacilityController;
 use App\Http\Controllers\FaqController;
@@ -44,6 +46,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/reservations', [CustomerReservationController::class, 'index'])->name('reservations.index');
         Route::post('/reservations', [CustomerReservationController::class, 'store'])->name('reservations.store');
         Route::get('/reservations/{reservation}', [CustomerReservationController::class, 'show'])->name('reservations.show');
+        Route::post('/reservations/{reservation}/calculate-reschedule', [CustomerReservationController::class, 'calculateReschedule'])->name('reservations.calculate-reschedule');
         Route::patch('/reservations/{reservation}/reschedule', [CustomerReservationController::class, 'reschedule'])->name('reservations.reschedule');
         Route::patch('/reservations/{reservation}/cancel', [CustomerReservationController::class, 'cancel'])->name('reservations.cancel');
 
@@ -54,23 +57,33 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/inquiries', [CustomerInquiryController::class, 'index'])->name('inquiries.index');
         Route::post('/inquiries', [CustomerInquiryController::class, 'store'])->name('inquiries.store');
         Route::get('/inquiries/{inquiry}', [CustomerInquiryController::class, 'show'])->name('inquiries.show');
+
+        Route::get('/notifications', [CustomerNotificationController::class, 'index'])->name('notifications.index');
+        Route::post('/notifications/read-all', [CustomerNotificationController::class, 'markAllAsRead'])->name('notifications.mark-all-as-read');
+        Route::post('/notifications/{id}/read', [CustomerNotificationController::class, 'markAsRead'])->name('notifications.mark-as-read');
     });
 });
 
 // Administrator Routes
 Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('/dashboard', function () {
-        return view('admin.dashboard');
-    })->name('dashboard');
+    Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
 
     // Facilities
     Route::resource('facilities', AdminFacilityController::class);
-    Route::patch('facilities/{facility}/status', [AdminFacilityController::class, 'toggleStatus'])->name('facilities.status');
+    Route::patch('facilities/{facility}/status', [AdminFacilityController::class, 'changeStatus'])->name('facilities.status');
+    Route::post('facilities/{facility}/amenities', [AdminFacilityController::class, 'syncAmenities'])->name('facilities.amenities');
+    Route::post('facilities/{facility}/components', [AdminFacilityController::class, 'syncComponents'])->name('facilities.components');
+    Route::delete('facilities/{facility}/images/{image}', [AdminFacilityController::class, 'destroyImage'])->name('facilities.images.destroy');
 
     // Rates
-    Route::resource('rates', AdminRateController::class)->except(['create', 'edit', 'destroy', 'store']);
+    Route::get('rates', [AdminRateController::class, 'index'])->name('rates.index');
+    Route::get('rates/create', [AdminRateController::class, 'create'])->name('rates.create');
+    Route::get('rates/{rate}', [AdminRateController::class, 'show'])->name('rates.show');
+    Route::get('rates/{rate}/edit', [AdminRateController::class, 'edit'])->name('rates.edit');
+    Route::put('rates/{rate}', [AdminRateController::class, 'update'])->name('rates.update');
     Route::post('facilities/{facility}/rates', [AdminRateController::class, 'store'])->name('rates.store');
-    Route::patch('rates/{rate}/status', [AdminRateController::class, 'toggleStatus'])->name('rates.status');
+    Route::patch('rates/{rate}/activate', [AdminRateController::class, 'activate'])->name('rates.activate');
+    Route::patch('rates/{rate}/deactivate', [AdminRateController::class, 'deactivate'])->name('rates.deactivate');
 
     // Reservations
     Route::get('reservations', [AdminReservationController::class, 'index'])->name('reservations.index');
@@ -79,6 +92,7 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
     Route::patch('reservations/{reservation}/approve', [AdminReservationController::class, 'approve'])->name('reservations.approve');
     Route::patch('reservations/{reservation}/reject', [AdminReservationController::class, 'reject'])->name('reservations.reject');
     Route::patch('reservations/{reservation}/cancel', [AdminReservationController::class, 'cancel'])->name('reservations.cancel');
+    Route::post('reservations/{reservation}/calculate-reschedule', [AdminReservationController::class, 'calculateReschedule'])->name('reservations.calculate-reschedule');
     Route::patch('reservations/{reservation}/reschedule', [AdminReservationController::class, 'reschedule'])->name('reservations.reschedule');
 
     // Payments
@@ -99,6 +113,10 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
     Route::patch('faq-categories/{faq_category}/status', [AdminFaqCategoryController::class, 'toggleStatus'])->name('faq-categories.status');
     Route::resource('faqs', AdminFaqController::class)->except(['create', 'edit', 'destroy', 'show']);
     Route::patch('faqs/{faq}/status', [AdminFaqController::class, 'toggleStatus'])->name('faqs.status');
+
+    // Customers
+    Route::get('customers', [\App\Http\Controllers\Admin\AdminCustomerController::class, 'index'])->name('customers.index');
+    Route::get('customers/{customer}', [\App\Http\Controllers\Admin\AdminCustomerController::class, 'show'])->name('customers.show');
 
     // Reports
     Route::get('reports', [AdminReportController::class, 'index'])->name('reports.index');

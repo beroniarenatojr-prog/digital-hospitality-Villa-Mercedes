@@ -18,9 +18,10 @@ class AdminFaqController extends Controller
 
     public function index(): View
     {
-        $faqs = Faq::with('faqCategory')->orderBy('faq_category_id')->orderBy('sort_order')->get();
+        $faqs = Faq::with('category')->orderBy('faq_category_id')->orderBy('sort_order')->get();
+        $categories = \App\Models\FaqCategory::orderBy('sort_order')->get();
 
-        return view('admin.faqs.index', compact('faqs'));
+        return view('admin.faqs.index', compact('faqs', 'categories'));
     }
 
     public function store(StoreFaqRequest $request): RedirectResponse
@@ -46,7 +47,7 @@ class AdminFaqController extends Controller
 
     public function toggleStatus(Request $request, Faq $faq): RedirectResponse
     {
-        $this->service->toggleFaqStatus($request->user(), $faq);
+        $this->service->toggleFaqStatus($request->user(), $faq, !$faq->is_active);
 
         return redirect()->back()->with('success', 'FAQ status toggled successfully.');
     }

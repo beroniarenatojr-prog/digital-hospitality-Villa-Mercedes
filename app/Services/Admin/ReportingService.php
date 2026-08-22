@@ -8,6 +8,7 @@ use App\Enums\ReservationStatus;
 use App\Models\Facility;
 use App\Models\Payment;
 use App\Models\Reservation;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -19,7 +20,7 @@ class ReportingService
     public function getBookingSummary(?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $query = Reservation::query();
-        $this->applyDateFilter($query, 'created_at', $startDate, $endDate);
+        $this->applyDateFilter($query, 'reservations.created_at', $startDate, $endDate);
 
         $total = $query->count();
 
@@ -57,7 +58,7 @@ class ReportingService
     public function getBookingTrends(string $grouping = 'month', ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $query = Reservation::query();
-        $this->applyDateFilter($query, 'created_at', $startDate, $endDate);
+        $this->applyDateFilter($query, 'reservations.created_at', $startDate, $endDate);
 
         $driver = DB::connection()->getDriverName();
         $selectRaw = '';
@@ -148,12 +149,12 @@ class ReportingService
     {
         $resQuery = Reservation::query()
             ->whereNotIn('status', [ReservationStatus::Cancelled->value, ReservationStatus::Rejected->value]);
-        $this->applyDateFilter($resQuery, 'created_at', $startDate, $endDate);
+        $this->applyDateFilter($resQuery, 'reservations.created_at', $startDate, $endDate);
         
         $reservationValue = $resQuery->sum('total_price');
 
         $payQuery = Payment::query()->where('status', PaymentStatus::Verified->value);
-        $this->applyDateFilter($payQuery, 'created_at', $startDate, $endDate);
+        $this->applyDateFilter($payQuery, 'payments.created_at', $startDate, $endDate);
 
         $verifiedRevenue = $payQuery->sum('amount');
 
@@ -169,7 +170,7 @@ class ReportingService
     public function getPaymentSummary(?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $query = Payment::query();
-        $this->applyDateFilter($query, 'created_at', $startDate, $endDate);
+        $this->applyDateFilter($query, 'payments.created_at', $startDate, $endDate);
 
         $totalPayments = (clone $query)->count();
 
@@ -189,6 +190,26 @@ class ReportingService
             'total_payments' => $totalPayments,
             'by_status' => $byStatus,
         ];
+    }
+
+    /**
+     * Get total customer count.
+     */
+    public function getCustomerCount(): int
+    {
+        return User::role('Customer')->count();
+    }
+
+    /**
+     * Get facility status summary.
+     */
+    public function getFacilityStatusSummary(): array
+    {
+        return Facility::query()
+            ->select('status', DB::raw('count(*) as count'))
+            ->groupBy('status')
+            ->pluck('count', 'status')
+            ->toArray();
     }
 
     /**

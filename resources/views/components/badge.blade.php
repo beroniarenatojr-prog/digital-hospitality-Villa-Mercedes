@@ -2,8 +2,8 @@
 
 @php
     $colors = match (strtolower($status)) {
-        'approved', 'verified', 'available', 'completed' => 'bg-success-light text-success',
-        'pending' => 'bg-warning-light text-warning',
+        'approved', 'verified', 'available', 'completed', 'closed' => 'bg-success-light text-success',
+        'pending', 'open' => 'bg-warning-light text-warning',
         'rejected', 'cancelled', 'unavailable' => 'bg-danger-light text-danger',
         'rescheduled', 'maintenance' => 'bg-secondary text-text-muted',
         default => 'bg-secondary text-text',

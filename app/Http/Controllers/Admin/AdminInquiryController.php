@@ -18,7 +18,7 @@ class AdminInquiryController extends Controller
 
     public function index(Request $request): View
     {
-        $filters = $request->only('status');
+        $filters = $request->only(['status', 'date_from', 'date_until', 'search']);
         $inquiries = $this->service->getInquiries($filters);
 
         return view('admin.inquiries.index', compact('inquiries'));
@@ -49,7 +49,11 @@ class AdminInquiryController extends Controller
 
     public function updateStatus(Request $request, Inquiry $inquiry): RedirectResponse
     {
-        $statusEnum = \App\Enums\InquiryStatus::from($request->input('status'));
+        $validated = $request->validate([
+            'status' => ['required', \Illuminate\Validation\Rule::in(\App\Enums\InquiryStatus::values())],
+        ]);
+
+        $statusEnum = \App\Enums\InquiryStatus::from($validated['status']);
         
         $this->service->updateInquiryStatus($inquiry, $request->user(), $statusEnum);
 

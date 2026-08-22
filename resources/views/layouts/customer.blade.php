@@ -14,7 +14,7 @@
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
-    <body class="font-sans text-text antialiased bg-background flex flex-col min-h-screen">
+    <body class="font-sans text-text antialiased bg-background font-sans text-text antialiased selection:bg-primary selection:text-white flex flex-col min-h-screen">
         <x-customer-header />
 
         <!-- Page Content -->
@@ -23,5 +23,8 @@
         </main>
 
         <x-customer-footer />
+
+        @stack('scripts')
     </body>
 </html>
+

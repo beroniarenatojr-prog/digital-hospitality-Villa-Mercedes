@@ -45,7 +45,7 @@ class AdminFaqCategoryController extends Controller
 
     public function toggleStatus(Request $request, FaqCategory $faqCategory): RedirectResponse
     {
-        $this->service->toggleCategoryStatus($request->user(), $faqCategory);
+        $this->service->toggleCategoryStatus($request->user(), $faqCategory, !$faqCategory->is_active);
 
         return redirect()->back()->with('success', 'Category status toggled successfully.');
     }

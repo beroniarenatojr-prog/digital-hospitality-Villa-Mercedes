@@ -13,25 +13,26 @@ export default {
         extend: {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
+                display: ['Outfit', ...defaultTheme.fontFamily.sans],
             },
             colors: {
                 primary: {
-                    DEFAULT: '#14532d',
-                    hover: '#166534',
+                    DEFAULT: '#064e3b', // Deep Emerald
+                    hover: '#047857',
                 },
                 secondary: {
-                    DEFAULT: '#d6d3d1',
+                    DEFAULT: '#cbd5e1', // Slate 300
                 },
                 accent: {
-                    DEFAULT: '#115e59',
+                    DEFAULT: '#d97706', // Champagne/Gold
                 },
-                background: '#fafaf9',
+                background: '#f8fafc',
                 surface: '#ffffff',
                 text: {
-                    DEFAULT: '#1c1917',
-                    muted: '#78716c',
+                    DEFAULT: '#0f172a',
+                    muted: '#64748b',
                 },
-                border: '#e7e5e4',
+                border: '#e2e8f0',
                 success: {
                     DEFAULT: '#059669',
                     light: '#d1fae5',
@@ -49,6 +50,9 @@ export default {
                     light: '#e0f2fe',
                 },
             },
+            boxShadow: {
+                'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.05)',
+            }
         },
     },
 

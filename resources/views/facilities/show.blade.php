@@ -43,14 +43,14 @@
                 <div class="space-y-6">
                     <div>
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-text mb-3">{{ $facility->facilityType->name }}</span>
-                        <h1 class="text-3xl md:text-4xl lg:text-5xl font-extrabold text-text tracking-tight">
+                        <h1 class="font-display text-4xl md:text-5xl lg:text-6xl font-extrabold text-text tracking-tight">
                             {{ $facility->name }}
                         </h1>
                     </div>
 
                     <div class="relative w-full h-[300px] md:h-[400px] rounded-2xl overflow-hidden bg-muted flex items-center justify-center text-muted-foreground border border-border shadow-sm">
                         @if($facility->galleryImages->count() > 0)
-                            <img src="{{ Storage::url($facility->galleryImages->first()->path) }}" alt="{{ $facility->name }}" class="w-full h-full object-cover" />
+                            <img src="{{ Storage::url($facility->galleryImages->first()->image_path) }}" alt="{{ $facility->name }}" class="w-full h-full object-cover" />
                         @else
                             <svg class="w-16 h-16 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                             <span class="absolute text-sm font-medium opacity-50 uppercase tracking-widest mt-24">No Image Available</span>
@@ -60,7 +60,7 @@
 
                 {{-- Overview --}}
                 <section>
-                    <h2 class="text-2xl font-bold text-text mb-4">Overview</h2>
+                    <h2 class="font-display text-2xl md:text-3xl font-bold text-text mb-4">Overview</h2>
                     <p class="text-lg text-muted-foreground leading-relaxed whitespace-pre-wrap">{{ $facility->description }}</p>
                 </section>
 
@@ -69,7 +69,7 @@
                 {{-- Amenities / Inclusions --}}
                 @if($facility->amenities->count() > 0)
                 <section>
-                    <h2 class="text-2xl font-bold text-text mb-6">Amenities / Inclusions</h2>
+                    <h2 class="font-display text-2xl md:text-3xl font-bold text-text mb-6">Amenities / Inclusions</h2>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         @foreach($facility->amenities as $amenity)
                             <div class="flex items-start gap-3 bg-surface p-4 rounded-xl border border-border">
@@ -84,7 +84,7 @@
                 {{-- Included Bookable Resources (Package Components) --}}
                 @if($facility->packageComponents->count() > 0)
                 <section>
-                    <h2 class="text-2xl font-bold text-text mb-6">Included Resources</h2>
+                    <h2 class="font-display text-2xl md:text-3xl font-bold text-text mb-6">Included Resources</h2>
                     <p class="text-muted-foreground mb-4">This package reserves the following facilities for your exclusive use:</p>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         @foreach($facility->packageComponents as $component)
@@ -107,12 +107,12 @@
             {{-- Sidebar (Booking & Pricing CTA) --}}
             <div class="lg:col-span-1">
                 <div class="sticky top-24">
-                    <x-card class="p-6 md:p-8 border-primary/20 shadow-xl relative overflow-hidden">
+                    <x-card class="glass p-6 md:p-8 relative overflow-hidden rounded-3xl border border-white/50 shadow-2xl">
                         {{-- Background Accent --}}
                         <div class="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                         
                         <div class="relative z-10">
-                            <h3 class="text-xl font-bold text-text mb-6">Booking Details</h3>
+                            <h3 class="font-display text-xl md:text-2xl font-bold text-text mb-6">Booking Details</h3>
                             
                             <div class="space-y-4 mb-8">
                                 <div class="flex items-center justify-between pb-4 border-b border-border">
@@ -163,7 +163,32 @@
 
         </div>
     </div>
+    @push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (document.querySelector('.facility-swiper')) {
+                new Swiper('.facility-swiper', {
+                    modules: [SwiperModules.Navigation, SwiperModules.Pagination],
+                    loop: true,
+                    navigation: {
+                        nextEl: '.swiper-button-next',
+                        prevEl: '.swiper-button-prev',
+                    },
+                    pagination: {
+                        el: '.swiper-pagination',
+                        clickable: true,
+                    },
+                    autoplay: {
+                        delay: 4000,
+                        disableOnInteraction: false,
+                    }
+                });
+            }
+        });
+    </script>
+    @endpush
 </x-customer-layout>
+
 
 
 

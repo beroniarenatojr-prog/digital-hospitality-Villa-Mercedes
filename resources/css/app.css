@@ -1,3 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=Outfit:wght@100..900&display=swap');
+@import 'flatpickr/dist/flatpickr.min.css';
+@import 'toastify-js/src/toastify.css';
+@import 'swiper/css';
+@import 'swiper/css/navigation';
+@import 'swiper/css/pagination';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer utilities {
+    .glass {
+        @apply bg-surface/70 backdrop-blur-md border border-white/20 shadow-glass;
+    }
+}

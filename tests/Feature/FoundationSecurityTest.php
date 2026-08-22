@@ -32,7 +32,7 @@ class FoundationSecurityTest extends TestCase
             'password_confirmation' => 'Password123!',
         ]);
 
-        $response->assertRedirect('/dashboard');
+        $response->assertRedirect(route('customer.reservations.index'));
 
         $user = User::query()->where('email', 'jane@example.com')->first();
 
@@ -53,7 +53,7 @@ class FoundationSecurityTest extends TestCase
             'remember' => 'on',
         ]);
 
-        $response->assertRedirect('/dashboard');
+        $response->assertRedirect(route('customer.reservations.index'));
         $this->assertAuthenticatedAs($user);
     }
 

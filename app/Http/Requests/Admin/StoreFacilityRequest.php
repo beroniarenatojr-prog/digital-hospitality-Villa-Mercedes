@@ -22,6 +22,8 @@ class StoreFacilityRequest extends FormRequest
             'base_capacity' => ['required', 'integer', 'min:1'],
             'max_capacity' => ['required', 'integer', 'gte:base_capacity'],
             'is_active' => ['boolean'],
+            'images' => ['nullable', 'array'],
+            'images.*' => ['image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
         ];
     }
 }

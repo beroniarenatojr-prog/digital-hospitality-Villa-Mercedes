@@ -8,6 +8,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
+use App\Enums\Role;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -27,6 +28,16 @@ class AuthenticatedSessionController extends Controller
         $request->authenticate();
 
         $request->session()->regenerate();
+
+        $user = $request->user();
+
+        if ($user->hasRole(Role::Administrator->value)) {
+            return redirect()->intended(route('admin.dashboard', absolute: false));
+        }
+
+        if ($user->hasRole(Role::Customer->value)) {
+            return redirect()->intended(route('customer.reservations.index', absolute: false));
+        }
 
         return redirect()->intended(route('dashboard', absolute: false));
     }

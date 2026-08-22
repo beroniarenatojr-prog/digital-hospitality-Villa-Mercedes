@@ -136,9 +136,9 @@ class CustomerReservationService
      *
      * Delegates entirely to AvailabilityService::isAvailable().
      */
-    public function checkAvailability(Facility $facility, Carbon $checkIn, Carbon $checkOut): AvailabilityResult
+    public function checkAvailability(Facility $facility, Carbon $checkIn, Carbon $checkOut, ?int $excludeReservationId = null, ?int $guestCount = null): AvailabilityResult
     {
-        return $this->availabilityService->isAvailable($facility, $checkIn, $checkOut);
+        return $this->availabilityService->isAvailable($facility, $checkIn, $checkOut, $excludeReservationId, $guestCount);
     }
 
     /**
@@ -162,5 +162,21 @@ class CustomerReservationService
             $lateCheckOutHours,
             $guestCount
         );
+    }
+
+    /**
+     * Check if a reservation can be cancelled.
+     */
+    public function canCancel(Reservation $reservation): bool
+    {
+        return in_array($reservation->status, [\App\Enums\ReservationStatus::Approved]); // Only Approved can be cancelled according to ReservationService validateTransition
+    }
+
+    /**
+     * Check if a reservation can be rescheduled.
+     */
+    public function canReschedule(Reservation $reservation): bool
+    {
+        return in_array($reservation->status, [\App\Enums\ReservationStatus::Pending, \App\Enums\ReservationStatus::Approved], true);
     }
 }
