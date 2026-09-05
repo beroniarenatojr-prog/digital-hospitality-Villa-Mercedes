@@ -9,6 +9,9 @@ use App\Http\Controllers\Admin\AdminRateController;
 use App\Http\Controllers\Admin\AdminReportController;
 use App\Http\Controllers\Admin\AdminReservationController;
 use App\Http\Controllers\Admin\AdminDashboardController;
+use App\Http\Controllers\Admin\AdminDecisionBoardController;
+use App\Http\Controllers\Admin\AdminTrainingApplicationController;
+use App\Http\Controllers\Admin\AdminTrainingBatchController;
 use App\Http\Controllers\Customer\CustomerInquiryController;
 use App\Http\Controllers\Customer\CustomerPaymentController;
 use App\Http\Controllers\Customer\CustomerReservationController;
@@ -18,10 +21,16 @@ use App\Http\Controllers\FacilityController;
 use App\Http\Controllers\FaqController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TrainingApplicationController;
 use Illuminate\Support\Facades\Route;
 
 // Public Routes
 Route::get('/', [PageController::class, 'home'])->name('home');
+Route::get('/training', [PageController::class, 'training'])->name('training');
+Route::post('/training/apply', [TrainingApplicationController::class, 'store'])
+    ->middleware('throttle:6,1')
+    ->name('training.apply');
+Route::get('/contact', [PageController::class, 'contact'])->name('contact');
 Route::get('/rooms', [PageController::class, 'rooms'])->name('rooms');
 Route::get('/halls', [PageController::class, 'halls'])->name('halls');
 Route::get('/packages', [PageController::class, 'packages'])->name('packages');
@@ -52,6 +61,9 @@ Route::middleware(['auth'])->group(function () {
 
         Route::get('/reservations/{reservation}/payments', [CustomerPaymentController::class, 'index'])->name('payments.index');
         Route::post('/reservations/{reservation}/payments', [CustomerPaymentController::class, 'store'])->name('payments.store');
+        Route::post('/reservations/{reservation}/payments/checkout', [CustomerPaymentController::class, 'checkout'])->name('payments.checkout');
+        Route::get('/payments/{payment}/return', [CustomerPaymentController::class, 'returnFromGateway'])->name('payments.return');
+        Route::get('/payments/{payment}/cancel', [CustomerPaymentController::class, 'cancelGateway'])->name('payments.cancel');
         Route::get('/payments/{payment}/proof/download', [CustomerPaymentController::class, 'downloadProof'])->name('payments.download');
 
         Route::get('/inquiries', [CustomerInquiryController::class, 'index'])->name('inquiries.index');
@@ -92,6 +104,9 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
     Route::patch('reservations/{reservation}/approve', [AdminReservationController::class, 'approve'])->name('reservations.approve');
     Route::patch('reservations/{reservation}/reject', [AdminReservationController::class, 'reject'])->name('reservations.reject');
     Route::patch('reservations/{reservation}/cancel', [AdminReservationController::class, 'cancel'])->name('reservations.cancel');
+    Route::patch('reservations/{reservation}/complete', [AdminReservationController::class, 'complete'])->name('reservations.complete');
+    Route::patch('reservations/{reservation}/check-in', [AdminReservationController::class, 'checkIn'])->name('reservations.check-in');
+    Route::patch('reservations/{reservation}/check-out', [AdminReservationController::class, 'checkOut'])->name('reservations.check-out');
     Route::post('reservations/{reservation}/calculate-reschedule', [AdminReservationController::class, 'calculateReschedule'])->name('reservations.calculate-reschedule');
     Route::patch('reservations/{reservation}/reschedule', [AdminReservationController::class, 'reschedule'])->name('reservations.reschedule');
 
@@ -117,6 +132,15 @@ Route::middleware(['auth', 'role:Administrator'])->prefix('admin')->name('admin.
     // Customers
     Route::get('customers', [\App\Http\Controllers\Admin\AdminCustomerController::class, 'index'])->name('customers.index');
     Route::get('customers/{customer}', [\App\Http\Controllers\Admin\AdminCustomerController::class, 'show'])->name('customers.show');
+
+    // Owner Decision Board
+    Route::get('decision-board', [AdminDecisionBoardController::class, 'index'])->name('decision-board');
+
+    // TESDA training as inventory
+    Route::resource('training-batches', AdminTrainingBatchController::class)->except(['destroy']);
+    Route::patch('training-batches/{training_batch}/status', [AdminTrainingBatchController::class, 'updateStatus'])->name('training-batches.status');
+    Route::get('training-applications', [AdminTrainingApplicationController::class, 'index'])->name('training-applications.index');
+    Route::patch('training-applications/{training_application}/status', [AdminTrainingApplicationController::class, 'updateStatus'])->name('training-applications.status');
 
     // Reports
     Route::get('reports', [AdminReportController::class, 'index'])->name('reports.index');

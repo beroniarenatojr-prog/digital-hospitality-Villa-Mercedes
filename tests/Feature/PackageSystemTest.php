@@ -36,6 +36,10 @@ class PackageSystemTest extends TestCase
 
     private function createRatesForFacility(Facility $facility, int $baseAmount, int $extraAmount, string $unit = 'per event'): void
     {
+        // The seeded catalogue already prices every facility, so replace those
+        // rates instead of stacking a second base rate on top of them.
+        $facility->rates()->delete();
+
         \App\Models\Rate::create([
             'facility_id' => $facility->id,
             'type' => \App\Enums\RateType::Base->value,

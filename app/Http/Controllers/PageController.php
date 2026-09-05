@@ -22,6 +22,21 @@ class PageController extends Controller
         return view('pages.home', compact('featuredRooms', 'featuredHalls', 'featuredPackages'));
     }
 
+    public function training(): View
+    {
+        $batches = \App\Models\TrainingBatch::upcoming()
+            ->with('facilities')
+            ->orderBy('start_date')
+            ->get();
+
+        return view('pages.training', compact('batches'));
+    }
+
+    public function contact(): View
+    {
+        return view('pages.contact');
+    }
+
     public function rooms(): View
     {
         $facilities = $this->queryService->getActiveFacilitiesByType(FacilityType::Room->value);

@@ -221,13 +221,15 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
 
     public function test_customer_can_reschedule_via_customer_service(): void
     {
+        // Comfortably outside the self-service cutoff so the policy is not what
+        // is under test here.
         $reservation = $this->createTestReservation(
-            Carbon::parse('2026-09-01 14:00:00'),
-            Carbon::parse('2026-09-03 12:00:00')
+            now()->addDays(20)->setTime(14, 0),
+            now()->addDays(22)->setTime(12, 0)
         );
 
-        $newCheckIn = Carbon::parse('2026-10-01 14:00:00');
-        $newCheckOut = Carbon::parse('2026-10-03 12:00:00');
+        $newCheckIn = now()->addDays(40)->setTime(14, 0);
+        $newCheckOut = now()->addDays(42)->setTime(12, 0);
 
         $rescheduled = $this->customerReservationService->rescheduleReservation(
             $this->customer,

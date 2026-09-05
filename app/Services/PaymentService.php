@@ -99,6 +99,37 @@ class PaymentService
         });
     }
 
+    /**
+     * Verification driven by the payment provider rather than a staff member.
+     * There is no human verifier here on purpose: the gateway confirmed the
+     * funds, and recording a staff account as the verifier would be a lie in
+     * the audit trail.
+     *
+     * @throws InvalidPaymentTransitionException
+     */
+    public function verifyPaymentViaGateway(Payment $payment, string $gatewayReference): void
+    {
+        DB::transaction(function () use ($payment, $gatewayReference) {
+            $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedPayment->status !== PaymentStatus::Pending) {
+                throw new InvalidPaymentTransitionException("Cannot verify a payment that is currently {$lockedPayment->status->value}.");
+            }
+
+            $lockedPayment->update([
+                'status' => PaymentStatus::Verified->value,
+                'reference_number' => $gatewayReference,
+                'verified_at' => now(),
+            ]);
+
+            activity()
+                ->performedOn($lockedPayment)
+                ->event('payment_verified')
+                ->withProperties(['gateway_reference' => $gatewayReference])
+                ->log('Payment verified automatically by the payment gateway.');
+        });
+    }
+
     public function rejectPayment(Payment $payment, User $verifier, string $reason): void
     {
         if (!$verifier->hasRole([Role::Administrator->value, 'staff'])) {

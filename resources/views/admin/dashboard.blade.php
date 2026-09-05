@@ -82,7 +82,7 @@
                     @forelse($recentReservations as $reservation)
                         <x-admin.table-row>
                             <x-admin.table-cell>
-                                <div class="font-medium text-gray-900">{{ $reservation->user->name }}</div>
+                                <div class="font-medium text-gray-900">{{ $reservation->guestName() }}</div>
                                 <div class="text-xs text-gray-500">{{ $reservation->reservation_code }}</div>
                             </x-admin.table-cell>
                             <x-admin.table-cell>

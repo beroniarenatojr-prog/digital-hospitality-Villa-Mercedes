@@ -111,4 +111,32 @@ class Facility extends Model
     {
         return $this->max_capacity ?? $this->capacity;
     }
+
+    public function isPackage(): bool
+    {
+        $this->loadMissing('facilityType');
+
+        return $this->facilityType?->slug === \App\Enums\FacilityType::ResortPackage->value;
+    }
+
+    /**
+     * Facilities whose availability is coupled to this one: a package is coupled
+     * to its components, and a component is coupled to its parent packages.
+     * Booking either side takes the other off the market.
+     *
+     * @return \Illuminate\Support\Collection<int, Facility>
+     */
+    public function contendingFacilities(): \Illuminate\Support\Collection
+    {
+        if ($this->isPackage()) {
+            return $this->packageComponents()
+                ->with('componentFacility.facilityType')
+                ->get()
+                ->pluck('componentFacility')
+                ->filter()
+                ->values();
+        }
+
+        return $this->partOfPackages()->with('facilityType')->get()->values();
+    }
 }

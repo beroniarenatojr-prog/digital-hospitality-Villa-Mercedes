@@ -21,6 +21,14 @@
                     Dashboard
                 </a>
 
+                <!-- Owner Decision Board -->
+                <a href="{{ route('admin.decision-board') }}" class="{{ request()->routeIs('admin.decision-board') ? 'bg-primary-light text-primary' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }} group flex items-center px-2 py-2 text-sm font-medium rounded-md">
+                    <svg class="mr-3 flex-shrink-0 h-5 w-5 {{ request()->routeIs('admin.decision-board') ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500' }}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Decision Board
+                </a>
+
                 <div class="pt-4 pb-2">
                     <p class="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Operations</p>
                 </div>
@@ -61,6 +69,15 @@
                     Rates
                 </a>
                 
+                <!-- TESDA Training -->
+                <a href="{{ route('admin.training-batches.index') }}" class="{{ request()->routeIs('admin.training-batches.*') || request()->routeIs('admin.training-applications.*') ? 'bg-primary-light text-primary' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }} group flex items-center px-2 py-2 text-sm font-medium rounded-md">
+                    <svg class="mr-3 flex-shrink-0 h-5 w-5 {{ request()->routeIs('admin.training-batches.*') || request()->routeIs('admin.training-applications.*') ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500' }}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l6.16-3.422A12.083 12.083 0 0112 21.5a12.083 12.083 0 01-6.16-10.922L12 14z" />
+                    </svg>
+                    TESDA Training
+                </a>
+
                 <div class="pt-4 pb-2">
                     <p class="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Support</p>
                 </div>

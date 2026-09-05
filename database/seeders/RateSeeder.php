@@ -97,9 +97,99 @@ class RateSeeder extends Seeder
                         'unit' => 'per event',
                     ]
                 );
+
+                Rate::query()->firstOrCreate(
+                    [
+                        'facility_id' => $facility->id,
+                        'name' => 'Early Check-in',
+                    ],
+                    [
+                        'type' => RateType::AdditionalCharge->value,
+                        'amount' => 500,
+                        'unit' => 'per hour',
+                    ]
+                );
+
+                Rate::query()->firstOrCreate(
+                    [
+                        'facility_id' => $facility->id,
+                        'name' => 'Late Check-out',
+                    ],
+                    [
+                        'type' => RateType::AdditionalCharge->value,
+                        'amount' => 500,
+                        'unit' => 'per hour',
+                    ]
+                );
             }
         }
 
+        // Resort packages. Without these, a package facility is bookable in the
+        // UI but PricingService throws NoApplicableRateException on submit.
+        $packageRates = [
+            'Day Use Package' => ['amount' => 8000, 'unit' => 'per day', 'extra_person' => 300, 'hourly' => 500],
+            'Night Use Package' => ['amount' => 8000, 'unit' => 'per day', 'extra_person' => 300, 'hourly' => 500],
+            'Overnight Package' => ['amount' => 12000, 'unit' => 'per night', 'extra_person' => 500, 'hourly' => 500],
+            'Private Pool Package' => ['amount' => 6500, 'unit' => 'per day', 'extra_person' => 300, 'hourly' => 500],
+            'Function Hall + Private Pool' => ['amount' => 30000, 'unit' => 'per event', 'extra_person' => 250, 'hourly' => 800],
+            'Sapphire Hall + Pool + Jacuzzi' => ['amount' => 18000, 'unit' => 'per event', 'extra_person' => 250, 'hourly' => 800],
+            'Room Accommodation Package' => ['amount' => 7500, 'unit' => 'per night', 'extra_person' => 500, 'hourly' => 500],
+        ];
 
+        foreach ($packageRates as $name => $config) {
+            $facility = Facility::query()->where('slug', Str::slug($name))->first();
+
+            if (! $facility) {
+                continue;
+            }
+
+            Rate::query()->firstOrCreate(
+                [
+                    'facility_id' => $facility->id,
+                    'type' => RateType::Base->value,
+                ],
+                [
+                    'name' => 'Base Rate',
+                    'amount' => $config['amount'],
+                    'unit' => $config['unit'],
+                ]
+            );
+
+            Rate::query()->firstOrCreate(
+                [
+                    'facility_id' => $facility->id,
+                    'name' => 'Early Check-in',
+                ],
+                [
+                    'type' => RateType::AdditionalCharge->value,
+                    'amount' => $config['hourly'],
+                    'unit' => 'per hour',
+                ]
+            );
+
+            Rate::query()->firstOrCreate(
+                [
+                    'facility_id' => $facility->id,
+                    'name' => 'Late Check-out',
+                ],
+                [
+                    'type' => RateType::AdditionalCharge->value,
+                    'amount' => $config['hourly'],
+                    'unit' => 'per hour',
+                ]
+            );
+
+            Rate::query()->firstOrCreate(
+                [
+                    'facility_id' => $facility->id,
+                    'name' => 'Extra Person Charge',
+                ],
+                [
+                    'type' => RateType::ExtraPerson->value,
+                    'amount' => $config['extra_person'],
+                    'unit' => 'per person',
+                ]
+            );
+        }
     }
 }

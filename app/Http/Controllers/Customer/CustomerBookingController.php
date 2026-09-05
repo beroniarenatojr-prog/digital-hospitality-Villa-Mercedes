@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Enums\RateType;
 use App\Http\Controllers\Controller;
 use App\Models\Facility;
 use App\Services\Customer\CustomerReservationService;
+use App\Services\PricingService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -20,9 +22,17 @@ class CustomerBookingController extends Controller
     {
         abort_if(! $facility->is_active, 404);
 
-        $facility->load(['facilityType', 'galleryImages']);
+        $facility->load(['facilityType', 'galleryImages', 'rates']);
 
-        return view('customer.booking.create', compact('facility'));
+        $earlyCheckInRate = $facility->rates
+            ->where('is_active', true)
+            ->first(fn ($rate) => $rate->type === RateType::AdditionalCharge && $rate->name === PricingService::EARLY_CHECK_IN_RATE_NAME);
+
+        $lateCheckOutRate = $facility->rates
+            ->where('is_active', true)
+            ->first(fn ($rate) => $rate->type === RateType::AdditionalCharge && $rate->name === PricingService::LATE_CHECK_OUT_RATE_NAME);
+
+        return view('customer.booking.create', compact('facility', 'earlyCheckInRate', 'lateCheckOutRate'));
     }
 
     public function calculate(Request $request, Facility $facility): JsonResponse
@@ -33,15 +43,27 @@ class CustomerBookingController extends Controller
             'check_in' => ['required', 'date', 'after_or_equal:now'],
             'check_out' => ['required', 'date', 'after:check_in'],
             'guestCount' => ['required', 'integer', 'min:1'],
+            'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:' . config('resort.stay.max_additional_hours', 12)],
+            'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:' . config('resort.stay.max_additional_hours', 12)],
         ]);
 
         try {
             $checkIn = Carbon::parse($validated['check_in']);
             $checkOut = Carbon::parse($validated['check_out']);
             $guestCount = $validated['guestCount'];
+            $earlyCheckInHours = (int) ($validated['early_check_in_hours'] ?? 0);
+            $lateCheckOutHours = (int) ($validated['late_check_out_hours'] ?? 0);
 
             // 1. Check Availability
-            $availability = $this->reservationService->checkAvailability($facility, $checkIn, $checkOut);
+            $availability = $this->reservationService->checkAvailability(
+                $facility,
+                $checkIn,
+                $checkOut,
+                null,
+                $guestCount,
+                $earlyCheckInHours,
+                $lateCheckOutHours
+            );
             
             // Check capacity strictly here (though AvailabilityService does it, if it doesn't we enforce it)
             if ($guestCount > $facility->effectiveMaxCapacity()) {
@@ -63,8 +85,8 @@ class CustomerBookingController extends Controller
                 $facility,
                 $checkIn,
                 $checkOut,
-                0, // early checkin
-                0, // late checkout
+                $earlyCheckInHours,
+                $lateCheckOutHours,
                 $guestCount
             );
 
@@ -72,6 +94,8 @@ class CustomerBookingController extends Controller
                 'success' => true,
                 'data' => [
                     'base_amount' => $price->baseAmount,
+                    'early_check_in_charge' => $price->earlyCheckInCharge,
+                    'late_check_out_charge' => $price->lateCheckOutCharge,
                     'extra_person_charge' => $price->extraPersonCharge,
                     'total_amount' => $price->totalAmount,
                 ]

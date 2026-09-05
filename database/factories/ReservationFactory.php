@@ -32,6 +32,8 @@ class ReservationFactory extends Factory
             'check_in' => $checkIn,
             'check_out' => $checkOut,
             'guest_count' => $this->faker->numberBetween(1, 5),
+            'early_check_in_hours' => 0,
+            'late_check_out_hours' => 0,
             'special_requests' => null,
             'base_price' => $basePrice,
             'additional_charges' => 0,

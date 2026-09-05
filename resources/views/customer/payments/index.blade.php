@@ -1,25 +1,13 @@
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Manage Payments') }}
-            </h2>
-            <a href="{{ route('customer.reservations.show', $reservation) }}" class="text-sm text-primary-600 hover:text-primary-800">
-                &larr; Back to Reservation
-            </a>
-        </div>
-    </x-slot>
-
+<x-customer-layout>
     <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
 
-            @if (session('success'))
-                <x-alert type="success" :message="session('success')" />
-            @endif
-
-            @if (session('error'))
-                <x-alert type="error" :message="session('error')" />
-            @endif
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                <h1 class="text-2xl sm:text-3xl font-bold text-text">Manage Payments</h1>
+                <a href="{{ route('customer.reservations.show', $reservation) }}" class="text-sm text-primary font-medium hover:underline">
+                    &larr; Back to Reservation
+                </a>
+            </div>
 
             @if ($errors->any())
                 <div class="bg-red-50 p-4 rounded-md">
@@ -141,6 +129,9 @@
                                                     @endif
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                    @if(! $payment->proof_path)
+                                                        <span class="text-xs text-gray-400">Paid online</span>
+                                                    @else
                                                     <a href="{{ route('customer.payments.download', $payment) }}" target="_blank" class="text-primary-600 hover:text-primary-900 inline-flex items-center">
                                                         <svg class="mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -148,6 +139,7 @@
                                                         </svg>
                                                         View Proof
                                                     </a>
+                                                    @endif
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -159,7 +151,51 @@
                 </div>
 
                 <!-- Submit Payment Column -->
-                <div class="lg:col-span-1">
+                <div class="lg:col-span-1 space-y-6">
+                    @if($reservation->getRemainingBalance() > 0 && $onlineCheckoutAvailable)
+                        <div class="bg-white shadow sm:rounded-lg">
+                            <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">Pay Online</h3>
+                                <p class="mt-1 text-sm text-gray-500">
+                                    {{ $gatewayLabel }}. Confirmed instantly &mdash; no receipt to upload.
+                                </p>
+                            </div>
+                            <div class="px-4 py-5 sm:p-6">
+                                <form action="{{ route('customer.payments.checkout', $reservation) }}" method="POST" class="space-y-4" x-data="{ isRedirecting: false }" @submit="isRedirecting = true">
+                                    @csrf
+
+                                    <div>
+                                        <label for="online_amount" class="block text-sm font-medium text-gray-700">Amount (₱)</label>
+                                        <input type="number" step="0.01" min="1" max="{{ $reservation->getRemainingBalance() }}"
+                                               name="amount" id="online_amount" required
+                                               value="{{ old('amount', $reservation->getRemainingBalance()) }}"
+                                               class="mt-1 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md">
+                                    </div>
+
+                                    <div>
+                                        <label for="online_method" class="block text-sm font-medium text-gray-700">E-wallet</label>
+                                        <select name="payment_method" id="online_method" required
+                                                class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md">
+                                            <option value="{{ \App\Enums\PaymentMethod::GCash->value }}">GCash</option>
+                                            <option value="{{ \App\Enums\PaymentMethod::Maya->value }}">Maya</option>
+                                        </select>
+                                    </div>
+
+                                    <button type="submit" :disabled="isRedirecting"
+                                            :class="isRedirecting ? 'opacity-50 cursor-wait' : 'hover:bg-green-700'"
+                                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
+                                        <span x-show="!isRedirecting">Continue to secure checkout</span>
+                                        <span x-show="isRedirecting">Redirecting&hellip;</span>
+                                    </button>
+
+                                    <p class="text-xs text-gray-500">
+                                        You will be taken to the payment provider and returned here once done.
+                                    </p>
+                                </form>
+                            </div>
+                        </div>
+                    @endif
+
                     @if($reservation->getRemainingBalance() > 0)
                         <div class="bg-white shadow sm:rounded-lg">
                             <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
@@ -167,7 +203,11 @@
                                     Submit a Payment
                                 </h3>
                                 <p class="mt-1 text-sm text-gray-500">
-                                    Upload your proof of payment for verification.
+                                    @if($onlineCheckoutAvailable)
+                                        Paid at the counter, by bank transfer, or from your own e-wallet app? Upload the receipt here for staff to verify.
+                                    @else
+                                        Upload your proof of payment for verification.
+                                    @endif
                                 </p>
                             </div>
                             <div class="px-4 py-5 sm:p-6" x-data="{ isSubmitting: false }">
@@ -261,4 +301,4 @@
 
         </div>
     </div>
-</x-app-layout>
+</x-customer-layout>

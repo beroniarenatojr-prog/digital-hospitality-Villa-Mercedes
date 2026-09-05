@@ -14,6 +14,10 @@ use Illuminate\Support\Collection;
 
 class PricingService
 {
+    public const EARLY_CHECK_IN_RATE_NAME = 'Early Check-in';
+
+    public const LATE_CHECK_OUT_RATE_NAME = 'Late Check-out';
+
     /**
      * Calculate the expected price of a reservation before creation.
      *
@@ -44,8 +48,8 @@ class PricingService
         
         $baseAmount = $this->calculateBaseAmount($applicableRate, $checkIn, $checkOut);
         
-        $earlyCharge = $this->calculateAdditionalCharge($activeRates, 'Early Check-in', $earlyCheckInHours);
-        $lateCharge = $this->calculateAdditionalCharge($activeRates, 'Late Check-out', $lateCheckOutHours);
+        $earlyCharge = $this->calculateAdditionalCharge($activeRates, self::EARLY_CHECK_IN_RATE_NAME, $earlyCheckInHours);
+        $lateCharge = $this->calculateAdditionalCharge($activeRates, self::LATE_CHECK_OUT_RATE_NAME, $lateCheckOutHours);
 
         $extraPersonCharge = 0;
         if ($guestCount !== null && $guestCount > $facility->capacity) {
@@ -63,6 +67,21 @@ class PricingService
             totalAmount: $totalAmount,
             appliedRateName: $applicableRate->name
         );
+    }
+
+    /**
+     * The hourly amount charged for an additional-charge rate such as
+     * "Late Check-out", or null when the facility has no such rate configured.
+     */
+    public function hourlyChargeAmount(Facility $facility, string $chargeName): ?float
+    {
+        $rate = $facility->rates()
+            ->where('is_active', true)
+            ->where('type', RateType::AdditionalCharge->value)
+            ->where('name', $chargeName)
+            ->first();
+
+        return $rate ? (float) $rate->amount : null;
     }
 
     /**

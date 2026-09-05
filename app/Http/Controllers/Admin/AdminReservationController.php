@@ -6,11 +6,12 @@ use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Exceptions\Reservation\InvalidReservationTransitionException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\StoreWalkInReservationRequest;
 use App\Http\Requests\Customer\RescheduleReservationRequest;
-use App\Http\Requests\Customer\StoreReservationRequest;
 use App\Models\Facility;
 use App\Models\FacilityType;
 use App\Models\Reservation;
+use App\Services\Admin\DecisionSupportService;
 use App\Services\PricingService;
 use App\Services\ReservationService;
 use Carbon\Carbon;
@@ -23,7 +24,8 @@ class AdminReservationController extends Controller
 {
     public function __construct(
         private readonly ReservationService $service,
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly DecisionSupportService $decisionSupport
     ) {}
 
     public function index(Request $request): View
@@ -74,7 +76,7 @@ class AdminReservationController extends Controller
 
         // Data for dropdowns
         $facilityTypes = FacilityType::where('is_active', true)->get();
-        $facilities = Facility::where('is_active', true)->orderBy('name')->get();
+        $facilities = Facility::with('facilityType')->where('is_active', true)->orderBy('name')->get();
 
         return view('admin.reservations.index', compact('reservations', 'facilityTypes', 'facilities'));
     }
@@ -85,7 +87,17 @@ class AdminReservationController extends Controller
 
         $facilities = Facility::where('is_active', true)->orderBy('name')->get();
 
-        return view('admin.reservations.show', compact('reservation', 'facilities'));
+        $impact = null;
+        $extraHours = null;
+
+        // Decision support only means something while the reservation can still
+        // be acted on.
+        if (in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
+            $impact = $this->decisionSupport->analyze($reservation);
+            $extraHours = $this->decisionSupport->extraHourOptions($reservation);
+        }
+
+        return view('admin.reservations.show', compact('reservation', 'facilities', 'impact', 'extraHours'));
     }
 
     public function approve(Request $request, Reservation $reservation): RedirectResponse
@@ -135,14 +147,16 @@ class AdminReservationController extends Controller
         $checkIn = Carbon::parse($request->validated('check_in'));
         $checkOut = Carbon::parse($request->validated('check_out'));
         $pax = $request->validated('guestCount');
+        $earlyCheckInHours = (int) ($request->validated('early_check_in_hours') ?? 0);
+        $lateCheckOutHours = (int) ($request->validated('late_check_out_hours') ?? 0);
 
         try {
             $breakdown = $this->pricingService->calculate(
                 $facility,
                 $checkIn,
                 $checkOut,
-                0, // early check in hours not yet in form
-                0, // late check out hours not yet in form
+                $earlyCheckInHours,
+                $lateCheckOutHours,
                 $pax
             );
 
@@ -176,7 +190,11 @@ class AdminReservationController extends Controller
                 Carbon::parse($request->validated('check_in')),
                 Carbon::parse($request->validated('check_out')),
                 $request->user(),
-                $request->validated('guestCount')
+                $request->validated('guestCount'),
+                [
+                    'early_check_in_hours' => (int) ($request->validated('early_check_in_hours') ?? 0),
+                    'late_check_out_hours' => (int) ($request->validated('late_check_out_hours') ?? 0),
+                ]
             );
         } catch (\Exception $e) {
             return redirect()->back()->with('error', $e->getMessage());
@@ -185,18 +203,59 @@ class AdminReservationController extends Controller
         return redirect()->back()->with('success', 'Reservation rescheduled successfully.');
     }
 
-    public function storeWalkIn(StoreReservationRequest $request): RedirectResponse
+    public function checkIn(Request $request, Reservation $reservation): RedirectResponse
+    {
+        try {
+            $this->service->checkIn($reservation, $request->user());
+        } catch (InvalidReservationTransitionException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Guest checked in.');
+    }
+
+    public function checkOut(Request $request, Reservation $reservation): RedirectResponse
+    {
+        try {
+            $this->service->checkOut($reservation, $request->user());
+        } catch (InvalidReservationTransitionException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Guest checked out and the reservation is completed.');
+    }
+
+    public function complete(Request $request, Reservation $reservation): RedirectResponse
+    {
+        try {
+            $this->service->changeStatus($reservation, ReservationStatus::Completed, $request->user());
+        } catch (InvalidReservationTransitionException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Reservation marked as completed.');
+    }
+
+    public function storeWalkIn(StoreWalkInReservationRequest $request): RedirectResponse
     {
         $facility = Facility::findOrFail($request->validated('facility_id'));
 
         try {
             $reservation = $this->service->createReservation(
                 $facility,
-                $request->user(), // For now, the admin is treated as the customer.
+                $request->user(),
                 Carbon::parse($request->validated('check_in')),
                 Carbon::parse($request->validated('check_out')),
                 ReservationSource::WalkIn,
-                $request->validated('guestCount')
+                $request->validated('guestCount'),
+                [
+                    'early_check_in_hours' => (int) ($request->validated('early_check_in_hours') ?? 0),
+                    'late_check_out_hours' => (int) ($request->validated('late_check_out_hours') ?? 0),
+                    'guest_name' => $request->validated('guest_name'),
+                    'guest_email' => $request->validated('guest_email'),
+                    'guest_phone' => $request->validated('guest_phone'),
+                    'admin_notes' => $request->validated('admin_notes'),
+                ]
             );
         } catch (\Exception $e) {
             return redirect()->back()->with('error', $e->getMessage());

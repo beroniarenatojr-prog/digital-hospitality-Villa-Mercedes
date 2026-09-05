@@ -1,66 +1,165 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Villa Mercedes Digital Hospitality System
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A web-based reservation and operations system for **Villa Mercedes Nature Farm & Resort**
+(Barangay Namnama, City of Ilagan, Isabela, Philippines).
 
-## About Laravel
+The resort is not only a place to sleep. On the same grounds it runs guest rooms, four
+function halls, day-use and night-use pool packages, a cafe and restobar, and TESDA
+enterprise-based training programs (Housekeeping NC II, Barista NC II). Those activities
+compete for the *same* physical spaces.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+This system is built around that fact.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## What makes it different
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Commercial hotel property management systems model inventory as **rooms sold per night**,
+then bolt on distribution to online travel agencies. Local capstone booking systems
+usually model a **single booking queue** with payment proof upload and an admin list.
 
-## Learning Laravel
+Neither answers the question the owner of a hybrid resort actually asks:
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+> If I accept this booking, what do I lose?
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+This system treats every room, hall and package as a shared asset with **competing
+claims** on it — a guest stay, a hall event, a bundled package, or a live TESDA training
+batch — and explains the cost of each decision in pesos, in plain language.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Four capabilities carry that idea:
 
-## Laravel Sponsors
+1. **Mixed-resource inventory graph.** Rooms, function halls and packages live in one
+   `facilities` table. A package is a composite: booking `Overnight Package` consumes the
+   `Deluxe` room, and booking the `Deluxe` room blocks the package. Both directions are
+   enforced with row-level locks in deterministic order, so concurrent requests cannot
+   double-sell the same physical space.
+2. **Hour-native occupancy.** A cottage held until 9PM is occupied until 9PM. Early
+   check-in and late check-out hours extend the occupancy window used for conflict
+   detection, not just the price.
+3. **Training as first-class inventory.** A TESDA batch claims real rooms, halls and the
+   cafe for weeks. Those claims block guest bookings through the same availability engine,
+   and appear on the same calendar as guest revenue.
+4. **Explainable owner decisions.** The Decision Board states what is free, what a pending
+   request would displace, what that displacement is worth, and what the alternatives cost.
+   The reasoning is rule-based and auditable rather than a black-box forecast.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Baseline capabilities
 
-### Premium Partners
+### Public site
+Home, rooms, halls, packages, dining, gallery, TESDA training (with live batch slots and
+applications), FAQ, contact, facility detail, and a booking page with live price preview.
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+### Guest portal
+Reservations with reschedule and cancel inside the published policy window, itemised
+pricing snapshot, partial payments with proof upload, inquiries, and notifications.
 
-## Contributing
+### Administrator back office
+Facilities (amenities, package components, gallery, status), rates, reservations
+(approve, reject, reschedule, cancel, complete, walk-in encoding, check-in, check-out),
+payments (verify, reject), training batches and applications, inquiries, FAQs, customers,
+reports, and the Owner Decision Board.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Pricing model
+Base, seasonal, extra-person and per-hour additional-charge rates. Amounts are computed in
+integer cents and stored as a snapshot on the reservation, so historical bookings are never
+retroactively repriced by a rate change.
 
-## Code of Conduct
+## Domain rules worth knowing
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- Online reservations start as `Pending`; staff-encoded walk-ins are `Approved` immediately.
+- `Pending` and `Approved` reservations both block availability. A pending request freezes
+  inventory, which is exactly why the opportunity cost of holding it is shown to the owner.
+- Guests may cancel or reschedule online until `resort.policy.*_cutoff_hours` before
+  check-in (48 hours by default). After that the portal explains the deadline and directs
+  the guest to call the resort. The published FAQ and the enforced rule read the same config.
+- Walk-in reservations store the guest's own name, phone and email, separately from the
+  staff account that encoded the booking.
+- Blocking training batch statuses are `Planned` and `Ongoing`; `Completed` and `Cancelled`
+  batches release their facilities.
+- Reservation codes are `VM-YYYYMMDD-XXXXXX`.
 
-## Security Vulnerabilities
+## Architecture
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```
+app/
+  Enums/                     roles, statuses, sources, rate types, training statuses
+  DTOs/                      PriceBreakdown, AvailabilityResult, OccupancyClaim, DecisionImpact
+  Models/                    Facility, Rate, Reservation, Payment, TrainingBatch, ...
+  Services/
+    AvailabilityService      overlap + capacity + package graph + training claims
+    PricingService           base/seasonal/extra person/extra hours, in cents
+    ReservationService       creation, reschedule, status transitions, locking
+    PaymentService           submission and verification of manual payments
+    Payments/                PaymentGateway contract, PayMongo and manual drivers,
+                             OnlinePaymentService for live e-wallet checkout
+    TrainingService          batches, facility claims, applications
+    Admin/
+      DecisionSupportService unified timeline, displacement, opportunity cost, what-ifs
+      ReportingService       booking, revenue and popularity reporting
+    Customer/                ownership checks and policy enforcement wrappers
+```
+
+Key rule: controllers do not contain business logic. Availability, pricing, transitions and
+locking live in services, which is what makes the same rules reusable by the guest portal,
+the admin back office and the Decision Board.
+
+## Local setup
+
+Requirements: PHP 8.2+, Composer, Node 18+, MySQL 8.
+
+```bash
+composer install
+npm install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate --seed
+npm run dev
+php artisan serve
+```
+
+Seeded administrator: `admin@villamercedes.test` / `Password123!`
+
+### Tests
+
+```bash
+php artisan test
+```
+
+Tests run against the `digital_hospitality_antigravity_test` database configured in
+`phpunit.xml`. Create it once before the first run.
+
+### Optional: online payments
+
+Manual proof upload (cash, bank transfer, GCash, Maya) always works. To additionally accept
+live e-wallet checkout, set a gateway in `config/payments.php` via:
+
+```
+PAYMENT_GATEWAY=paymongo
+PAYMONGO_SECRET_KEY=sk_test_...
+PAYMONGO_PUBLIC_KEY=pk_test_...
+```
+
+With no keys configured the system stays in manual mode and says so in the UI rather than
+failing at checkout.
+
+## Research framing
+
+Working title: *An Explainable Mixed-Resource Reservation Model for Hybrid Agri-Tourism
+Resorts with Enterprise-Based Training.*
+
+- **Problem.** Provincial hybrid resorts coordinate lodging, events, day-use hours and live
+  vocational training using Facebook messages, notebooks, and software that assumes
+  overnight hotel rooms.
+- **Gap.** Global property management systems optimise rooms and OTA distribution. Local
+  academic booking systems digitise one queue and evaluate with usability surveys. Neither
+  models contention between guest, event, package and training claims on one resource, nor
+  explains the trade-off to the owner.
+- **Contribution.** A mixed-resource claim model with hour-level occupancy, training
+  occupancy as first-class inventory, and a rule-based explanation layer for approval
+  decisions.
+- **Evaluation.** Conflict-detection accuracy against the manual calendar, time-to-decision
+  for walk-in and extra-hour requests, and estimated versus actual displaced revenue, with
+  ISO 25010 usability as a secondary instrument.
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Built on the Laravel framework, which is open-sourced software licensed under the
+[MIT license](https://opensource.org/licenses/MIT).

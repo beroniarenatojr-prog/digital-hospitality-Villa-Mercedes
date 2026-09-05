@@ -3,6 +3,103 @@
         Reservation Management
     </x-slot>
 
+    <div x-data="{ walkIn: false }">
+    <div class="mb-4 flex justify-end">
+        <button type="button" @click="walkIn = true"
+                class="inline-flex items-center px-4 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition">
+            Record Walk-in
+        </button>
+    </div>
+
+    <!-- Walk-in Modal -->
+    <div x-show="walkIn" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
+        <div class="flex min-h-full items-center justify-center p-4">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="walkIn = false"></div>
+            <div class="relative bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 z-50">
+                <h3 class="text-lg font-medium text-gray-900 mb-1">Record Walk-in Reservation</h3>
+                <p class="text-sm text-gray-500 mb-4">
+                    Walk-ins are approved immediately. The guest details below are stored on the reservation, so the
+                    booking belongs to the guest and not to your staff account.
+                </p>
+
+                <form method="POST" action="{{ route('admin.reservations.store') }}" class="space-y-4">
+                    @csrf
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label for="walkin_guest_name" class="block text-sm font-medium text-gray-700">Guest name <span class="text-danger">*</span></label>
+                            <input type="text" name="guest_name" id="walkin_guest_name" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                        <div>
+                            <label for="walkin_guest_phone" class="block text-sm font-medium text-gray-700">Phone</label>
+                            <input type="text" name="guest_phone" id="walkin_guest_phone"
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                        <div>
+                            <label for="walkin_guest_email" class="block text-sm font-medium text-gray-700">Email</label>
+                            <input type="email" name="guest_email" id="walkin_guest_email"
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="walkin_facility_id" class="block text-sm font-medium text-gray-700">Facility <span class="text-danger">*</span></label>
+                        <select name="facility_id" id="walkin_facility_id" required
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                            @foreach($facilities as $facility)
+                                <option value="{{ $facility->id }}">{{ $facility->name }} ({{ $facility->facilityType->name }})</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label for="walkin_check_in" class="block text-sm font-medium text-gray-700">Check-in <span class="text-danger">*</span></label>
+                            <input type="datetime-local" name="check_in" id="walkin_check_in" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                        <div>
+                            <label for="walkin_check_out" class="block text-sm font-medium text-gray-700">Check-out <span class="text-danger">*</span></label>
+                            <input type="datetime-local" name="check_out" id="walkin_check_out" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                        <div>
+                            <label for="walkin_guest_count" class="block text-sm font-medium text-gray-700">Guests <span class="text-danger">*</span></label>
+                            <input type="number" name="guestCount" id="walkin_guest_count" min="1" value="1" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="walkin_early" class="block text-sm font-medium text-gray-700">Early check-in (hours)</label>
+                            <input type="number" name="early_check_in_hours" id="walkin_early" min="0" max="{{ config('resort.stay.max_additional_hours', 12) }}" value="0"
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                        <div>
+                            <label for="walkin_late" class="block text-sm font-medium text-gray-700">Late check-out (hours)</label>
+                            <input type="number" name="late_check_out_hours" id="walkin_late" min="0" max="{{ config('resort.stay.max_additional_hours', 12) }}" value="0"
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="walkin_notes" class="block text-sm font-medium text-gray-700">Internal notes</label>
+                        <textarea name="admin_notes" id="walkin_notes" rows="2"
+                                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"></textarea>
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" @click="walkIn = false" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-dark">Create Walk-in</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    </div>
+
     <!-- Filters & Actions Bar -->
     <div class="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
         <form method="GET" action="{{ route('admin.reservations.index') }}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -106,8 +203,8 @@
                             <span class="block text-[10px] text-gray-400 mt-0.5">{{ $reservation->reservation_source->label() }}</span>
                         </x-admin.table-cell>
                         <x-admin.table-cell>
-                            <span class="font-medium text-gray-900">{{ $reservation->user->name }}</span>
-                            <span class="block text-xs text-gray-500">{{ $reservation->user->email }}</span>
+                            <span class="font-medium text-gray-900">{{ $reservation->guestName() }}</span>
+                            <span class="block text-xs text-gray-500">{{ $reservation->guestEmail() ?? $reservation->guestPhone() ?? 'No contact on file' }}</span>
                         </x-admin.table-cell>
                         <x-admin.table-cell>
                             <span class="text-sm font-medium text-gray-900">{{ $reservation->facility->name }}</span>
@@ -153,7 +250,7 @@
                 </div>
                 
                 <div class="text-sm text-gray-600 space-y-2 mt-3">
-                    <p><span class="font-medium text-gray-900">{{ $reservation->user->name }}</span> ({{ $reservation->user->email }})</p>
+                    <p><span class="font-medium text-gray-900">{{ $reservation->guestName() }}</span> ({{ $reservation->guestEmail() ?? $reservation->guestPhone() ?? 'no contact' }})</p>
                     <p><span class="font-medium">Facility:</span> {{ $reservation->facility->name }}</p>
                     <p><span class="font-medium">Dates:</span> {{ $reservation->check_in->format('M d') }} - {{ $reservation->check_out->format('M d, Y') }} ({{ $reservation->guest_count }} pax)</p>
                     <p><span class="font-medium">Total:</span> <span class="font-semibold text-gray-900">₱{{ number_format($reservation->total_price, 2) }}</span></p>

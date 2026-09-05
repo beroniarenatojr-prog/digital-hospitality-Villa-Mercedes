@@ -11,6 +11,9 @@ use App\Observers\ReservationObserver;
 use App\Policies\UserPolicy;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use App\Repositories\UserRepository;
+use App\Services\Payments\ManualPaymentGateway;
+use App\Services\Payments\PaymentGateway;
+use App\Services\Payments\PayMongoGateway;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -29,6 +32,13 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(UserRepositoryInterface::class, UserRepository::class);
+
+        $this->app->bind(PaymentGateway::class, function (): PaymentGateway {
+            return match (config('payments.gateway')) {
+                'paymongo' => new PayMongoGateway,
+                default => new ManualPaymentGateway,
+            };
+        });
     }
 
     public function boot(): void

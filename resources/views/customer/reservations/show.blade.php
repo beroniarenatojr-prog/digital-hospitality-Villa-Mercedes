@@ -1,26 +1,14 @@
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Reservation Details') }}
-            </h2>
-            <a href="{{ route('customer.reservations.index') }}" class="text-sm text-primary-600 hover:text-primary-800">
-                &larr; Back to Dashboard
-            </a>
-        </div>
-    </x-slot>
-
+<x-customer-layout>
     <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                <h1 class="text-2xl sm:text-3xl font-bold text-text">Reservation Details</h1>
+                <a href="{{ route('customer.reservations.index') }}" class="text-sm text-primary font-medium hover:underline">
+                    &larr; Back to My Reservations
+                </a>
+            </div>
             
-            @if (session('success'))
-                <x-alert type="success" :message="session('success')" />
-            @endif
-
-            @if (session('error'))
-                <x-alert type="error" :message="session('error')" />
-            @endif
-
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- Left Column: Reservation Info & Pricing -->
                 <div class="md:col-span-2 space-y-6">
@@ -58,6 +46,18 @@
                                     <dt class="text-sm font-medium text-gray-500">Guest Count</dt>
                                     <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{{ $reservation->guest_count }}</dd>
                                 </div>
+                                @if($reservation->early_check_in_hours > 0)
+                                <div class="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                    <dt class="text-sm font-medium text-gray-500">Early check-in</dt>
+                                    <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{{ $reservation->early_check_in_hours }} hour(s)</dd>
+                                </div>
+                                @endif
+                                @if($reservation->late_check_out_hours > 0)
+                                <div class="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                    <dt class="text-sm font-medium text-gray-500">Late check-out</dt>
+                                    <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{{ $reservation->late_check_out_hours }} hour(s)</dd>
+                                </div>
+                                @endif
                             </dl>
                         </div>
                     </div>
@@ -147,10 +147,31 @@
                                 @endif
                             </div>
                         </div>
+                    @elseif(in_array($reservation->status, [\App\Enums\ReservationStatus::Pending, \App\Enums\ReservationStatus::Approved], true))
+                        @php
+                            $cutoffHours = $reservationService->cancellationCutoffHours();
+                            $deadline = $reservationService->selfServiceDeadline($reservation, $cutoffHours);
+                        @endphp
+                        <div class="bg-white shadow sm:rounded-lg">
+                            <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">Actions</h3>
+                            </div>
+                            <div class="p-6 space-y-3 text-sm text-gray-600">
+                                <p>
+                                    Online changes closed on
+                                    <span class="font-semibold text-gray-900">{{ $deadline->format('M d, Y h:i A') }}</span>
+                                    ({{ $cutoffHours }} hours before check-in).
+                                </p>
+                                <p>
+                                    To reschedule or cancel now, contact the resort at
+                                    <a href="{{ config('resort.phone_href') }}" class="font-medium text-primary-600 hover:underline">{{ config('resort.phone') }}</a>.
+                                </p>
+                            </div>
+                        </div>
                     @endif
                 </div>
             </div>
 
         </div>
     </div>
-</x-app-layout>
+</x-customer-layout>

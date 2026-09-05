@@ -6,6 +6,7 @@ use App\DTOs\AvailabilityResult;
 use App\DTOs\PriceBreakdown;
 use App\Enums\ReservationSource;
 use App\Exceptions\Customer\ReservationOwnershipException;
+use App\Exceptions\Customer\ReservationPolicyException;
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Models\User;
@@ -90,14 +91,24 @@ class CustomerReservationService
     /**
      * Cancel a reservation owned by the customer.
      *
-     * Verifies ownership before delegating to ReservationService::cancel().
+     * Verifies ownership and the published free-cancellation window before
+     * delegating to ReservationService::cancel().
      *
      * @throws ReservationOwnershipException
+     * @throws ReservationPolicyException
      * @throws \App\Exceptions\Reservation\ReservationCancellationException
      */
     public function cancelReservation(User $customer, Reservation $reservation, ?string $reason = null): void
     {
         $this->verifyOwnership($customer, $reservation);
+
+        $cutoffHours = $this->cancellationCutoffHours();
+
+        if (! $this->isWithinCutoff($reservation, $cutoffHours)) {
+            throw new ReservationPolicyException(
+                "Online cancellation closes {$cutoffHours} hours before check-in. Please contact the resort directly to cancel this reservation."
+            );
+        }
 
         $this->reservationService->cancel($reservation, $customer, $reason);
     }
@@ -106,6 +117,7 @@ class CustomerReservationService
      * Reschedule a reservation owned by the customer.
      *
      * @throws ReservationOwnershipException
+     * @throws ReservationPolicyException
      */
     public function rescheduleReservation(
         User $customer,
@@ -118,7 +130,13 @@ class CustomerReservationService
     ): Reservation {
         $this->verifyOwnership($customer, $reservation);
 
-        // Optional: add business rules here (e.g., cannot reschedule if < 48 hours to check-in)
+        $cutoffHours = $this->rescheduleCutoffHours();
+
+        if (! $this->isWithinCutoff($reservation, $cutoffHours)) {
+            throw new ReservationPolicyException(
+                "Online rescheduling closes {$cutoffHours} hours before check-in. Please contact the resort directly to move this reservation."
+            );
+        }
 
         return $this->reservationService->reschedule(
             $reservation,
@@ -136,9 +154,24 @@ class CustomerReservationService
      *
      * Delegates entirely to AvailabilityService::isAvailable().
      */
-    public function checkAvailability(Facility $facility, Carbon $checkIn, Carbon $checkOut, ?int $excludeReservationId = null, ?int $guestCount = null): AvailabilityResult
-    {
-        return $this->availabilityService->isAvailable($facility, $checkIn, $checkOut, $excludeReservationId, $guestCount);
+    public function checkAvailability(
+        Facility $facility,
+        Carbon $checkIn,
+        Carbon $checkOut,
+        ?int $excludeReservationId = null,
+        ?int $guestCount = null,
+        int $earlyCheckInHours = 0,
+        int $lateCheckOutHours = 0
+    ): AvailabilityResult {
+        return $this->availabilityService->isAvailable(
+            $facility,
+            $checkIn,
+            $checkOut,
+            $excludeReservationId,
+            $guestCount,
+            $earlyCheckInHours,
+            $lateCheckOutHours
+        );
     }
 
     /**
@@ -169,7 +202,9 @@ class CustomerReservationService
      */
     public function canCancel(Reservation $reservation): bool
     {
-        return in_array($reservation->status, [\App\Enums\ReservationStatus::Approved]); // Only Approved can be cancelled according to ReservationService validateTransition
+        // Only Approved can be cancelled according to ReservationService::validateTransition()
+        return $reservation->status === \App\Enums\ReservationStatus::Approved
+            && $this->isWithinCutoff($reservation, $this->cancellationCutoffHours());
     }
 
     /**
@@ -177,6 +212,30 @@ class CustomerReservationService
      */
     public function canReschedule(Reservation $reservation): bool
     {
-        return in_array($reservation->status, [\App\Enums\ReservationStatus::Pending, \App\Enums\ReservationStatus::Approved], true);
+        return in_array($reservation->status, [\App\Enums\ReservationStatus::Pending, \App\Enums\ReservationStatus::Approved], true)
+            && $this->isWithinCutoff($reservation, $this->rescheduleCutoffHours());
+    }
+
+    public function cancellationCutoffHours(): int
+    {
+        return (int) config('resort.policy.cancellation_cutoff_hours', 48);
+    }
+
+    public function rescheduleCutoffHours(): int
+    {
+        return (int) config('resort.policy.reschedule_cutoff_hours', 48);
+    }
+
+    /**
+     * The moment after which the guest can no longer self-serve this reservation.
+     */
+    public function selfServiceDeadline(Reservation $reservation, int $cutoffHours): Carbon
+    {
+        return $reservation->selfServiceDeadline($cutoffHours);
+    }
+
+    private function isWithinCutoff(Reservation $reservation, int $cutoffHours): bool
+    {
+        return now()->lessThan($this->selfServiceDeadline($reservation, $cutoffHours));
     }
 }

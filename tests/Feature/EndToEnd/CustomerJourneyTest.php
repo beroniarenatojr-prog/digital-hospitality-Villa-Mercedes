@@ -61,7 +61,7 @@ class CustomerJourneyTest extends TestCase
         $checkOut = Carbon::now()->addDays(7)->format('Y-m-d');
         $guestCount = 2;
 
-        $response = $this->postJson("/customer/book/{$facility->id}/calculate", [
+        $response = $this->postJson(route('customer.booking.calculate', $facility), [
             'check_in' => $checkIn,
             'check_out' => $checkOut,
             'guestCount' => $guestCount,

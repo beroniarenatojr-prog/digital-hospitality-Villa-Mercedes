@@ -25,22 +25,32 @@
 
             <!-- Customer Details -->
             <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Customer Information</h3>
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Guest Information</h3>
                 <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Name</dt>
-                        <dd class="mt-1 text-sm font-semibold text-gray-900">{{ $reservation->user->name }}</dd>
+                        <dd class="mt-1 text-sm font-semibold text-gray-900">{{ $reservation->guestName() }}</dd>
                     </div>
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Email Address</dt>
                         <dd class="mt-1 text-sm text-gray-900">
-                            <a href="mailto:{{ $reservation->user->email }}" class="text-primary hover:underline">{{ $reservation->user->email }}</a>
+                            @if($reservation->guestEmail())
+                                <a href="mailto:{{ $reservation->guestEmail() }}" class="text-primary hover:underline">{{ $reservation->guestEmail() }}</a>
+                            @else
+                                <span class="text-gray-500">Not provided</span>
+                            @endif
                         </dd>
                     </div>
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Phone</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->user->phone ?? 'Not provided' }}</dd>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guestPhone() ?? 'Not provided' }}</dd>
                     </div>
+                    @if($reservation->guest_name)
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Encoded by</dt>
+                            <dd class="mt-1 text-sm text-gray-900">{{ $reservation->user->name }} ({{ $reservation->reservation_source->label() }})</dd>
+                        </div>
+                    @endif
                 </dl>
             </div>
 
@@ -67,6 +77,18 @@
                         <dt class="text-sm font-medium text-gray-500">Guest Count</dt>
                         <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guest_count }} persons</dd>
                     </div>
+                    @if($reservation->early_check_in_hours > 0)
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Early check-in</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->early_check_in_hours }} hour(s)</dd>
+                    </div>
+                    @endif
+                    @if($reservation->late_check_out_hours > 0)
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Late check-out</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->late_check_out_hours }} hour(s)</dd>
+                    </div>
+                    @endif
                     @if($reservation->special_requests)
                     <div class="sm:col-span-2">
                         <dt class="text-sm font-medium text-gray-500">Special Requests</dt>
@@ -75,6 +97,107 @@
                     @endif
                 </dl>
             </div>
+
+            @if($impact)
+                <!-- Decision Impact -->
+                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-4 border-b pb-2">
+                        <h3 class="text-lg font-semibold text-gray-900">What this booking costs the business</h3>
+                        <a href="{{ route('admin.decision-board') }}" class="text-sm font-medium text-primary hover:underline">Open Decision Board</a>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                        <div class="rounded-md border border-gray-200 p-3">
+                            <p class="text-xs uppercase tracking-wider text-gray-500">Booking value</p>
+                            <p class="mt-1 text-lg font-bold text-gray-900">₱{{ number_format($impact->reservationValue, 2) }}</p>
+                        </div>
+                        <div class="rounded-md border border-gray-200 p-3">
+                            <p class="text-xs uppercase tracking-wider text-gray-500">Space frozen (list value)</p>
+                            <p class="mt-1 text-lg font-bold text-gray-900">₱{{ number_format($impact->opportunityCost, 2) }}</p>
+                        </div>
+                        <div class="rounded-md border border-gray-200 p-3">
+                            <p class="text-xs uppercase tracking-wider text-gray-500">Net effect</p>
+                            <p class="mt-1 text-lg font-bold {{ $impact->isNetNegative() ? 'text-danger' : 'text-success' }}">
+                                {{ $impact->isNetNegative() ? '-' : '+' }}₱{{ number_format(abs($impact->netValue()), 2) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <ul class="space-y-2">
+                        @foreach($impact->explanations as $explanation)
+                            <li class="flex gap-2 text-sm text-gray-700">
+                                <span class="text-primary mt-0.5">&bull;</span>
+                                <span>{{ $explanation }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+
+                    @if($impact->frozenResources !== [])
+                        <div class="mt-4 rounded-md bg-gray-50 border border-gray-200 p-3">
+                            <p class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Linked resources held</p>
+                            <ul class="space-y-1 text-sm text-gray-700">
+                                @foreach($impact->frozenResources as $frozen)
+                                    <li class="flex justify-between gap-4">
+                                        <span>{{ $frozen['name'] }} <span class="text-gray-500">— {{ $frozen['reason'] }}</span></span>
+                                        <span class="font-medium whitespace-nowrap">₱{{ number_format($frozen['list_value'], 2) }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
+                </div>
+            @endif
+
+            @if($extraHours)
+                <!-- Extra hours what-if -->
+                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-1 border-b pb-2">Can they stay longer?</h3>
+                    <p class="text-sm text-gray-500 mt-2 mb-4">
+                        Late check-out charged at
+                        @if($extraHours['hourly_rate'] !== null)
+                            ₱{{ number_format($extraHours['hourly_rate'], 2) }} per hour.
+                        @else
+                            no configured hourly rate — add a "Late Check-out" rate for this facility to quote extra hours.
+                        @endif
+                        @if($extraHours['next_claim'])
+                            The next claim is <span class="font-medium text-gray-900">{{ $extraHours['next_claim']->label }}</span>
+                            on {{ $extraHours['next_claim']->facilityName }}, starting
+                            {{ $extraHours['next_claim']->from->format('M j, g:i A') }}.
+                        @else
+                            Nothing else is booked on this space afterwards.
+                        @endif
+                    </p>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead>
+                                <tr class="text-left text-xs uppercase tracking-wider text-gray-500 border-b">
+                                    <th class="py-2 pr-4">Extra hours</th>
+                                    <th class="py-2 pr-4">Additional charge</th>
+                                    <th class="py-2 pr-4">Space released</th>
+                                    <th class="py-2">Verdict</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($extraHours['options'] as $option)
+                                    <tr class="border-b border-gray-100 last:border-b-0 {{ $option['collides'] ? 'bg-danger-light/40' : '' }}">
+                                        <td class="py-2 pr-4 font-medium text-gray-900">+{{ $option['hours'] }}h</td>
+                                        <td class="py-2 pr-4">₱{{ number_format($option['charge'], 2) }}</td>
+                                        <td class="py-2 pr-4 text-gray-600">{{ $option['blocked_release'] }}</td>
+                                        <td class="py-2">
+                                            @if($option['collides'])
+                                                <span class="text-danger font-medium">Collides with {{ $option['collides_with'] }}</span>
+                                            @else
+                                                <span class="text-success font-medium">Safe to offer</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
 
             <!-- Pricing Snapshot -->
             <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
@@ -174,9 +297,57 @@
                     </button>
                     
                     @if($reservation->status === \App\Enums\ReservationStatus::Approved)
+                        <button @click="action = 'complete'" class="w-full px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-hover transition mt-2">
+                            Mark as Completed
+                        </button>
+
                         <button @click="action = 'cancel'" class="w-full px-4 py-2 border border-danger text-danger bg-white rounded-md text-sm font-semibold hover:bg-danger hover:text-white transition mt-2">
                             Cancel Reservation
                         </button>
+                    @endif
+                </div>
+            @endif
+
+            @if($reservation->status === \App\Enums\ReservationStatus::Approved || $reservation->checked_in_at)
+                <!-- Front desk -->
+                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6 space-y-3">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2 border-b pb-2">Front desk</h3>
+
+                    @if($reservation->isInHouse())
+                        <p class="text-sm text-success font-medium">
+                            In house since {{ $reservation->checked_in_at->format('M d, Y g:i A') }}.
+                        </p>
+                    @elseif($reservation->checked_out_at)
+                        <p class="text-sm text-gray-600">
+                            Checked out {{ $reservation->checked_out_at->format('M d, Y g:i A') }}.
+                        </p>
+                    @else
+                        <p class="text-sm text-gray-600">
+                            Guest has not arrived yet. Expected {{ $reservation->occupancyStart()->format('M d, g:i A') }}.
+                        </p>
+                    @endif
+
+                    @if(! $reservation->checked_in_at)
+                        <form method="POST" action="{{ route('admin.reservations.check-in', $reservation) }}">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="w-full px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-hover transition">
+                                Check in guest
+                            </button>
+                        </form>
+                    @elseif(! $reservation->checked_out_at)
+                        <form method="POST" action="{{ route('admin.reservations.check-out', $reservation) }}">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="w-full px-4 py-2 border border-primary text-primary bg-white rounded-md text-sm font-semibold hover:bg-primary hover:text-white transition">
+                                Check out &amp; complete
+                            </button>
+                        </form>
+                        @if($reservation->getRemainingBalance() > 0)
+                            <p class="text-xs text-danger">
+                                ₱{{ number_format($reservation->getRemainingBalance(), 2) }} is still unpaid. Settle the balance before releasing the guest.
+                            </p>
+                        @endif
                     @endif
                 </div>
             @endif
@@ -224,6 +395,25 @@
                 </div>
             </div>
 
+            <!-- Complete Modal -->
+            <div x-show="action === 'complete'" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
+                <div class="flex min-h-full items-center justify-center p-4">
+                    <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="action = null"></div>
+                    <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-50">
+                        <h3 class="text-lg font-medium text-gray-900 mb-4">Mark Reservation as Completed</h3>
+                        <p class="text-sm text-gray-500 mb-6">
+                            Completing this reservation releases {{ $reservation->facility->name }} for the booked period so it can be sold again.
+                        </p>
+                        <form method="POST" action="{{ route('admin.reservations.complete', $reservation) }}" class="flex justify-end gap-3">
+                            @csrf
+                            @method('PATCH')
+                            <button type="button" @click="action = null" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
+                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-dark">Yes, Complete</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             <!-- Cancel Modal -->
             <div x-show="action === 'cancel'" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
                 <div class="flex min-h-full items-center justify-center p-4">
@@ -259,7 +449,9 @@
                         facility_id: '{{ $reservation->facility_id }}',
                         check_in: '{{ $reservation->check_in->format('Y-m-d') }}',
                         check_out: '{{ $reservation->check_out->format('Y-m-d') }}',
-                        guestCount: {{ $reservation->guest_count }}
+                        guestCount: {{ $reservation->guest_count }},
+                        early_check_in_hours: {{ $reservation->early_check_in_hours }},
+                        late_check_out_hours: {{ $reservation->late_check_out_hours }}
                     },
                     async calculate() {
                         this.loading = true;
@@ -317,6 +509,16 @@
                                     <label class="block text-sm font-medium text-gray-700">Guests (Pax)</label>
                                     <input type="number" x-model="form.guestCount" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                                 </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Early check-in (hours)</label>
+                                        <input type="number" x-model.number="form.early_check_in_hours" min="0" max="12" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Late check-out (hours)</label>
+                                        <input type="number" x-model.number="form.late_check_out_hours" min="0" max="12" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                                    </div>
+                                </div>
                             </div>
                             <div class="flex justify-end gap-3 mt-6">
                                 <button type="button" @click="action = null" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
@@ -353,6 +555,8 @@
                                 <input type="hidden" name="check_in" :value="form.check_in">
                                 <input type="hidden" name="check_out" :value="form.check_out">
                                 <input type="hidden" name="guestCount" :value="form.guestCount">
+                                <input type="hidden" name="early_check_in_hours" :value="form.early_check_in_hours">
+                                <input type="hidden" name="late_check_out_hours" :value="form.late_check_out_hours">
                                 
                                 <button type="button" @click="step = 1" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Back</button>
                                 <button type="submit" class="px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-dark">Confirm Reschedule</button>

@@ -50,7 +50,7 @@
                     @if($payment->status !== \App\Enums\PaymentStatus::Pending)
                         <div>
                             <dt class="text-sm font-medium text-gray-500">{{ $payment->status === \App\Enums\PaymentStatus::Verified ? 'Verified' : 'Reviewed' }} By</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $payment->verifiedBy?->name ?? '—' }}</dd>
+                            <dd class="mt-1 text-sm text-gray-900">{{ $payment->verifiedBy?->name ?? 'Payment gateway (automatic)' }}</dd>
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">{{ $payment->status === \App\Enums\PaymentStatus::Verified ? 'Verified' : 'Reviewed' }} At</dt>

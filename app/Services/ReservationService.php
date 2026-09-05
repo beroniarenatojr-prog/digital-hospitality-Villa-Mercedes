@@ -36,7 +36,10 @@ class ReservationService
      *   special_requests?: string|null,
      *   admin_notes?: string|null,
      *   early_check_in_hours?: int,
-     *   late_check_out_hours?: int
+     *   late_check_out_hours?: int,
+     *   guest_name?: string|null,
+     *   guest_email?: string|null,
+     *   guest_phone?: string|null
      * } $options
      * @return Reservation
      * 
@@ -87,7 +90,9 @@ class ReservationService
                 $checkIn,
                 $checkOut,
                 null,
-                $guestCount
+                $guestCount,
+                $earlyCheckInHours,
+                $lateCheckOutHours
             );
 
             if (! $availability->isAvailable) {
@@ -118,12 +123,17 @@ class ReservationService
             // 6. Create Reservation (Convert cents to exact decimal representation)
             $reservation = Reservation::create([
                 'user_id' => $actor->id,
+                'guest_name' => $options['guest_name'] ?? null,
+                'guest_email' => $options['guest_email'] ?? null,
+                'guest_phone' => $options['guest_phone'] ?? null,
                 'facility_id' => $lockedFacility->id,
                 'reservation_code' => $reservationCode,
                 'reservation_date' => now()->toDateString(),
                 'check_in' => $checkIn,
                 'check_out' => $checkOut,
                 'guest_count' => $guestCount,
+                'early_check_in_hours' => $earlyCheckInHours,
+                'late_check_out_hours' => $lateCheckOutHours,
                 'special_requests' => $options['special_requests'] ?? null,
                 'admin_notes' => $options['admin_notes'] ?? null,
                 'base_price' => number_format($priceBreakdown->baseAmount / 100, 2, '.', ''),
@@ -176,8 +186,12 @@ class ReservationService
         int $newGuestCount,
         array $options = []
     ): Reservation {
-        $earlyCheckInHours = $options['early_check_in_hours'] ?? 0;
-        $lateCheckOutHours = $options['late_check_out_hours'] ?? 0;
+        $earlyCheckInHours = array_key_exists('early_check_in_hours', $options)
+            ? (int) $options['early_check_in_hours']
+            : (int) ($reservation->early_check_in_hours ?? 0);
+        $lateCheckOutHours = array_key_exists('late_check_out_hours', $options)
+            ? (int) $options['late_check_out_hours']
+            : (int) ($reservation->late_check_out_hours ?? 0);
 
         if (!in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
             throw new InvalidReservationTransitionException(
@@ -209,7 +223,9 @@ class ReservationService
                 $newCheckIn,
                 $newCheckOut,
                 $lockedReservation->id,
-                $newGuestCount
+                $newGuestCount,
+                $earlyCheckInHours,
+                $lateCheckOutHours
             );
 
             if (!$availability->isAvailable) {
@@ -243,6 +259,8 @@ class ReservationService
                 'check_in' => $newCheckIn,
                 'check_out' => $newCheckOut,
                 'guest_count' => $newGuestCount,
+                'early_check_in_hours' => $earlyCheckInHours,
+                'late_check_out_hours' => $lateCheckOutHours,
                 'base_price' => number_format($priceBreakdown->baseAmount / 100, 2, '.', ''),
                 'additional_charges' => number_format(($priceBreakdown->earlyCheckInCharge + $priceBreakdown->lateCheckOutCharge + $priceBreakdown->extraPersonCharge) / 100, 2, '.', ''),
                 'total_price' => number_format($priceBreakdown->totalAmount / 100, 2, '.', ''),
@@ -320,6 +338,66 @@ class ReservationService
             ->causedBy($actor)
             ->event('status_changed')
             ->log("Reservation status changed from {$currentStatus->label()} to {$newStatus->label()}.");
+    }
+
+    /**
+     * Record the guest as physically on the property.
+     *
+     * @throws InvalidReservationTransitionException
+     */
+    public function checkIn(Reservation $reservation, User $actor): Reservation
+    {
+        if ($reservation->status !== ReservationStatus::Approved) {
+            throw new InvalidReservationTransitionException(
+                "Only approved reservations can be checked in. This one is {$reservation->status->label()}."
+            );
+        }
+
+        if ($reservation->checked_in_at !== null) {
+            throw new InvalidReservationTransitionException(
+                'This reservation was already checked in on ' . $reservation->checked_in_at->format('M d, Y g:i A') . '.'
+            );
+        }
+
+        $reservation->update(['checked_in_at' => now()]);
+
+        activity()
+            ->performedOn($reservation)
+            ->causedBy($actor)
+            ->event('checked_in')
+            ->log("Guest checked in for reservation {$reservation->reservation_code}.");
+
+        return $reservation;
+    }
+
+    /**
+     * Record departure and close the stay. Completing the reservation is what
+     * releases the space, so check-out and completion happen together.
+     *
+     * @throws InvalidReservationTransitionException
+     */
+    public function checkOut(Reservation $reservation, User $actor): Reservation
+    {
+        if ($reservation->checked_in_at === null) {
+            throw new InvalidReservationTransitionException('This reservation has not been checked in yet.');
+        }
+
+        if ($reservation->checked_out_at !== null) {
+            throw new InvalidReservationTransitionException(
+                'This reservation was already checked out on ' . $reservation->checked_out_at->format('M d, Y g:i A') . '.'
+            );
+        }
+
+        $reservation->update(['checked_out_at' => now()]);
+        $this->changeStatus($reservation, ReservationStatus::Completed, $actor);
+
+        activity()
+            ->performedOn($reservation)
+            ->causedBy($actor)
+            ->event('checked_out')
+            ->log("Guest checked out for reservation {$reservation->reservation_code}.");
+
+        return $reservation;
     }
 
     /**

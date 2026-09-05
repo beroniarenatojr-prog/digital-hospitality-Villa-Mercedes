@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             AmenitySeeder::class,
             FacilitySeeder::class,
             RateSeeder::class,
+            TrainingBatchSeeder::class,
             FaqCategorySeeder::class,
             FaqSeeder::class,
         ]);

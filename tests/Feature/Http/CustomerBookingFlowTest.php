@@ -47,6 +47,24 @@ class CustomerBookingFlowTest extends TestCase
             'is_active' => true,
         ]);
 
+        \App\Models\Rate::factory()->create([
+            'facility_id' => $facility->id,
+            'name' => \App\Services\PricingService::EARLY_CHECK_IN_RATE_NAME,
+            'type' => \App\Enums\RateType::AdditionalCharge->value,
+            'amount' => 200,
+            'unit' => 'per hour',
+            'is_active' => true,
+        ]);
+
+        \App\Models\Rate::factory()->create([
+            'facility_id' => $facility->id,
+            'name' => \App\Services\PricingService::LATE_CHECK_OUT_RATE_NAME,
+            'type' => \App\Enums\RateType::AdditionalCharge->value,
+            'amount' => 300,
+            'unit' => 'per hour',
+            'is_active' => true,
+        ]);
+
         return $facility;
     }
 
@@ -91,9 +109,52 @@ class CustomerBookingFlowTest extends TestCase
             'data' => [
                 'base_amount' => 500000, // 5000 * 100 for cents
                 'extra_person_charge' => 50000, // 1 extra * 500 * 100
+                'early_check_in_charge' => 0,
+                'late_check_out_charge' => 0,
                 'total_amount' => 550000,
             ]
         ]);
+    }
+
+    public function test_preview_includes_early_check_in_and_late_check_out_charges(): void
+    {
+        $customer = User::factory()->create();
+        $room = $this->createFacility(FacilityTypeEnum::Room->value, true, 2, 4);
+
+        $payload = [
+            'check_in' => now()->addDays(5)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->startOfDay()->format('Y-m-d\TH:i'),
+            'guestCount' => 2,
+            'early_check_in_hours' => 2,
+            'late_check_out_hours' => 1,
+        ];
+
+        $response = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $payload);
+
+        $response->assertOk();
+        $response->assertJson([
+            'success' => true,
+            'data' => [
+                'base_amount' => 500000,
+                'early_check_in_charge' => 40000,
+                'late_check_out_charge' => 30000,
+                'extra_person_charge' => 0,
+                'total_amount' => 570000,
+            ],
+        ]);
+    }
+
+    public function test_booking_wizard_shows_early_and_late_hour_fields(): void
+    {
+        $room = $this->createFacility(FacilityTypeEnum::Room->value);
+
+        $response = $this->get(route('customer.booking.create', $room));
+
+        $response->assertOk();
+        // Assert on the fields themselves rather than their labels, so wording
+        // can change without breaking this test.
+        $response->assertSee('id="early_check_in_hours"', false);
+        $response->assertSee('id="late_check_out_hours"', false);
     }
 
     public function test_preview_endpoint_returns_error_for_over_capacity()
@@ -166,6 +227,8 @@ class CustomerBookingFlowTest extends TestCase
             'check_in' => now()->addDays(10)->startOfDay()->format('Y-m-d\TH:i'),
             'check_out' => now()->addDays(11)->startOfDay()->format('Y-m-d\TH:i'),
             'guestCount' => 2,
+            'early_check_in_hours' => 1,
+            'late_check_out_hours' => 2,
             // The frontend doesn't even send price/status, but if they tried to forge it:
             'total_price' => 1.00,
             'status' => 'approved'
@@ -179,7 +242,9 @@ class CustomerBookingFlowTest extends TestCase
         $reservation = \App\Models\Reservation::first();
         
         $this->assertNotNull($reservation);
-        $this->assertEquals(5000, $reservation->total_price); // 5000.00 DB decimal
+        $this->assertEquals(1, $reservation->early_check_in_hours);
+        $this->assertEquals(2, $reservation->late_check_out_hours);
+        $this->assertEquals(5800, $reservation->total_price); // 5000 + 200 + 600
         $this->assertEquals('pending', $reservation->status->value); // Ignores forged status
         $this->assertEquals($customer->id, $reservation->user_id);
     }

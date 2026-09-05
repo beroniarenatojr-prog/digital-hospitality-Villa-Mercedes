@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Exceptions\Customer\ReservationPolicyException;
+use App\Exceptions\Reservation\InvalidReservationTransitionException;
+use App\Exceptions\Reservation\ReservationCancellationException;
+use App\Exceptions\Reservation\ReservationConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customer\RescheduleReservationRequest;
 use App\Http\Requests\Customer\StoreReservationRequest;
@@ -42,7 +46,11 @@ class CustomerReservationController extends Controller
             $facility,
             Carbon::parse($request->validated('check_in')),
             Carbon::parse($request->validated('check_out')),
-            $request->validated('guestCount')
+            $request->validated('guestCount'),
+            [
+                'early_check_in_hours' => (int) ($request->validated('early_check_in_hours') ?? 0),
+                'late_check_out_hours' => (int) ($request->validated('late_check_out_hours') ?? 0),
+            ]
         );
 
         return redirect()->route('customer.reservations.show', $reservation)
@@ -53,14 +61,23 @@ class CustomerReservationController extends Controller
     {
         $facility = Facility::findOrFail($request->validated('facility_id'));
 
-        $this->service->rescheduleReservation(
-            $request->user(),
-            $reservation,
-            $facility,
-            Carbon::parse($request->validated('check_in')),
-            Carbon::parse($request->validated('check_out')),
-            $request->validated('guestCount')
-        );
+        try {
+            $this->service->rescheduleReservation(
+                $request->user(),
+                $reservation,
+                $facility,
+                Carbon::parse($request->validated('check_in')),
+                Carbon::parse($request->validated('check_out')),
+                $request->validated('guestCount'),
+                [
+                    'early_check_in_hours' => (int) ($request->validated('early_check_in_hours') ?? 0),
+                    'late_check_out_hours' => (int) ($request->validated('late_check_out_hours') ?? 0),
+                ]
+            );
+        } catch (ReservationPolicyException|ReservationConflictException|InvalidReservationTransitionException $e) {
+            return redirect()->route('customer.reservations.show', $reservation)
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('customer.reservations.show', $reservation)
             ->with('success', 'Reservation rescheduled successfully.');
@@ -68,7 +85,12 @@ class CustomerReservationController extends Controller
 
     public function cancel(Request $request, Reservation $reservation): RedirectResponse
     {
-        $this->service->cancelReservation($request->user(), $reservation, $request->input('reason'));
+        try {
+            $this->service->cancelReservation($request->user(), $reservation, $request->input('reason'));
+        } catch (ReservationPolicyException|ReservationCancellationException $e) {
+            return redirect()->route('customer.reservations.show', $reservation)
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('customer.reservations.show', $reservation)
             ->with('success', 'Reservation cancelled successfully.');
@@ -84,6 +106,8 @@ class CustomerReservationController extends Controller
             'check_out' => ['required', 'date', 'after:check_in'],
             'guestCount' => ['required', 'integer', 'min:1'],
             'facility_id' => ['required', 'exists:facilities,id'],
+            'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:' . config('resort.stay.max_additional_hours', 12)],
+            'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:' . config('resort.stay.max_additional_hours', 12)],
         ]);
 
         try {
@@ -91,8 +115,18 @@ class CustomerReservationController extends Controller
             $checkIn = Carbon::parse($validated['check_in']);
             $checkOut = Carbon::parse($validated['check_out']);
             $guestCount = $validated['guestCount'];
+            $earlyCheckInHours = (int) ($validated['early_check_in_hours'] ?? 0);
+            $lateCheckOutHours = (int) ($validated['late_check_out_hours'] ?? 0);
 
-            $availability = $this->service->checkAvailability($facility, $checkIn, $checkOut, $reservation->id, $guestCount);
+            $availability = $this->service->checkAvailability(
+                $facility,
+                $checkIn,
+                $checkOut,
+                $reservation->id,
+                $guestCount,
+                $earlyCheckInHours,
+                $lateCheckOutHours
+            );
 
             if (! $availability->isAvailable) {
                 return response()->json([
@@ -105,8 +139,8 @@ class CustomerReservationController extends Controller
                 $facility,
                 $checkIn,
                 $checkOut,
-                0,
-                0,
+                $earlyCheckInHours,
+                $lateCheckOutHours,
                 $guestCount
             );
 
@@ -114,6 +148,8 @@ class CustomerReservationController extends Controller
                 'success' => true,
                 'data' => [
                     'base_amount' => $price->baseAmount,
+                    'early_check_in_charge' => $price->earlyCheckInCharge,
+                    'late_check_out_charge' => $price->lateCheckOutCharge,
                     'extra_person_charge' => $price->extraPersonCharge,
                     'total_amount' => $price->totalAmount,
                 ]
