@@ -32,7 +32,9 @@ echo "==> Installing PHP dependencies"
 composer install --no-interaction --prefer-dist
 
 echo "==> Installing Node dependencies"
-npm install --no-audit --no-fund
+# `npm ci` installs exactly from the lockfile and never rewrites it (unlike
+# `npm install`, which would rewrite the lockfile name field on every run).
+npm ci --no-audit --no-fund
 
 echo "==> Preparing .env"
 if [ ! -f .env ]; then
