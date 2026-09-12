@@ -15,15 +15,15 @@ ensure_mysql_running() {
     fi
 
     # Start the server if it is not already answering.
-    if ! sudo mysqladmin ping --silent 2>/dev/null; then
-        sudo service mysql start 2>/dev/null || true
+    if ! sudo mysqladmin ping --silent >/dev/null 2>&1; then
+        sudo service mysql start >/dev/null 2>&1 || true
     fi
-    if ! sudo mysqladmin ping --silent 2>/dev/null; then
+    if ! sudo mysqladmin ping --silent >/dev/null 2>&1; then
         sudo mysqld_safe --user=mysql >/tmp/mysqld-safe.log 2>&1 &
     fi
 
     for _ in $(seq 1 60); do
-        if sudo mysqladmin ping --silent 2>/dev/null; then
+        if sudo mysqladmin ping --silent >/dev/null 2>&1; then
             return 0
         fi
         sleep 1
