@@ -41,7 +41,9 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
+            // Root-relative so photos load on whichever host you are using
+            // (Laragon vhost or php artisan serve), not only APP_URL.
+            'url' => env('FILESYSTEM_URL', '/storage'),
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

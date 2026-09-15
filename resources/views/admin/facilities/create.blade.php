@@ -51,7 +51,7 @@
                         <label for="base_capacity" class="block text-sm font-medium text-gray-700">
                             Standard Capacity <span class="text-danger">*</span>
                         </label>
-                        <input type="number" id="base_capacity" name="base_capacity" value="{{ old('base_capacity') }}" required min="1"
+                        <input type="number" id="base_capacity" name="base_capacity" value="{{ old('base_capacity') }}" min="1"
                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                         <p class="mt-1 text-xs text-gray-500">Number of guests included in the base occupancy.</p>
                         @error('base_capacity')
@@ -62,7 +62,7 @@
                         <label for="max_capacity" class="block text-sm font-medium text-gray-700">
                             Maximum Capacity <span class="text-danger">*</span>
                         </label>
-                        <input type="number" id="max_capacity" name="max_capacity" value="{{ old('max_capacity') }}" required min="1"
+                        <input type="number" id="max_capacity" name="max_capacity" value="{{ old('max_capacity') }}" min="1"
                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                         <p class="mt-1 text-xs text-gray-500">Absolute maximum number of guests allowed.</p>
                         @error('max_capacity')
@@ -70,18 +70,26 @@
                         @enderror
                     </div>
                 </div>
+                <p class="-mt-4 text-xs text-gray-500">Leave both capacity fields blank for cottages; cottage party size is recorded without a fixed limit.</p>
 
                 <!-- Images -->
                 <div>
-                    <label for="images" class="block text-sm font-medium text-gray-700">Images</label>
-                    <input type="file" id="images" name="images[]" multiple accept="image/*"
+                    <label for="images" class="block text-sm font-medium text-gray-700">Guest photos</label>
+                    <p class="mt-1 text-sm text-gray-500 mb-2">
+                        Upload at least {{ \App\Models\GalleryImage::RECOMMENDED_COUNT }} photos showing different angles — bed, bathroom, view, and coverage.
+                        You can add up to {{ \App\Models\GalleryImage::MAX_COUNT }} photos. Captions can be added after creating the facility.
+                    </p>
+                    <input type="file" id="images" name="images[]" multiple accept="image/jpeg,image/png,image/jpg,image/webp"
                            class="mt-1 block w-full text-sm text-gray-500
                                   file:mr-4 file:py-2 file:px-4
                                   file:rounded-md file:border-0
                                   file:text-sm file:font-semibold
                                   file:bg-primary-light file:text-primary
                                   hover:file:bg-primary-light/80">
-                    <p class="mt-1 text-xs text-gray-500">You can select multiple images (JPEG, PNG, JPG, WEBP). Max 5MB per image.</p>
+                    <p class="mt-1 text-xs text-gray-500">JPEG, PNG, JPG, WEBP. Max 5MB per photo.</p>
+                    @error('images')
+                        <p class="mt-1 text-sm text-danger">{{ $message }}</p>
+                    @enderror
                     @error('images.*')
                         <p class="mt-1 text-sm text-danger">{{ $message }}</p>
                     @enderror

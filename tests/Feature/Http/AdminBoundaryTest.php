@@ -20,7 +20,7 @@ class AdminBoundaryTest extends TestCase
     public function test_unauthenticated_user_cannot_access_admin_routes()
     {
         $response = $this->get(route('admin.dashboard'));
-        $response->assertRedirect(route('login'));
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_admin_can_access_admin_routes()

@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Enums\PaymentMethod;
 use App\Exceptions\Payment\InvalidPaymentAmountException;
 use App\Exceptions\Payment\PaymentGatewayException;
+use App\Exceptions\Payment\PaymentNotEligibleException;
 use App\Exceptions\Payment\PaymentOwnershipException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customer\StartOnlinePaymentRequest;
@@ -16,7 +18,6 @@ use App\Services\Payments\OnlinePaymentService;
 use Exception;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -37,11 +38,14 @@ class CustomerPaymentController extends Controller
             'payments' => $payments,
             'onlineCheckoutAvailable' => $this->onlinePaymentService->isAvailable(),
             'gatewayLabel' => $this->onlinePaymentService->gatewayLabel(),
+            'destinations' => \App\Models\PaymentDestination::where('is_active', true)->get(),
+            'proofDestinations' => \App\Models\PaymentDestination::where('is_active', true)->orWhere('updated_at', '>=', $reservation->created_at)->get(),
         ]);
     }
 
     public function store(StorePaymentRequest $request, Reservation $reservation): RedirectResponse
     {
+        abort_unless($reservation->user_id === $request->user()->id, 403);
         // 1. Store the uploaded proof
         $fileInfo = $this->fileUploadService->store($request->file('proof'));
         $proofPath = $fileInfo['path'];
@@ -52,22 +56,28 @@ class CustomerPaymentController extends Controller
                 $request->user(),
                 $reservation,
                 $request->validated('amount'),
-                \App\Enums\PaymentMethod::from($request->validated('payment_method')),
-                $proofPath
+                PaymentMethod::from($request->validated('payment_method')),
+                $proofPath,
+                [...$request->validated(), 'proof_hash' => hash_file('sha256', $request->file('proof')->getRealPath())]
             );
-
-            // Also map reference number directly to avoid rewriting Service
-            if ($request->filled('reference_number')) {
-                $payment->update(['reference_number' => $request->validated('reference_number')]);
-            }
 
             return redirect()->route('customer.reservations.show', $reservation)
                 ->with('success', 'Payment submitted successfully.');
 
-        } catch (Exception $e) {
-            // 3. Prevent orphaned files if payment creation fails
+        } catch (PaymentOwnershipException $e) {
             $this->fileUploadService->delete($proofPath);
-            throw $e;
+            abort(403, $e->getMessage());
+        } catch (InvalidPaymentAmountException|PaymentNotEligibleException $e) {
+            $this->fileUploadService->delete($proofPath);
+
+            return redirect()->route('customer.payments.index', $reservation)
+                ->with('error', $e->getMessage());
+        } catch (Exception $e) {
+            // A post-commit notification can fail after the ledger was saved.
+            // Retain the private proof when persistence is uncertain.
+            report($e);
+            return redirect()->route('customer.reservations.show', $reservation)
+                ->with('error', 'We could not finish updating the payment screen. Check your payment history or contact staff before submitting again. Do not transfer money again.');
         }
     }
 
@@ -78,13 +88,13 @@ class CustomerPaymentController extends Controller
                 $request->user(),
                 $reservation,
                 (float) $request->validated('amount'),
-                \App\Enums\PaymentMethod::from($request->validated('payment_method'))
+                PaymentMethod::from($request->validated('payment_method'))
             );
 
             return redirect()->away($url);
         } catch (PaymentOwnershipException $e) {
             abort(403, $e->getMessage());
-        } catch (InvalidPaymentAmountException|PaymentGatewayException $e) {
+        } catch (InvalidPaymentAmountException|PaymentNotEligibleException|PaymentGatewayException $e) {
             return redirect()->route('customer.payments.index', $reservation)
                 ->with('error', $e->getMessage());
         }
@@ -102,7 +112,7 @@ class CustomerPaymentController extends Controller
             $paid = $this->onlinePaymentService->confirm($request->user(), $payment);
         } catch (PaymentOwnershipException $e) {
             abort(403, $e->getMessage());
-        } catch (PaymentGatewayException $e) {
+        } catch (PaymentGatewayException|\App\Exceptions\Payment\InvalidPaymentTransitionException $e) {
             return redirect()->route('customer.payments.index', $reservation)
                 ->with('error', $e->getMessage().' Your payment may still be processing — refresh this page in a few minutes.');
         }
@@ -124,10 +134,23 @@ class CustomerPaymentController extends Controller
             $this->onlinePaymentService->abandon($request->user(), $payment);
         } catch (PaymentOwnershipException $e) {
             abort(403, $e->getMessage());
+        } catch (PaymentGatewayException|\App\Exceptions\Payment\InvalidPaymentTransitionException $e) {
+            return redirect()->route('customer.payments.index', $reservation)->with('error', $e->getMessage());
         }
 
+        $recorded = Payment::withTrashed()->findOrFail($payment->id)->status === \App\Enums\PaymentStatus::Verified;
+
         return redirect()->route('customer.payments.index', $reservation)
-            ->with('error', 'Online payment cancelled. You can try again or upload a receipt instead.');
+            ->with($recorded ? 'success' : 'error', $recorded
+                ? 'Payment received. Your reservation ledger has been updated.'
+                : 'Checkout was left before payment confirmation. Check your payment account before trying again.');
+    }
+
+    public function viewProof(Request $request, Payment $payment): StreamedResponse
+    {
+        $this->paymentService->getPaymentsForReservation($request->user(), $payment->reservation);
+
+        return $this->fileUploadService->view((string) $payment->proof_path);
     }
 
     public function downloadProof(Request $request, Payment $payment): StreamedResponse
@@ -135,10 +158,6 @@ class CustomerPaymentController extends Controller
         // Ownership verification (throws exception if not owned)
         $this->paymentService->getPaymentsForReservation($request->user(), $payment->reservation);
 
-        if (! $payment->proof_path || ! Storage::disk('uploads')->exists($payment->proof_path)) {
-            abort(404, 'Proof of payment not found.');
-        }
-
-        return Storage::disk('uploads')->download($payment->proof_path);
+        return $this->fileUploadService->download((string) $payment->proof_path);
     }
 }

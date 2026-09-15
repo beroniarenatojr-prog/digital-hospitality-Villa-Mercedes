@@ -8,11 +8,13 @@ use App\Enums\Role;
 use App\Models\Amenity;
 use App\Models\Facility;
 use App\Models\FacilityType as FacilityTypeModel;
+use App\Models\GalleryImage;
 use App\Models\PackageComponent;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Spatie\Permission\Models\Role as SpatieRole;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AdminFacilityManagementTest extends TestCase
@@ -20,6 +22,7 @@ class AdminFacilityManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
 
     protected function setUp(): void
@@ -39,13 +42,13 @@ class AdminFacilityManagementTest extends TestCase
     public function test_unauthenticated_user_cannot_access_facility_management(): void
     {
         $response = $this->get(route('admin.facilities.index'));
-        $response->assertRedirect(route('login'));
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_cannot_access_facility_management(): void
     {
         $response = $this->actingAs($this->customer)->get(route('admin.facilities.index'));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 
     // --- Facility Listing ---
@@ -174,12 +177,12 @@ class AdminFacilityManagementTest extends TestCase
     public function test_admin_can_manage_package_components(): void
     {
         $packageType = FacilityTypeModel::where('slug', FacilityType::ResortPackage->value)->first();
-        if (!$packageType) {
+        if (! $packageType) {
             $this->markTestSkipped('No resort package type seeded.');
         }
 
         $package = Facility::where('facility_type_id', $packageType->id)->first();
-        if (!$package) {
+        if (! $package) {
             $this->markTestSkipped('No resort package facility seeded.');
         }
 
@@ -201,12 +204,12 @@ class AdminFacilityManagementTest extends TestCase
     public function test_duplicate_components_are_prevented(): void
     {
         $packageType = FacilityTypeModel::where('slug', FacilityType::ResortPackage->value)->first();
-        if (!$packageType) {
+        if (! $packageType) {
             $this->markTestSkipped('No resort package type seeded.');
         }
 
         $package = Facility::where('facility_type_id', $packageType->id)->first();
-        if (!$package) {
+        if (! $package) {
             $this->markTestSkipped('No resort package facility seeded.');
         }
 
@@ -273,5 +276,72 @@ class AdminFacilityManagementTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('Standard Capacity');
         $response->assertSee('Maximum Capacity');
+    }
+
+    public function test_admin_can_upload_multiple_facility_photos_with_captions(): void
+    {
+        Storage::fake('public');
+
+        $facility = Facility::factory()->create(['capacity' => 10, 'max_capacity' => 10]);
+
+        $response = $this->actingAs($this->admin)->put(route('admin.facilities.update', $facility), [
+            'name' => $facility->name,
+            'description' => $facility->description,
+            'base_capacity' => $facility->capacity,
+            'max_capacity' => $facility->effectiveMaxCapacity(),
+            'images' => [
+                UploadedFile::fake()->image('bed.jpg'),
+                UploadedFile::fake()->image('bath.jpg'),
+                UploadedFile::fake()->image('view.jpg'),
+                UploadedFile::fake()->image('desk.jpg'),
+                UploadedFile::fake()->image('coverage.jpg'),
+            ],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertEquals(5, $facility->fresh()->galleryImages()->count());
+
+        $first = $facility->fresh()->galleryImages()->first();
+        $this->assertNotNull($first);
+        $this->assertStringEndsWith('.webp', $first->image_path);
+        $this->assertTrue(Storage::disk('public')->exists($first->image_path));
+
+        $this->actingAs($this->admin)->put(route('admin.facilities.update', $facility), [
+            'name' => $facility->name,
+            'description' => $facility->description,
+            'base_capacity' => $facility->capacity,
+            'max_capacity' => $facility->effectiveMaxCapacity(),
+            'captions' => [
+                $first->id => 'Bed and seating area',
+            ],
+        ])->assertRedirect();
+
+        $this->assertEquals('Bed and seating area', $first->fresh()->caption);
+
+        $this->get(route('facilities.show', $facility))
+            ->assertOk()
+            ->assertSee('Bed and seating area')
+            ->assertSee('1 / 5');
+    }
+
+    public function test_facility_cannot_exceed_max_photo_count(): void
+    {
+        Storage::fake('public');
+
+        $facility = Facility::factory()->create(['capacity' => 10, 'max_capacity' => 10]);
+
+        GalleryImage::factory()->count(GalleryImage::MAX_COUNT)->create([
+            'facility_id' => $facility->id,
+        ]);
+
+        $this->actingAs($this->admin)->put(route('admin.facilities.update', $facility), [
+            'name' => $facility->name,
+            'description' => $facility->description,
+            'base_capacity' => $facility->capacity,
+            'max_capacity' => $facility->effectiveMaxCapacity(),
+            'images' => [UploadedFile::fake()->image('extra.jpg')],
+        ])->assertSessionHasErrors('images');
+
+        $this->assertEquals(GalleryImage::MAX_COUNT, $facility->fresh()->galleryImages()->count());
     }
 }

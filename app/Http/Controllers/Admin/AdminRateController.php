@@ -10,6 +10,7 @@ use App\Models\Facility;
 use App\Models\FacilityType;
 use App\Models\Rate;
 use App\Services\Admin\RateManagementService;
+use App\Support\LiveFilter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -44,16 +45,28 @@ class AdminRateController extends Controller
         }
 
         // Active filter
-        if ($request->has('active')) {
+        if ($request->filled('active')) {
             $query->where('is_active', $request->boolean('active'));
         }
 
-        // Search
+        // Search by rate name or facility
         if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->input('search') . '%');
+            $like = '%'.trim((string) $request->input('search')).'%';
+            $query->where(function ($searchQuery) use ($like) {
+                $searchQuery->where('name', 'like', $like)
+                    ->orWhereHas('facility', function ($facilityQuery) use ($like) {
+                        $facilityQuery->where('name', 'like', $like)
+                            ->orWhere('slug', 'like', $like);
+                    });
+            });
         }
 
         $rates = $query->orderBy('facility_id')->orderBy('type')->paginate(20);
+
+        if (LiveFilter::wantsPartial($request)) {
+            return view('admin.rates.partials.results', compact('rates'));
+        }
+
         $facilities = Facility::with('facilityType')->where('is_active', true)->orderBy('name')->get();
         $facilityTypes = FacilityType::where('is_active', true)->get();
 

@@ -7,13 +7,18 @@ use App\Enums\ReservationStatus;
 use App\Exceptions\Reservation\InvalidReservationTransitionException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreWalkInReservationRequest;
-use App\Http\Requests\Customer\RescheduleReservationRequest;
+use App\Http\Requests\Admin\RescheduleReservationRequest;
 use App\Models\Facility;
 use App\Models\FacilityType;
 use App\Models\Reservation;
+use App\Models\SwimmingSession;
 use App\Services\Admin\DecisionSupportService;
 use App\Services\PricingService;
+use App\Services\CottageBookingService;
 use App\Services\ReservationService;
+use App\Support\AdminCatalogCache;
+use App\Support\GuestInformation;
+use App\Support\LiveFilter;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -25,6 +30,7 @@ class AdminReservationController extends Controller
     public function __construct(
         private readonly ReservationService $service,
         private readonly PricingService $pricingService,
+        private readonly CottageBookingService $cottageBookingService,
         private readonly DecisionSupportService $decisionSupport
     ) {}
 
@@ -63,29 +69,43 @@ class AdminReservationController extends Controller
             $query->where('check_in', '<=', $request->input('date_until'));
         }
 
-        // Search by Reservation Code or Customer Name
         if ($request->filled('search')) {
-            $search = '%' . $request->input('search') . '%';
-            $query->where(function ($q) use ($search) {
-                $q->where('reservation_code', 'like', $search)
-                  ->orWhereHas('user', fn ($uq) => $uq->where('name', 'like', $search)->orWhere('email', 'like', $search));
-            });
+            $query->matchingGuestLookup((string) $request->input('search'));
         }
 
         $reservations = $query->orderBy('created_at', 'desc')->paginate(20);
 
-        // Data for dropdowns
-        $facilityTypes = FacilityType::where('is_active', true)->get();
-        $facilities = Facility::with('facilityType')->where('is_active', true)->orderBy('name')->get();
+        if (LiveFilter::wantsPartial($request)) {
+            return view('admin.reservations.partials.results', compact('reservations'));
+        }
 
-        return view('admin.reservations.index', compact('reservations', 'facilityTypes', 'facilities'));
+        $arrivalsToday = Reservation::query()
+            ->with(['user', 'facility.facilityType'])
+            ->arrivingOn(now())
+            ->get();
+
+        $facilityTypes = FacilityType::where('is_active', true)->get();
+        $filterFacilities = Facility::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        $loadWalkInCatalog = $request->boolean('walk_in') || $request->session()->has('errors');
+        $facilities = $loadWalkInCatalog ? AdminCatalogCache::bookableFacilities() : collect();
+
+        return view('admin.reservations.index', compact(
+            'reservations',
+            'arrivalsToday',
+            'facilityTypes',
+            'filterFacilities',
+            'facilities'
+        ));
     }
 
     public function show(Reservation $reservation): View
     {
-        $reservation->load(['user', 'facility.facilityType', 'payments']);
+        $reservation->load(['user', 'facility.facilityType', 'payments', 'activities.causer']);
 
-        $facilities = Facility::where('is_active', true)->orderBy('name')->get();
+        $facilities = AdminCatalogCache::bookableFacilities();
 
         $impact = null;
         $extraHours = null;
@@ -94,10 +114,14 @@ class AdminReservationController extends Controller
         // be acted on.
         if (in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
             $impact = $this->decisionSupport->analyze($reservation);
-            $extraHours = $this->decisionSupport->extraHourOptions($reservation);
+            $extraHours = $reservation->facility->isCottage()
+                ? null
+                : $this->decisionSupport->extraHourOptions($reservation);
         }
 
-        return view('admin.reservations.show', compact('reservation', 'facilities', 'impact', 'extraHours'));
+        $swimmingSessions = SwimmingSession::where('is_active', true)->orderBy('sort_order')->get();
+
+        return view('admin.reservations.show', compact('reservation', 'facilities', 'impact', 'extraHours', 'swimmingSessions'));
     }
 
     public function approve(Request $request, Reservation $reservation): RedirectResponse
@@ -141,6 +165,17 @@ class AdminReservationController extends Controller
         return redirect()->back()->with('success', 'Reservation cancelled successfully.');
     }
 
+    public function confirmWithdrawal(Request $request, Reservation $reservation): RedirectResponse
+    {
+        try {
+            $this->service->confirmWithdrawal($reservation, $request->user());
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Withdrawal confirmed. The reservation is cancelled.');
+    }
+
     public function calculateReschedule(RescheduleReservationRequest $request, Reservation $reservation): JsonResponse
     {
         $facility = Facility::findOrFail($request->validated('facility_id'));
@@ -151,7 +186,9 @@ class AdminReservationController extends Controller
         $lateCheckOutHours = (int) ($request->validated('late_check_out_hours') ?? 0);
 
         try {
-            $breakdown = $this->pricingService->calculate(
+            $breakdown = $facility->isCottage()
+                ? $this->cottageBookingService->price($facility, $request->validated('swimming_session_id'), $checkIn, $checkOut)
+                : $this->pricingService->calculate(
                 $facility,
                 $checkIn,
                 $checkOut,
@@ -168,7 +205,7 @@ class AdminReservationController extends Controller
                     'total_amount' => $breakdown->totalAmount / 100,
                 ],
                 'facility_name' => $facility->name,
-                'dates' => $checkIn->format('M d, Y') . ' - ' . $checkOut->format('M d, Y'),
+                'dates' => $checkIn->format('M d, Y g:i A').' - '.$checkOut->format('M d, Y g:i A'),
                 'pax' => $pax,
             ]);
         } catch (\Exception $e) {
@@ -194,6 +231,7 @@ class AdminReservationController extends Controller
                 [
                     'early_check_in_hours' => (int) ($request->validated('early_check_in_hours') ?? 0),
                     'late_check_out_hours' => (int) ($request->validated('late_check_out_hours') ?? 0),
+                    'swimming_session_id' => $request->validated('swimming_session_id'),
                 ]
             );
         } catch (\Exception $e) {
@@ -251,10 +289,8 @@ class AdminReservationController extends Controller
                 [
                     'early_check_in_hours' => (int) ($request->validated('early_check_in_hours') ?? 0),
                     'late_check_out_hours' => (int) ($request->validated('late_check_out_hours') ?? 0),
-                    'guest_name' => $request->validated('guest_name'),
-                    'guest_email' => $request->validated('guest_email'),
-                    'guest_phone' => $request->validated('guest_phone'),
                     'admin_notes' => $request->validated('admin_notes'),
+                    ...GuestInformation::fromValidated($request->validated()),
                 ]
             );
         } catch (\Exception $e) {

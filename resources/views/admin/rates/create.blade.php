@@ -90,10 +90,9 @@
                         <label for="unit" class="block text-sm font-medium text-gray-700">Unit <span class="text-danger">*</span></label>
                         <select id="unit" name="unit" required
                                 class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            <option value="per_night" {{ old('unit') === 'per_night' ? 'selected' : '' }}>per night</option>
-                            <option value="per_event" {{ old('unit') === 'per_event' ? 'selected' : '' }}>per event</option>
-                            <option value="per_hour" {{ old('unit') === 'per_hour' ? 'selected' : '' }}>per hour</option>
-                            <option value="per_person" {{ old('unit') === 'per_person' ? 'selected' : '' }}>per person</option>
+                            @foreach (\App\Enums\RateUnit::cases() as $unit)
+                                <option value="{{ $unit->value }}" @selected(old('unit', 'per night') === $unit->value)>{{ $unit->value }}</option>
+                            @endforeach
                         </select>
                         @error('unit')
                             <p class="mt-1 text-sm text-danger">{{ $message }}</p>

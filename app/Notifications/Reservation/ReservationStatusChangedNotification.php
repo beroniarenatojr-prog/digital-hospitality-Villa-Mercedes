@@ -2,32 +2,39 @@
 
 namespace App\Notifications\Reservation;
 
+use App\Enums\ReservationStatus;
 use App\Models\Reservation;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\Notification;
 
-class ReservationStatusChangedNotification extends Notification implements ShouldQueue
+class ReservationStatusChangedNotification extends Notification
 {
-    use Queueable;
-
     public function __construct(
         public readonly Reservation $reservation
     ) {}
 
+    /**
+     * In-app badge updates stay on the request. SMTP is ReservationStatusChangedMail.
+     *
+     * @return list<string>
+     */
     public function via(object $notifiable): array
     {
+        if ($notifiable instanceof AnonymousNotifiable) {
+            return [];
+        }
+
         return ['database'];
     }
 
     public function toArray(object $notifiable): array
     {
         $statusValue = $this->reservation->status->value;
-        
+
         $reason = null;
-        if ($statusValue === \App\Enums\ReservationStatus::Rejected->value) {
+        if ($statusValue === ReservationStatus::Rejected->value) {
             $reason = $this->reservation->rejection_reason;
-        } elseif ($statusValue === \App\Enums\ReservationStatus::Cancelled->value) {
+        } elseif ($statusValue === ReservationStatus::Cancelled->value) {
             $reason = $this->reservation->cancellation_reason;
         }
 

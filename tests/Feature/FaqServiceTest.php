@@ -73,4 +73,34 @@ class FaqServiceTest extends TestCase
         $this->assertCount(1, $filteredFaqs);
         $this->assertEquals('Q1', $filteredFaqs->first()->question);
     }
+
+    public function test_home_faqs_return_curated_guest_questions_in_order(): void
+    {
+        $category = FaqCategory::factory()->create(['is_active' => true]);
+
+        foreach (array_reverse(CustomerFaqService::HOME_FAQ_QUESTIONS) as $index => $question) {
+            Faq::factory()->create([
+                'faq_category_id' => $category->id,
+                'question' => $question,
+                'is_active' => true,
+                'sort_order' => $index,
+            ]);
+        }
+
+        Faq::factory()->create([
+            'faq_category_id' => $category->id,
+            'question' => 'How far in advance can I book a room?',
+            'is_active' => true,
+            'sort_order' => 99,
+        ]);
+
+        $homeFaqs = $this->customerService->getHomeFaqs();
+
+        $this->assertCount(5, $homeFaqs);
+        $this->assertSame(
+            CustomerFaqService::HOME_FAQ_QUESTIONS,
+            $homeFaqs->pluck('question')->all()
+        );
+        $this->assertFalse($homeFaqs->pluck('question')->contains('How far in advance can I book a room?'));
+    }
 }

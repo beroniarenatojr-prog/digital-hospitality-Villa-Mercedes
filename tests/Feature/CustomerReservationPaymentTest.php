@@ -4,10 +4,8 @@ namespace Tests\Feature;
 
 use App\DTOs\AvailabilityResult;
 use App\DTOs\PriceBreakdown;
-use App\Enums\FacilityStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
-use App\Enums\RateType;
 use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Enums\Role;
@@ -21,6 +19,7 @@ use App\Models\Reservation;
 use App\Models\User;
 use App\Services\Customer\CustomerPaymentService;
 use App\Services\Customer\CustomerReservationService;
+use App\Services\ReservationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -30,9 +29,13 @@ class CustomerReservationPaymentTest extends TestCase
     use RefreshDatabase;
 
     private CustomerReservationService $reservationService;
+
     private CustomerPaymentService $paymentService;
+
     private User $customer;
+
     private User $otherCustomer;
+
     private Facility $facility;
 
     protected function setUp(): void
@@ -50,7 +53,7 @@ class CustomerReservationPaymentTest extends TestCase
         $this->otherCustomer = User::factory()->create();
         $this->otherCustomer->assignRole(Role::Customer->value);
 
-        $this->facility = Facility::where('slug', 'deluxe')->firstOrFail();
+        $this->facility = Facility::where('slug', 'deluxe-room-26')->firstOrFail();
     }
 
     // =========================================================================
@@ -67,12 +70,13 @@ class CustomerReservationPaymentTest extends TestCase
             2
         );
 
-        $reservations = $this->reservationService->getMyReservations($this->customer);
+        $reservations = $this->reservationService->getMyReservations($this->customer, 'pending');
+        $items = $reservations->items();
 
-        $this->assertCount(1, $reservations);
-        $this->assertEquals($reservation->id, $reservations->first()->id);
-        $this->assertTrue($reservations->first()->relationLoaded('facility'));
-        $this->assertTrue($reservations->first()->relationLoaded('payments'));
+        $this->assertCount(1, $items);
+        $this->assertEquals($reservation->id, $items[0]->id);
+        $this->assertTrue($items[0]->relationLoaded('facility'));
+        $this->assertTrue($items[0]->relationLoaded('payments'));
     }
 
     public function test_customer_can_retrieve_specific_own_reservation(): void
@@ -165,8 +169,8 @@ class CustomerReservationPaymentTest extends TestCase
         $reservation = $this->reservationService->createReservation(
             $this->customer,
             $this->facility,
-            Carbon::parse('2026-09-10 14:00:00'),
-            Carbon::parse('2026-09-12 12:00:00'),
+            Carbon::parse('2027-04-10 14:00:00'),
+            Carbon::parse('2027-04-12 12:00:00'),
             2
         );
 
@@ -179,8 +183,8 @@ class CustomerReservationPaymentTest extends TestCase
         $this->reservationService->createReservation(
             $this->customer,
             $this->facility,
-            Carbon::parse('2026-09-15 14:00:00'),
-            Carbon::parse('2026-09-17 12:00:00'),
+            Carbon::parse('2027-04-15 14:00:00'),
+            Carbon::parse('2027-04-17 12:00:00'),
             2
         );
 
@@ -189,8 +193,8 @@ class CustomerReservationPaymentTest extends TestCase
         $this->reservationService->createReservation(
             $this->otherCustomer,
             $this->facility,
-            Carbon::parse('2026-09-16 14:00:00'),
-            Carbon::parse('2026-09-18 12:00:00'),
+            Carbon::parse('2027-04-16 14:00:00'),
+            Carbon::parse('2027-04-18 12:00:00'),
             2
         );
     }
@@ -228,7 +232,7 @@ class CustomerReservationPaymentTest extends TestCase
         // Must first be Approved, then Cancelled.
         $admin = User::factory()->create();
         $admin->assignRole(Role::Administrator->value);
-        app(\App\Services\ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
         $this->assertEquals(ReservationStatus::Approved, $reservation->refresh()->status);
 
         $this->reservationService->cancelReservation($this->customer, $reservation, 'Changed plans');
@@ -249,7 +253,7 @@ class CustomerReservationPaymentTest extends TestCase
         // Force to Rejected status (non-cancellable)
         $admin = User::factory()->create();
         $admin->assignRole(Role::Administrator->value);
-        app(\App\Services\ReservationService::class)->changeStatus($reservation, ReservationStatus::Rejected, $admin, 'No availability');
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Rejected, $admin, 'No availability');
 
         $this->expectException(ReservationCancellationException::class);
 
@@ -269,7 +273,7 @@ class CustomerReservationPaymentTest extends TestCase
         // Approve first so it becomes cancellable per Phase 3C lifecycle
         $admin = User::factory()->create();
         $admin->assignRole(Role::Administrator->value);
-        app(\App\Services\ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
 
         $this->reservationService->cancelReservation($this->customer, $reservation, 'Family emergency');
 
@@ -282,6 +286,15 @@ class CustomerReservationPaymentTest extends TestCase
     // PAYMENT SUBMISSION
     // =========================================================================
 
+    private function approveReservation(Reservation $reservation): Reservation
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole(Role::Administrator->value);
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
+
+        return $reservation->fresh();
+    }
+
     public function test_customer_can_submit_payment_for_own_reservation(): void
     {
         $reservation = $this->reservationService->createReservation(
@@ -291,6 +304,7 @@ class CustomerReservationPaymentTest extends TestCase
             Carbon::parse('2026-11-03 12:00:00'),
             2
         );
+        $reservation = $this->approveReservation($reservation);
 
         $payment = $this->paymentService->submitPayment(
             $this->customer,
@@ -356,6 +370,7 @@ class CustomerReservationPaymentTest extends TestCase
             Carbon::parse('2026-11-17 12:00:00'),
             2
         );
+        $reservation = $this->approveReservation($reservation);
 
         $payment = $this->paymentService->submitPayment(
             $this->customer,
@@ -383,6 +398,7 @@ class CustomerReservationPaymentTest extends TestCase
             Carbon::parse('2026-12-03 12:00:00'),
             2
         );
+        $reservation = $this->approveReservation($reservation);
 
         $this->paymentService->submitPayment($this->customer, $reservation, 500, PaymentMethod::GCash);
         $this->paymentService->submitPayment($this->customer, $reservation, 1000, PaymentMethod::Cash);
@@ -401,6 +417,7 @@ class CustomerReservationPaymentTest extends TestCase
             Carbon::parse('2026-12-07 12:00:00'),
             2
         );
+        $reservation = $this->approveReservation($reservation);
 
         $this->paymentService->submitPayment($this->customer, $reservation, 500, PaymentMethod::GCash);
 
@@ -418,6 +435,7 @@ class CustomerReservationPaymentTest extends TestCase
             Carbon::parse('2026-12-12 12:00:00'),
             2
         );
+        $reservation = $this->approveReservation($reservation);
 
         $payment = $this->paymentService->submitPayment($this->customer, $reservation, 1000, PaymentMethod::GCash);
 
@@ -469,13 +487,13 @@ class CustomerReservationPaymentTest extends TestCase
 
         // Must NOT contain direct Rate queries
         $this->assertStringNotContainsString('Rate::query', $source);
-        $this->assertStringNotContainsString("->rates()", $source);
+        $this->assertStringNotContainsString('->rates()', $source);
 
-        // Must NOT contain direct overlap detection
-        $this->assertStringNotContainsString('check_in', $source);
-        $this->assertStringNotContainsString('check_out', $source);
-
-        // Must NOT contain lockForUpdate (that belongs to ReservationService)
+        // Tab counts may mention check-in / check-out columns. Overlap detection
+        // and rate lookups must still live in ReservationService / PricingService.
+        $this->assertDoesNotMatchRegularExpression("/where\\(['\"]check_in['\"]/", $source);
+        $this->assertDoesNotMatchRegularExpression("/whereBetween\\(\\s*['\"]check_in/", $source);
+        $this->assertStringNotContainsString('whereColumn', $source);
         $this->assertStringNotContainsString('lockForUpdate', $source);
     }
 

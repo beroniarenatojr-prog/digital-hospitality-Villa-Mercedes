@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+
 return [
 
     /*
@@ -62,7 +64,7 @@ return [
     'providers' => [
         'users' => [
             'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', App\Models\User::class),
+            'model' => env('AUTH_MODEL', User::class),
         ],
 
         // 'users' => [
@@ -96,6 +98,7 @@ return [
             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
             'expire' => 60,
             'throttle' => 60,
+            'reveal_link' => env('AUTH_REVEAL_PASSWORD_RESET_LINK', false),
         ],
     ],
 
@@ -111,5 +114,36 @@ return [
     */
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Remembered Session Lifetime
+    |--------------------------------------------------------------------------
+    |
+    | When a guest checks "Remember me", keep the session cookie alive for
+    | this many minutes (in addition to the remember cookie itself).
+    |
+    */
+
+    'remember_session_lifetime' => (int) env('AUTH_REMEMBER_SESSION_LIFETIME', 60 * 24 * 30),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Login Attempt Limit
+    |--------------------------------------------------------------------------
+    |
+    | Shared by /login and /admin/login. This is the only login throttle.
+    |
+    */
+
+    'login' => [
+        'max_attempts' => (int) env('RATE_LIMIT_LOGIN', 5),
+    ],
+
+    'booking_magic_link' => [
+        'expire_minutes' => (int) env('BOOKING_MAGIC_LINK_EXPIRE_MINUTES', 45),
+        'max_sends_per_email' => (int) env('BOOKING_MAGIC_LINK_MAX_SENDS_PER_EMAIL', 5),
+        'max_sends_per_ip' => (int) env('BOOKING_MAGIC_LINK_MAX_SENDS_PER_IP', 10),
+    ],
 
 ];

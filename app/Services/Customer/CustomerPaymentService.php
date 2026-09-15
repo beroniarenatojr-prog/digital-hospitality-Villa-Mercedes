@@ -39,7 +39,7 @@ class CustomerPaymentService
     {
         $this->verifyReservationOwnership($customer, $reservation);
 
-        return $reservation->payments()->get();
+        return $reservation->payments()->with('verifiedBy')->get();
     }
 
     /**
@@ -53,13 +53,15 @@ class CustomerPaymentService
      * @throws ReservationOwnershipException
      * @throws \App\Exceptions\Payment\PaymentOwnershipException
      * @throws \App\Exceptions\Payment\InvalidPaymentAmountException
+     * @throws \App\Exceptions\Payment\PaymentNotEligibleException
      */
     public function submitPayment(
         User $customer,
         Reservation $reservation,
         $amount,
         PaymentMethod $method,
-        ?string $proofReference = null
+        ?string $proofReference = null,
+        array $details = []
     ): Payment {
         $this->verifyReservationOwnership($customer, $reservation);
 
@@ -68,7 +70,8 @@ class CustomerPaymentService
             $customer,
             $amount,
             $method,
-            $proofReference
+            $proofReference,
+            $details
         );
     }
 }

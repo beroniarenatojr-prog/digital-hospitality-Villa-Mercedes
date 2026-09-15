@@ -2,24 +2,41 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\PaymentStatus;
 use App\Exceptions\Payment\InvalidPaymentTransitionException;
+use App\Exceptions\Payment\InvalidPaymentAmountException;
 use App\Exceptions\Payment\UnauthorizedPaymentActionException;
 use App\Http\Controllers\Controller;
 use App\Models\Facility;
 use App\Models\FacilityType;
 use App\Models\Payment;
+use App\Services\FileUploadService;
 use App\Services\PaymentService;
+use App\Support\LiveFilter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminPaymentController extends Controller
 {
+    public function storeOnSite(Request $request, \App\Models\Reservation $reservation): RedirectResponse
+    {
+        $request->validate(['collected_at' => ['required', 'date']]);
+        $request->merge(['collected_at' => \Carbon\Carbon::parse($request->input('collected_at'), \App\Support\DepositDeadline::TIMEZONE)->setTimezone(config('app.timezone'))->toDateTimeString()]);
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'method' => ['required', \Illuminate\Validation\Rule::in(\App\Enums\PaymentMethod::values())],
+            'reference_number' => ['nullable', 'required_unless:method,cash', 'string', 'max:255'],
+            'collected_at' => ['required', 'date', 'before_or_equal:now'],
+            'reconciliation_note' => ['nullable', 'string', 'max:500'], 'funds_received' => ['accepted'],
+        ]);
+        try { $this->service->recordOnSite($reservation, $request->user(), $data); }
+        catch (InvalidPaymentAmountException|UnauthorizedPaymentActionException $e) { return back()->with('error', $e->getMessage()); }
+        return back()->with('success', 'On-site payment recorded.');
+    }
     public function __construct(
-        private readonly PaymentService $service
+        private readonly PaymentService $service,
+        private readonly FileUploadService $fileUploadService
     ) {}
 
     public function index(Request $request): View
@@ -57,25 +74,29 @@ class AdminPaymentController extends Controller
             }
         }
 
-        // Search by Reservation Code or Customer Name
+        // Search the reservation’s guest details, including walk-ins where the
+        // account holder may be a staff member rather than the guest.
         if ($request->filled('search')) {
-            $search = '%' . $request->input('search') . '%';
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('reservation', fn ($rq) => $rq->where('reservation_code', 'like', $search))
-                  ->orWhereHas('reservation.user', fn ($uq) => $uq->where('name', 'like', $search)->orWhere('email', 'like', $search));
-            });
+            $query->whereHas('reservation', fn ($reservationQuery) => $reservationQuery
+                ->matchingGuestLookup((string) $request->input('search')));
         }
 
-        // Prioritize pending payments, then most recent
+        $overdueReviews = Payment::where('source', 'customer_deposit')->where('status', 'pending')->where('created_at', '<=', now()->subHours(24))->count();
+        // Escalate the oldest waiting proofs before other payments.
         $payments = $query->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
-                          ->orderBy('created_at', 'desc')
-                          ->paginate(20);
+            ->orderByRaw("CASE WHEN status = 'pending' THEN created_at END ASC")
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        if (LiveFilter::wantsPartial($request)) {
+            return view('admin.payments.partials.results', compact('payments'));
+        }
 
         // Data for dropdowns
         $facilityTypes = FacilityType::where('is_active', true)->get();
         $facilities = Facility::where('is_active', true)->orderBy('name')->get();
 
-        return view('admin.payments.index', compact('payments', 'facilityTypes', 'facilities'));
+        return view('admin.payments.index', compact('payments', 'facilityTypes', 'facilities', 'overdueReviews'));
     }
 
     public function show(Payment $payment): View
@@ -87,9 +108,11 @@ class AdminPaymentController extends Controller
 
     public function verify(Request $request, Payment $payment): RedirectResponse
     {
+        $request->validate(['overpayment_note' => ['nullable', 'string', 'max:500'], 'funds_received' => [$payment->source === 'customer_deposit' ? 'accepted' : 'nullable']]);
+
         try {
-            $this->service->verifyPayment($payment, $request->user());
-        } catch (InvalidPaymentTransitionException|UnauthorizedPaymentActionException $e) {
+            $this->service->verifyPayment($payment, $request->user(), $request->input('overpayment_note'));
+        } catch (InvalidPaymentAmountException|InvalidPaymentTransitionException|UnauthorizedPaymentActionException $e) {
             return redirect()->back()->with('error', $e->getMessage());
         }
 
@@ -100,6 +123,7 @@ class AdminPaymentController extends Controller
     {
         $request->validate([
             'reason' => ['required', 'string', 'max:500'],
+            'funds_not_received' => [$payment->source === 'customer_deposit' ? 'accepted' : 'nullable'],
         ]);
 
         try {
@@ -111,12 +135,21 @@ class AdminPaymentController extends Controller
         return redirect()->back()->with('success', 'Payment rejected successfully.');
     }
 
+    public function requestTopUp(Request $request, \App\Models\Reservation $reservation): RedirectResponse
+    {
+        $request->validate(['reason' => ['required', 'string', 'max:500']]);
+        try { $this->service->requestDepositTopUp($reservation, $request->user(), $request->string('reason')->toString()); }
+        catch (InvalidPaymentAmountException|UnauthorizedPaymentActionException $e) { return back()->with('error', $e->getMessage()); }
+        return back()->with('success', 'Deposit top-up requested. The customer can see the amount and new deadline.');
+    }
+
+    public function viewProof(Payment $payment): StreamedResponse
+    {
+        return $this->fileUploadService->view((string) $payment->proof_path);
+    }
+
     public function downloadProof(Payment $payment): StreamedResponse
     {
-        if (! $payment->proof_path || ! Storage::disk('uploads')->exists($payment->proof_path)) {
-            abort(404, 'Proof of payment not found.');
-        }
-
-        return Storage::disk('uploads')->download($payment->proof_path);
+        return $this->fileUploadService->download((string) $payment->proof_path);
     }
 }

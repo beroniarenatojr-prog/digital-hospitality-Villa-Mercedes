@@ -14,6 +14,7 @@
         <!-- Main Content -->
         <div class="lg:col-span-2 space-y-6">
 
+            @include('admin.payments.deposit-review')
             <!-- Payment Info Card -->
             <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
                 <div class="flex items-center justify-between mb-4 border-b pb-2">
@@ -29,6 +30,12 @@
                         <dt class="text-sm font-medium text-gray-500">Amount</dt>
                         <dd class="mt-1 text-lg font-bold text-gray-900">₱{{ number_format($payment->amount, 2) }}</dd>
                     </div>
+                    @if($payment->source === 'onsite')
+                        <div><dt class="text-sm font-medium text-gray-500">Collected at the resort</dt><dd>{{ $payment->collected_at?->copy()->timezone('Asia/Manila')->format('M d, Y g:i A') }} Philippine time</dd></div>
+                    @endif
+                    @if($payment->reconciliation_note)
+                        <div><dt class="text-sm font-medium text-gray-500">Reconciliation note</dt><dd>{{ $payment->reconciliation_note }}</dd></div>
+                    @endif
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Payment Method</dt>
                         <dd class="mt-1 text-sm text-gray-900">{{ $payment->method->label() }}</dd>
@@ -67,23 +74,42 @@
             </div>
 
             <!-- Proof of Payment -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6" x-data="{ preview: false }">
                 <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Proof of Payment</h3>
                 @if($payment->proof_path)
-                    <div class="flex items-center gap-4">
-                        <div class="flex-shrink-0">
-                            <svg class="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                            </svg>
+                    @php
+                        $proofViewUrl = route('admin.payments.view', $payment);
+                    @endphp
+                    <div class="space-y-4">
+                        @if($payment->isImageProof())
+                            <button type="button" @click="preview = true" class="block w-full rounded-lg border border-gray-200 bg-gray-50 overflow-hidden focus:outline-none focus:ring-2 focus:ring-primary">
+                                <img src="{{ $proofViewUrl }}" alt="Proof of payment" class="max-h-[28rem] w-full object-contain cursor-zoom-in">
+                            </button>
+                            <p class="text-xs text-gray-500">Click the image to enlarge it.</p>
+                        @elseif($payment->isPdfProof())
+                            <iframe src="{{ $proofViewUrl }}" title="Proof of payment" class="w-full h-[32rem] rounded-lg border border-gray-200 bg-white"></iframe>
+                        @else
+                            <p class="text-sm text-gray-600">This file type cannot be previewed here. Open it in a new tab or download it.</p>
+                        @endif
+
+                        <div class="flex flex-wrap gap-3">
+                            <a href="{{ $proofViewUrl }}" target="_blank" rel="noopener" class="inline-flex items-center px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-dark transition">
+                                Open proof
+                            </a>
+                            <a href="{{ route('admin.payments.download', $payment) }}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
+                                Download
+                            </a>
                         </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">Proof file available</p>
-                            <p class="text-xs text-gray-500">File type: {{ pathinfo($payment->proof_path, PATHINFO_EXTENSION) ?: 'Unknown' }}</p>
+                    </div>
+
+                    <div x-show="preview" x-cloak class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
+                        <div class="flex min-h-full items-center justify-center p-4">
+                            <div class="fixed inset-0 bg-gray-900/80" @click="preview = false"></div>
+                            <div class="relative z-50 max-w-5xl w-full">
+                                <button type="button" @click="preview = false" class="mb-3 text-sm font-semibold text-white hover:underline">Close</button>
+                                <img src="{{ $proofViewUrl }}" alt="Proof of payment enlarged" class="max-h-[90vh] w-full object-contain rounded-lg bg-black">
+                            </div>
                         </div>
-                        <a href="{{ route('admin.payments.download', $payment) }}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition" target="_blank">
-                            <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            Download
-                        </a>
                     </div>
                 @else
                     <div class="text-center py-6">
@@ -232,9 +258,21 @@
                             <p><strong>Reservation:</strong> {{ $payment->reservation->reservation_code }}</p>
                         </div>
                         <p class="text-sm text-gray-500 mb-4">This will mark the payment as verified and notify the customer.</p>
-                        <form method="POST" action="{{ route('admin.payments.verify', $payment) }}" class="flex justify-end gap-3">
+                        <form method="POST" action="{{ route('admin.payments.verify', $payment) }}" class="flex flex-wrap justify-end gap-3">
                             @csrf
                             @method('PATCH')
+                            @if ($payment->source === 'customer_deposit')
+                                <label class="w-full text-sm"><input type="checkbox" name="funds_received" value="1" required> I matched this transaction and amount against the resort's receiving account.</label>
+                                <label class="w-full text-sm">Duplicate-reference or other reconciliation note
+                                    <textarea name="overpayment_note" maxlength="500" rows="3" class="mt-2 block w-full rounded-md border-gray-300">{{ old('overpayment_note') }}</textarea>
+                                </label>
+                            @elseif ((float) $payment->amount > $payment->reservation->getRemainingBalance())
+                                <div class="w-full rounded-md bg-amber-50 p-3 text-sm">
+                                    <label for="overpayment_note" class="block font-medium text-amber-900">Overpayment reconciliation note</label>
+                                    <p class="mt-1 text-amber-900">This amount exceeds the remaining balance. Verify only after confirming the funds were received. Record the excess and the follow-up needed.</p>
+                                    <textarea id="overpayment_note" name="overpayment_note" required maxlength="500" rows="3" class="mt-2 block w-full rounded-md border-gray-300">{{ old('overpayment_note') }}</textarea>
+                                </div>
+                            @endif
                             <button type="button" @click="action = null" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
                             <button type="submit" class="px-4 py-2 bg-success text-white rounded-md text-sm font-semibold hover:bg-green-700">Verify Payment</button>
                         </form>
@@ -257,6 +295,9 @@
                         <form method="POST" action="{{ route('admin.payments.reject', $payment) }}">
                             @csrf
                             @method('PATCH')
+                            @if($payment->source === 'customer_deposit')
+                                <label class="block mb-4 text-sm"><input type="checkbox" name="funds_not_received" value="1" required> I checked the receiving account and confirmed these funds were not received. If the transfer is uncertain, leave this proof pending and contact the customer.</label>
+                            @endif
                             <div class="mb-4">
                                 <label for="reject_reason" class="block text-sm font-medium text-gray-700">Rejection Reason <span class="text-danger">*</span></label>
                                 <textarea name="reason" id="reject_reason" rows="3" required

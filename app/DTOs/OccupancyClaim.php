@@ -7,15 +7,13 @@ use Carbon\Carbon;
 /**
  * A single claim on a physical resort resource for a period of time.
  *
- * Guest stays, hall events, package bundles and TESDA training batches are all
- * claims. Modelling them uniformly is what lets one calendar show the whole
- * property instead of one calendar per department.
+ * Guest stays, hall events, and package bundles are all claims. Modelling them
+ * uniformly is what lets one calendar show the whole property instead of one
+ * calendar per department.
  */
 class OccupancyClaim
 {
     public const TYPE_RESERVATION = 'reservation';
-
-    public const TYPE_TRAINING = 'training';
 
     public function __construct(
         public readonly string $claimType,
@@ -28,6 +26,8 @@ class OccupancyClaim
         public readonly float $value = 0.0,
         public readonly ?string $url = null,
         public readonly ?string $note = null,
+        /** True when this bar is a linked package/component hold, not the booked facility itself. */
+        public readonly bool $isLinkedHold = false,
     ) {}
 
     public function overlaps(Carbon $from, Carbon $to): bool
@@ -38,14 +38,9 @@ class OccupancyClaim
     public function durationLabel(): string
     {
         if ($this->from->isSameDay($this->to)) {
-            return $this->from->format('M d, g:i A') . ' – ' . $this->to->format('g:i A');
+            return $this->from->format('M d, g:i A').' – '.$this->to->format('g:i A');
         }
 
-        return $this->from->format('M d, g:i A') . ' – ' . $this->to->format('M d, g:i A');
-    }
-
-    public function isTraining(): bool
-    {
-        return $this->claimType === self::TYPE_TRAINING;
+        return $this->from->format('M d, g:i A').' – '.$this->to->format('M d, g:i A');
     }
 }

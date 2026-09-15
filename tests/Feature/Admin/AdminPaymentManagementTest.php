@@ -11,6 +11,7 @@ use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -19,8 +20,11 @@ class AdminPaymentManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
+
     private Facility $facility;
+
     private Reservation $reservation;
 
     protected function setUp(): void
@@ -60,13 +64,13 @@ class AdminPaymentManagementTest extends TestCase
     public function test_unauthenticated_user_cannot_access_payment_management(): void
     {
         $response = $this->get(route('admin.payments.index'));
-        $response->assertRedirect(route('login'));
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_cannot_access_payment_management(): void
     {
         $response = $this->actingAs($this->customer)->get(route('admin.payments.index'));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_admin_can_access_payment_listing(): void
@@ -129,7 +133,7 @@ class AdminPaymentManagementTest extends TestCase
 
         // View data should be a paginator
         $payments = $response->viewData('payments');
-        $this->assertInstanceOf(\Illuminate\Pagination\LengthAwarePaginator::class, $payments);
+        $this->assertInstanceOf(LengthAwarePaginator::class, $payments);
     }
 
     // --- Detail Page ---
@@ -201,12 +205,39 @@ class AdminPaymentManagementTest extends TestCase
         $response->assertStatus(200);
     }
 
+    public function test_authorized_admin_can_view_proof_inline(): void
+    {
+        Storage::fake('uploads');
+        Storage::disk('uploads')->put('proofs/test-proof.jpg', 'fake-content');
+
+        $payment = $this->createPayment(['proof_path' => 'proofs/test-proof.jpg']);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.payments.view', $payment));
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Disposition', 'inline; filename="test-proof.jpg"');
+    }
+
+    public function test_payment_detail_embeds_image_proof(): void
+    {
+        Storage::fake('uploads');
+        Storage::disk('uploads')->put('proofs/test-proof.jpg', 'fake-image');
+
+        $payment = $this->createPayment(['proof_path' => 'proofs/test-proof.jpg']);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.payments.show', $payment))
+            ->assertOk()
+            ->assertSee('Click the image to enlarge it.')
+            ->assertSee(route('admin.payments.view', $payment), false)
+            ->assertDontSee('proofs/test-proof.jpg');
+    }
+
     public function test_customer_cannot_access_admin_proof_route(): void
     {
         $payment = $this->createPayment(['proof_path' => 'proofs/test.jpg']);
 
         $response = $this->actingAs($this->customer)->get(route('admin.payments.download', $payment));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_missing_proof_handled_safely(): void
@@ -359,11 +390,11 @@ class AdminPaymentManagementTest extends TestCase
         $payment = $this->createPayment();
 
         $verifyResponse = $this->actingAs($this->customer)->patch(route('admin.payments.verify', $payment));
-        $verifyResponse->assertStatus(403);
+        $verifyResponse->assertRedirect(route('admin.login'));
 
         $rejectResponse = $this->actingAs($this->customer)->patch(route('admin.payments.reject', $payment), [
             'reason' => 'Hack attempt',
         ]);
-        $rejectResponse->assertStatus(403);
+        $rejectResponse->assertRedirect(route('admin.login'));
     }
 }

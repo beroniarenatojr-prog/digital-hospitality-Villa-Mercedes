@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -36,7 +37,7 @@ class CustomerJourneyTest extends TestCase
         $response->assertSee('Rooms');
 
         // Select a facility
-        $facility = Facility::where('slug', 'deluxe')->first();
+        $facility = Facility::where('slug', 'deluxe-room-26')->first();
         $this->assertNotNull($facility);
 
         $response = $this->get("/facilities/{$facility->id}");
@@ -44,12 +45,11 @@ class CustomerJourneyTest extends TestCase
         $response->assertSee($facility->name);
 
         // 2. Register
-        $response = $this->post('/register', [
+        $this->verifyRegistrationEmail('john.e2e@example.com');
+
+        $response = $this->post('/register', $this->registrationPayload('john.e2e@example.com', [
             'name' => 'John E2E Customer',
-            'email' => 'john.e2e@example.com',
-            'password' => 'Password123!',
-            'password_confirmation' => 'Password123!',
-        ]);
+        ]));
         $response->assertRedirect(route('customer.reservations.index'));
         $this->assertAuthenticated();
 
@@ -57,8 +57,8 @@ class CustomerJourneyTest extends TestCase
         $this->assertTrue($customer->hasRole('Customer'));
 
         // 3. Preview Booking Price
-        $checkIn = Carbon::now()->addDays(5)->format('Y-m-d');
-        $checkOut = Carbon::now()->addDays(7)->format('Y-m-d');
+        $checkIn = Carbon::now()->addDays(40)->format('Y-m-d');
+        $checkOut = Carbon::now()->addDays(42)->format('Y-m-d');
         $guestCount = 2;
 
         $response = $this->postJson(route('customer.booking.calculate', $facility), [
@@ -68,7 +68,7 @@ class CustomerJourneyTest extends TestCase
         ]);
         $response->assertStatus(200);
         $response->assertJsonStructure(['success', 'data' => ['total_amount']]);
-        
+
         // Ensure price calculation matched expectations (2 nights)
         $priceData = $response->json('data');
         $this->assertGreaterThan(0, $priceData['total_amount']);
@@ -79,18 +79,22 @@ class CustomerJourneyTest extends TestCase
             'check_in' => $checkIn,
             'check_out' => $checkOut,
             'guestCount' => $guestCount,
-        ]);
+        ] + $this->guestInformationPayload([
+            'guest_name' => 'John E2E Customer',
+            'guest_email' => 'john.e2e@example.com',
+            'guest_phone' => '09171234567',
+        ]));
 
         $reservation = Reservation::where('user_id', $customer->id)->first();
         $this->assertNotNull($reservation);
-        
+
         $response->assertRedirect(route('customer.reservations.show', $reservation));
         $response->assertSessionHas('success');
 
         // Verify Reservation State
         $this->assertEquals(ReservationStatus::Pending, $reservation->status);
         $this->assertEquals($facility->id, $reservation->facility_id);
-        $this->assertEquals((float)($priceData['total_amount'] / 100), (float)$reservation->total_price);
+        $this->assertEquals((float) ($priceData['total_amount'] / 100), (float) $reservation->total_price);
         $this->assertNotNull($reservation->reservation_code);
 
         // 5. Dashboard view
@@ -98,6 +102,12 @@ class CustomerJourneyTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee($reservation->reservation_code);
         $response->assertSee('Pending');
+
+        $admin = User::whereHas('roles', fn ($q) => $q->where('name', 'Administrator'))->first();
+        $this->actingAs($admin)->patch(route('admin.reservations.approve', $reservation));
+        $this->actingAs($customer);
+        $reservation->refresh();
+        $this->assertEquals(ReservationStatus::Approved, $reservation->status);
 
         // 6. Submit Payment
         $proof = UploadedFile::fake()->image('proof.jpg');
@@ -121,7 +131,7 @@ class CustomerJourneyTest extends TestCase
         $this->assertEquals(PaymentStatus::Pending, $payment->status);
         $this->assertEquals($paymentAmount, $payment->amount);
 
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
+        /** @var FilesystemAdapter $disk */
         $disk = Storage::disk('uploads');
         $disk->assertExists($payment->proof_path);
 
@@ -132,8 +142,8 @@ class CustomerJourneyTest extends TestCase
         // 7. Administrator Verifies Payment
         // Log out customer, log in admin
         $this->post('/logout');
-        
-        $admin = User::whereHas('roles', fn($q) => $q->where('name', 'Administrator'))->first();
+
+        $admin = User::whereHas('roles', fn ($q) => $q->where('name', 'Administrator'))->first();
         $this->actingAs($admin);
 
         // View payment
@@ -158,7 +168,7 @@ class CustomerJourneyTest extends TestCase
 
         $this->assertEquals($paymentAmount, $reservation->fresh()->getVerifiedTotalPaid());
         $this->assertEquals($reservation->total_price - $paymentAmount, $reservation->fresh()->getRemainingBalance());
-        
+
         // Assuming notifications were sent via observer (we could check DB or just trust the feature tests, but let's check DB)
         $this->assertDatabaseHas('notifications', [
             'notifiable_id' => $customer->id,

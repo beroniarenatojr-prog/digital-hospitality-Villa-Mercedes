@@ -8,11 +8,80 @@ use App\Enums\FacilityType;
 use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
 use App\Models\Facility;
 use App\Models\Reservation;
-use App\Models\TrainingBatch;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 
 class AvailabilityService
 {
+    public const SAPPHIRE_UNAVAILABLE = 'Sapphire Hall is unavailable at the selected date and time.';
+
+    /**
+     * Blocking reservations keyed by facility id, loaded once per search window.
+     *
+     * @var array<int, Collection<int, Reservation>>|null
+     */
+    private ?array $overlapIndex = null;
+
+    /**
+     * Load every blocking reservation that could collide with the window, for
+     * the given facilities and their package counterparts, in a single query.
+     *
+     * @param  iterable<int, Facility>  $facilities
+     */
+    public function primeOverlaps(iterable $facilities, Carbon $from, Carbon $to): void
+    {
+        $catalog = collect($facilities)->unique('id')->values();
+
+        foreach ($catalog as $facility) {
+            $facility->loadMissing(['packageComponents.componentFacility.partOfPackages', 'partOfPackages']);
+        }
+
+        $ids = $catalog
+            ->flatMap(function (Facility $facility): array {
+                return [
+                    $facility->id,
+                    ...$facility->packageComponents->pluck('component_facility_id')->all(),
+                    ...$facility->partOfPackages->pluck('id')->all(),
+                    ...$facility->packageComponents->flatMap(
+                        fn ($component) => $component->componentFacility?->partOfPackages->pluck('id') ?? []
+                    )->all(),
+                ];
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            $this->overlapIndex = [];
+
+            return;
+        }
+
+        [$paddedFrom, $paddedTo] = $this->paddedWindow($from, $to);
+
+        $grouped = Reservation::query()
+            ->whereIn('facility_id', $ids)
+            ->whereIn('status', Reservation::blockingStatuses())
+            ->where('check_in', '<', $paddedTo)
+            ->where('check_out', '>', $paddedFrom)
+            ->get($this->overlapColumns())
+            ->groupBy('facility_id');
+
+        $index = [];
+
+        foreach ($ids as $id) {
+            $index[(int) $id] = $grouped->get($id, collect());
+        }
+
+        $this->overlapIndex = $index;
+    }
+
+    public function forgetPrimedOverlaps(): void
+    {
+        $this->overlapIndex = null;
+    }
+
     /**
      * Determines whether a facility can be reserved for a requested period.
      *
@@ -20,14 +89,6 @@ class AvailabilityService
      * booked period: paid early check-in and late check-out hours hold the space
      * just as firmly as the nights between them.
      *
-     * @param Facility $facility
-     * @param Carbon $checkIn
-     * @param Carbon $checkOut
-     * @param int|null $excludeReservationId
-     * @param int|null $guestCount
-     * @param int $earlyCheckInHours
-     * @param int $lateCheckOutHours
-     * @return AvailabilityResult
      *
      * @throws InvalidAvailabilityPeriodException
      */
@@ -38,7 +99,9 @@ class AvailabilityService
         ?int $excludeReservationId = null,
         ?int $guestCount = null,
         int $earlyCheckInHours = 0,
-        int $lateCheckOutHours = 0
+        int $lateCheckOutHours = 0,
+        bool $lockForUpdate = false,
+        ?int $paxTier = null
     ): AvailabilityResult {
         // 1. Validation
         if ($checkOut->lessThanOrEqualTo($checkIn)) {
@@ -61,7 +124,10 @@ class AvailabilityService
         // 3. Capacity Check
         if ($guestCount !== null) {
             $maxCapacity = $facility->effectiveMaxCapacity();
-            if ($guestCount > $maxCapacity) {
+            if ($paxTier !== null) {
+                $maxCapacity = $maxCapacity === null ? $paxTier : min($maxCapacity, $paxTier);
+            }
+            if ($maxCapacity !== null && $guestCount > $maxCapacity) {
                 return new AvailabilityResult(
                     false,
                     "Guest count ({$guestCount}) exceeds facility maximum capacity ({$maxCapacity})."
@@ -76,100 +142,78 @@ class AvailabilityService
         $facility->loadMissing('facilityType');
 
         if ($facility->facilityType->slug === FacilityType::ResortPackage->value || $facility->facilityType->slug === FacilityType::ResortPackage->name) {
-            $components = $facility->packageComponents()->with('componentFacility')->get();
+            if ($lockForUpdate) {
+                $facility->setRelation('packageComponents', $facility->packageComponents()->lockForUpdate()->get());
+            }
+            $facility->loadMissing('packageComponents.componentFacility.facilityType');
+            $components = $facility->packageComponents;
 
             if ($components->isEmpty()) {
                 return new AvailabilityResult(false, 'This package has no configured components.');
             }
 
             foreach ($components as $component) {
-                $componentResult = $this->checkFacilityOverlap(
-                    $component->componentFacility,
-                    $occupancyStart,
-                    $occupancyEnd,
-                    $excludeReservationId
+                $componentFacility = $component->componentFacility;
+
+                if (! $componentFacility || $componentFacility->isPackage()) {
+                    return new AvailabilityResult(false, 'This package has a missing or unsupported component.');
+                }
+
+                if ($lockForUpdate) {
+                    $componentFacility = Facility::withTrashed()->whereKey($componentFacility->id)->lockForUpdate()->firstOrFail();
+                }
+
+                // A component's operational state and every package that uses
+                // it apply equally when booking the component through a package.
+                $componentResult = $this->isAvailable(
+                    $componentFacility,
+                    $checkIn,
+                    $checkOut,
+                    $excludeReservationId,
+                    null,
+                    $earlyCheckInHours,
+                    $lateCheckOutHours,
+                    $lockForUpdate
                 );
 
-                if (!$componentResult->isAvailable) {
+                if (! $componentResult->isAvailable) {
                     return new AvailabilityResult(
                         false,
-                        "Package component '{$component->componentFacility->name}' is not available: {$componentResult->reason}",
+                        "Package component '{$componentFacility->name}' is not available: {$componentResult->reason}",
                         $componentResult->conflictingReservationId
                     );
                 }
             }
         } else {
-            // If it's a regular facility, check if any packages containing it are booked
-            $parentPackages = $facility->partOfPackages()->get();
+            if ($lockForUpdate) {
+                $facility->setRelation('partOfPackages', $facility->partOfPackages()->lockForUpdate()->get());
+            }
+            $facility->loadMissing('partOfPackages');
 
-            foreach ($parentPackages as $parentPackage) {
+            foreach ($facility->partOfPackages as $parentPackage) {
                 $parentResult = $this->checkFacilityOverlap(
                     $parentPackage,
                     $occupancyStart,
                     $occupancyEnd,
-                    $excludeReservationId
+                    $excludeReservationId,
+                    $lockForUpdate
                 );
 
-                if (!$parentResult->isAvailable) {
+                if (! $parentResult->isAvailable) {
                     return new AvailabilityResult(
                         false,
-                        "Facility is unavailable because its parent package '{$parentPackage->name}' is booked for the requested period.",
+                        $this->unavailableReason(
+                            $facility,
+                            "Facility is unavailable because its parent package '{$parentPackage->name}' is booked for the requested period."
+                        ),
                         $parentResult->conflictingReservationId
                     );
                 }
             }
         }
 
-        // 5. TESDA training holds the same physical spaces as guests do.
-        $trainingConflict = $this->checkTrainingOverlap($facility, $occupancyStart, $occupancyEnd);
-
-        if ($trainingConflict !== null) {
-            return new AvailabilityResult(false, $trainingConflict);
-        }
-
-        // 6. Overlap Check Query for the primary facility
-        return $this->checkFacilityOverlap($facility, $occupancyStart, $occupancyEnd, $excludeReservationId);
-    }
-
-    /**
-     * Reports the reason a training batch holds this facility (or a facility
-     * coupled to it) during the requested window, or null when it is clear.
-     */
-    private function checkTrainingOverlap(Facility $facility, Carbon $from, Carbon $to): ?string
-    {
-        $coupledIds = collect([$facility->id])
-            ->merge($facility->contendingFacilities()->pluck('id'))
-            ->unique()
-            ->all();
-
-        $batches = TrainingBatch::with('facilities')
-            ->blocking()
-            ->whereHas('facilities', fn ($q) => $q->whereIn('facilities.id', $coupledIds))
-            ->whereDate('start_date', '<=', $to->toDateString())
-            ->whereDate('end_date', '>=', $from->toDateString())
-            ->get();
-
-        foreach ($batches as $batch) {
-            if (! $batch->overlapsWindow($from, $to)) {
-                continue;
-            }
-
-            $heldFacility = $batch->facilities->firstWhere('id', $facility->id)
-                ?? $batch->facilities->whereIn('id', $coupledIds)->first();
-
-            $heldName = $heldFacility?->name ?? $facility->name;
-
-            return sprintf(
-                'Held by TESDA training batch %s (%s) using %s from %s until %s.',
-                $batch->cohort_code,
-                $batch->program,
-                $heldName,
-                $batch->start_date->format('M d, Y'),
-                $batch->end_date->format('M d, Y')
-            );
-        }
-
-        return null;
+        // 5. Overlap Check Query for the primary facility
+        return $this->checkFacilityOverlap($facility, $occupancyStart, $occupancyEnd, $excludeReservationId, $lockForUpdate);
     }
 
     /**
@@ -184,21 +228,12 @@ class AvailabilityService
         Facility $facility,
         Carbon $from,
         Carbon $to,
-        ?int $excludeReservationId = null
+        ?int $excludeReservationId = null,
+        bool $lockForUpdate = false
     ): AvailabilityResult {
-        $pad = (int) config('resort.stay.max_additional_hours', 12);
+        $candidates = $this->overlapCandidates($facility, $from, $to, $excludeReservationId, $lockForUpdate);
 
-        $query = Reservation::query()
-            ->where('facility_id', $facility->id)
-            ->whereIn('status', Reservation::blockingStatuses())
-            ->where('check_in', '<', $to->copy()->addHours($pad))
-            ->where('check_out', '>', $from->copy()->subHours($pad));
-
-        if ($excludeReservationId) {
-            $query->where('id', '!=', $excludeReservationId);
-        }
-
-        foreach ($query->get() as $existing) {
+        foreach ($candidates as $existing) {
             if ($existing->occupancyStart()->greaterThanOrEqualTo($to) || $existing->occupancyEnd()->lessThanOrEqualTo($from)) {
                 continue;
             }
@@ -214,9 +249,83 @@ class AvailabilityService
                 );
             }
 
-            return new AvailabilityResult(false, $reason, $existing->id);
+            return new AvailabilityResult(false, $this->unavailableReason($facility, $reason), $existing->id);
         }
 
         return new AvailabilityResult(true);
+    }
+
+    /**
+     * @return Collection<int, Reservation>
+     */
+    private function overlapCandidates(
+        Facility $facility,
+        Carbon $from,
+        Carbon $to,
+        ?int $excludeReservationId,
+        bool $lockForUpdate
+    ): Collection {
+        if (! $lockForUpdate && $this->overlapIndex !== null && array_key_exists($facility->id, $this->overlapIndex)) {
+            $candidates = $this->overlapIndex[$facility->id];
+
+            if ($excludeReservationId) {
+                $candidates = $candidates->reject(
+                    fn (Reservation $reservation): bool => $reservation->id === $excludeReservationId
+                );
+            }
+
+            return $candidates;
+        }
+
+        [$paddedFrom, $paddedTo] = $this->paddedWindow($from, $to);
+
+        $query = Reservation::query()
+            ->where('facility_id', $facility->id)
+            ->whereIn('status', Reservation::blockingStatuses())
+            ->where('check_in', '<', $paddedTo)
+            ->where('check_out', '>', $paddedFrom);
+
+        if ($excludeReservationId) {
+            $query->where('id', '!=', $excludeReservationId);
+        }
+
+        // Booking mutations require a current read after waiting for facility
+        // locks; a MySQL repeatable-read snapshot may predate that wait.
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        return $query->get($this->overlapColumns());
+    }
+
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function paddedWindow(Carbon $from, Carbon $to): array
+    {
+        $pad = (int) config('resort.stay.max_additional_hours', 12);
+
+        return [$from->copy()->subHours($pad), $to->copy()->addHours($pad)];
+    }
+
+    private function unavailableReason(Facility $facility, string $fallback): string
+    {
+        return $facility->name === 'Sapphire Hall' ? self::SAPPHIRE_UNAVAILABLE : $fallback;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function overlapColumns(): array
+    {
+        return [
+            'id',
+            'facility_id',
+            'reservation_code',
+            'check_in',
+            'check_out',
+            'early_check_in_hours',
+            'late_check_out_hours',
+        ];
     }
 }

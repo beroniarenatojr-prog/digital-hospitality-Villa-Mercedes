@@ -20,6 +20,8 @@ class UpdateFacilityRequest extends FormRequest
             'max_capacity' => ['required', 'integer', 'gte:base_capacity'],
             'images' => ['nullable', 'array'],
             'images.*' => ['image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
+            'captions' => ['nullable', 'array'],
+            'captions.*' => ['nullable', 'string', 'max:120'],
         ];
     }
 }

@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\InquiryStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\RespondInquiryRequest;
 use App\Models\Inquiry;
 use App\Services\Admin\InquiryManagementService;
+use App\Support\LiveFilter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class AdminInquiryController extends Controller
@@ -21,6 +24,10 @@ class AdminInquiryController extends Controller
         $filters = $request->only(['status', 'date_from', 'date_until', 'search']);
         $inquiries = $this->service->getInquiries($filters);
 
+        if (LiveFilter::wantsPartial($request)) {
+            return view('admin.inquiries.partials.results', compact('inquiries'));
+        }
+
         return view('admin.inquiries.index', compact('inquiries'));
     }
 
@@ -33,8 +40,8 @@ class AdminInquiryController extends Controller
 
     public function respond(RespondInquiryRequest $request, Inquiry $inquiry): RedirectResponse
     {
-        $statusEnum = $request->filled('status') 
-            ? \App\Enums\InquiryStatus::from($request->validated('status')) 
+        $statusEnum = $request->filled('status')
+            ? InquiryStatus::from($request->validated('status'))
             : null;
 
         $this->service->respondToInquiry(
@@ -50,11 +57,11 @@ class AdminInquiryController extends Controller
     public function updateStatus(Request $request, Inquiry $inquiry): RedirectResponse
     {
         $validated = $request->validate([
-            'status' => ['required', \Illuminate\Validation\Rule::in(\App\Enums\InquiryStatus::values())],
+            'status' => ['required', Rule::in(InquiryStatus::values())],
         ]);
 
-        $statusEnum = \App\Enums\InquiryStatus::from($validated['status']);
-        
+        $statusEnum = InquiryStatus::from($validated['status']);
+
         $this->service->updateInquiryStatus($inquiry, $request->user(), $statusEnum);
 
         return redirect()->back()->with('success', 'Inquiry status updated successfully.');

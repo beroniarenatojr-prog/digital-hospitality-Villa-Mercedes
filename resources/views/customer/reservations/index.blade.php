@@ -1,97 +1,77 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('My Reservations') }}
-        </h2>
-    </x-slot>
-
+<x-customer-layout>
     @php
-        $pending = $reservations->filter(fn($r) => $r->status === \App\Enums\ReservationStatus::Pending);
-        $upcoming = $reservations->filter(fn($r) => $r->status === \App\Enums\ReservationStatus::Approved && $r->check_in->isFuture());
-        $past = $reservations->filter(fn($r) => $r->status === \App\Enums\ReservationStatus::Approved && $r->check_in->isPast());
-        $cancelledCompleted = $reservations->filter(fn($r) => in_array($r->status, [
-            \App\Enums\ReservationStatus::Cancelled,
-            \App\Enums\ReservationStatus::Completed,
-            \App\Enums\ReservationStatus::Rejected
-        ]));
+        $emptyCopy = match ($activeTab) {
+            'pending' => ['title' => 'No pending reservations', 'description' => 'Bookings awaiting a deposit or staff review will appear here.'],
+            'current' => ['title' => 'No current stay', 'description' => 'When an approved reservation is in progress, it shows up here.'],
+            'completed' => ['title' => 'No completed stays yet', 'description' => 'Finished stays will be listed here.'],
+            'cancelled' => ['title' => 'No cancelled or declined reservations', 'description' => 'Cancelled, declined, or replaced reservations will appear here.'],
+            default => ['title' => 'No upcoming reservations', 'description' => 'When a reservation is confirmed and still ahead of you, it shows up here.'],
+        };
+        $pendingCount = collect($tabs)->firstWhere('key', 'pending')['count'] ?? 0;
     @endphp
 
-    <div class="py-12" x-data="{ tab: 'upcoming' }">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-            
-            <!-- Tabs -->
-            <div class="bg-white shadow sm:rounded-lg overflow-hidden">
-                <nav class="flex overflow-x-auto border-b border-gray-200" aria-label="Tabs">
-                    <button @click="tab = 'upcoming'" 
-                            :class="tab === 'upcoming' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                            class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none">
-                        Upcoming ({{ $upcoming->count() }})
-                    </button>
-                    <button @click="tab = 'pending'" 
-                            :class="tab === 'pending' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                            class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none">
-                        Pending ({{ $pending->count() }})
-                    </button>
-                    <button @click="tab = 'past'" 
-                            :class="tab === 'past' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                            class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none">
-                        Past ({{ $past->count() }})
-                    </button>
-                    <button @click="tab = 'cancelled'" 
-                            :class="tab === 'cancelled' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                            class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none">
-                        Cancelled / Other ({{ $cancelledCompleted->count() }})
-                    </button>
+    <div class="py-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h1 class="font-heading text-4xl md:text-5xl font-semibold text-text">My reservations</h1>
+                    <p class="text-text-muted mt-2">View reservations, submit a deposit, or request a change. The remaining balance is paid at arrival.</p>
+                </div>
+                <x-primary-button tag="a" href="{{ route('customer.reservations.new') }}">
+                    New Reservation
+                </x-primary-button>
+            </div>
+
+            @if($pendingCount > 0)
+                <x-alert type="info" title="{{ $pendingCount }} reservation(s) awaiting action or review">
+                    Open your reservation to submit its deposit or check staff review progress. A proof upload needs verification before confirmation.
+                </x-alert>
+            @endif
+
+            <div class="border-b border-border">
+                <nav class="flex gap-1 overflow-x-auto -mb-px" aria-label="Reservation status">
+                    @foreach($tabs as $t)
+                        <a href="{{ route('customer.reservations.index', ['tab' => $t['key']]) }}"
+                           aria-selected="{{ $activeTab === $t['key'] ? 'true' : 'false' }}"
+                           @class([
+                               'whitespace-nowrap py-3 px-4 border-b-2 font-semibold text-sm focus:outline-none focus:text-primary transition',
+                               'border-primary text-primary' => $activeTab === $t['key'],
+                               'border-transparent text-text-muted hover:text-text hover:border-border' => $activeTab !== $t['key'],
+                           ])>
+                            {{ $t['label'] }}
+                            <span @class([
+                                'ms-1.5 inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-xs font-bold',
+                                'bg-primary text-white' => $activeTab === $t['key'],
+                                'bg-muted text-text-muted' => $activeTab !== $t['key'],
+                            ])>
+                                {{ $t['count'] }}
+                            </span>
+                        </a>
+                    @endforeach
                 </nav>
             </div>
 
-            <!-- Content -->
-            <div>
-                <!-- Upcoming Tab -->
-                <div x-show="tab === 'upcoming'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-y-4" x-transition:enter-end="opacity-100 transform translate-y-0" style="display: none;">
-                    @forelse($upcoming as $reservation)
-                        @include('customer.reservations.partials.reservation-card', ['reservation' => $reservation])
-                    @empty
-                        <div class="bg-white shadow sm:rounded-lg p-6">
-                            <x-empty-state icon="calendar" title="No upcoming reservations" description="You don't have any upcoming approved reservations." />
-                        </div>
-                    @endforelse
-                </div>
-
-                <!-- Pending Tab -->
-                <div x-show="tab === 'pending'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-y-4" x-transition:enter-end="opacity-100 transform translate-y-0" style="display: none;">
-                    @forelse($pending as $reservation)
-                        @include('customer.reservations.partials.reservation-card', ['reservation' => $reservation])
-                    @empty
-                        <div class="bg-white shadow sm:rounded-lg p-6">
-                            <x-empty-state icon="clock" title="No pending reservations" description="You don't have any reservations waiting for approval." />
-                        </div>
-                    @endforelse
-                </div>
-
-                <!-- Past Tab -->
-                <div x-show="tab === 'past'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-y-4" x-transition:enter-end="opacity-100 transform translate-y-0" style="display: none;">
-                    @forelse($past as $reservation)
-                        @include('customer.reservations.partials.reservation-card', ['reservation' => $reservation])
-                    @empty
-                        <div class="bg-white shadow sm:rounded-lg p-6">
-                            <x-empty-state icon="archive" title="No past reservations" description="You don't have any past reservations." />
-                        </div>
-                    @endforelse
-                </div>
-
-                <!-- Cancelled / Other Tab -->
-                <div x-show="tab === 'cancelled'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-y-4" x-transition:enter-end="opacity-100 transform translate-y-0" style="display: none;">
-                    @forelse($cancelledCompleted as $reservation)
-                        @include('customer.reservations.partials.reservation-card', ['reservation' => $reservation])
-                    @empty
-                        <div class="bg-white shadow sm:rounded-lg p-6">
-                            <x-empty-state icon="x-circle" title="No cancelled reservations" description="You don't have any cancelled or rejected reservations." />
-                        </div>
-                    @endforelse
-                </div>
+            <div class="space-y-4">
+                @forelse($reservations as $reservation)
+                    @include('customer.reservations.partials.reservation-card', ['reservation' => $reservation])
+                @empty
+                    <x-empty-state icon="calendar" :title="$emptyCopy['title']" :description="$emptyCopy['description']">
+                        @if($activeTab === 'upcoming')
+                            <x-slot name="action">
+                                <x-primary-button tag="a" href="{{ route('customer.reservations.new') }}">New Reservation</x-primary-button>
+                            </x-slot>
+                        @endif
+                    </x-empty-state>
+                @endforelse
             </div>
+
+            @if($reservations->hasPages())
+                <div class="pt-2">
+                    {{ $reservations->links() }}
+                </div>
+            @endif
 
         </div>
     </div>
-</x-app-layout>
+</x-customer-layout>

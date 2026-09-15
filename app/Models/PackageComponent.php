@@ -29,6 +29,6 @@ class PackageComponent extends Model
      */
     public function componentFacility(): BelongsTo
     {
-        return $this->belongsTo(Facility::class, 'component_facility_id');
+        return $this->belongsTo(Facility::class, 'component_facility_id')->withTrashed();
     }
 }

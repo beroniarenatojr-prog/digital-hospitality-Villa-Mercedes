@@ -12,17 +12,18 @@ class FaqCategorySeeder extends Seeder
     {
         $categories = [
             'General',
+            'Facilities',
             'Reservations',
             'Payments',
-            'Facilities',
         ];
 
         foreach ($categories as $index => $category) {
-            FaqCategory::query()->firstOrCreate(
+            FaqCategory::query()->updateOrCreate(
                 ['slug' => Str::slug($category)],
                 [
                     'name' => $category,
                     'sort_order' => $index,
+                    'is_active' => true,
                 ]
             );
         }

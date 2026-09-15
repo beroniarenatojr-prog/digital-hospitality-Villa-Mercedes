@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\PaymentMethod;
-use App\Enums\PaymentStatus;
 use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Enums\Role;
@@ -26,34 +25,40 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
     use RefreshDatabase;
 
     private ReservationService $reservationService;
+
     private CustomerReservationService $customerReservationService;
+
     private PaymentService $paymentService;
+
     private User $customer;
+
     private User $admin;
+
     private Facility $room1;
+
     private Facility $room2;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->artisan('db:seed');
 
         $this->reservationService = app(ReservationService::class);
         $this->customerReservationService = app(CustomerReservationService::class);
         $this->paymentService = app(PaymentService::class);
-        
+
         $this->customer = User::factory()->create();
         $this->customer->assignRole(Role::Customer->value);
-        
+
         $this->admin = User::factory()->create();
         $this->admin->assignRole(Role::Administrator->value);
 
-        $this->room1 = Facility::where('slug', 'deluxe')->firstOrFail();
-        $this->room2 = Facility::where('slug', 'superior-twin')->firstOrFail();
+        $this->room1 = Facility::where('slug', 'deluxe-room-26')->firstOrFail();
+        $this->room2 = Facility::where('slug', 'standard-family-room-21')->firstOrFail();
     }
 
-    private function createTestReservation(Carbon $checkIn, Carbon $checkOut, Facility $facility = null): Reservation
+    private function createTestReservation(Carbon $checkIn, Carbon $checkOut, ?Facility $facility = null): Reservation
     {
         return $this->reservationService->createReservation(
             $facility ?? $this->room1,
@@ -78,6 +83,9 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         $this->assertEquals(0, $reservation->getVerifiedTotalPaid());
         $this->assertEquals($totalPrice, $reservation->getRemainingBalance());
         $this->assertFalse($reservation->isFullyPaid());
+
+        $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+        $reservation = $reservation->fresh();
 
         // Create pending payment
         $payment1 = $this->paymentService->createPayment(
@@ -204,7 +212,7 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
             Carbon::parse('2026-09-03 12:00:00')
         );
 
-        $this->reservationService->changeStatus($reservation, \App\Enums\ReservationStatus::Approved, $this->admin, 'approved');
+        $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin, 'approved');
         $this->reservationService->cancel($reservation, $this->customer);
 
         $this->expectException(InvalidReservationTransitionException::class);
@@ -243,7 +251,3 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         $this->assertEquals($newCheckIn->toDateTimeString(), $rescheduled->check_in->toDateTimeString());
     }
 }
-
-
-
-

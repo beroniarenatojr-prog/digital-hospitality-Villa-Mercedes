@@ -5,7 +5,9 @@ namespace App\Services\Payments;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Exceptions\Payment\InvalidPaymentAmountException;
+use App\Exceptions\Payment\PaymentNotEligibleException;
 use App\Exceptions\Payment\PaymentOwnershipException;
+use App\Exceptions\Payment\InvalidPaymentTransitionException;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
@@ -26,7 +28,7 @@ class OnlinePaymentService
 
     public function isAvailable(): bool
     {
-        return $this->gateway->isConfigured();
+        return config('payments.allow_gateway_checkout') && $this->gateway->isConfigured();
     }
 
     public function gatewayLabel(): string
@@ -43,28 +45,13 @@ class OnlinePaymentService
      */
     public function startCheckout(User $customer, Reservation $reservation, float $amount, PaymentMethod $method): string
     {
+        if (! config('payments.allow_gateway_checkout')) {
+            throw new PaymentNotEligibleException('Use the resort QR deposit instructions. The remaining balance is payable at arrival.');
+        }
         $this->verifyOwnership($customer, $reservation);
 
-        $balance = $reservation->getRemainingBalance();
-
-        if ($amount <= 0) {
-            throw new InvalidPaymentAmountException('Payment amount must be greater than zero.');
-        }
-
-        if ($amount > $balance) {
-            throw new InvalidPaymentAmountException(
-                'Payment amount cannot exceed the remaining balance of ₱' . number_format($balance, 2) . '.'
-            );
-        }
-
-        return DB::transaction(function () use ($reservation, $amount, $method) {
-            $payment = Payment::create([
-                'reservation_id' => $reservation->id,
-                'amount' => number_format($amount, 2, '.', ''),
-                'method' => $method->value,
-                'payment_date' => now()->toDateString(),
-                'status' => PaymentStatus::Pending->value,
-            ]);
+        return DB::transaction(function () use ($customer, $reservation, $amount, $method) {
+            $payment = $this->paymentService->createPayment($reservation, $customer, $amount, $method);
 
             $session = $this->gateway->createCheckout(
                 $payment->load('reservation.facility'),
@@ -91,6 +78,10 @@ class OnlinePaymentService
     public function confirm(User $customer, Payment $payment): bool
     {
         $this->verifyOwnership($customer, $payment->reservation);
+
+        if ($payment->proof_path) {
+            throw new InvalidPaymentTransitionException('A manual receipt cannot be confirmed through an online checkout.');
+        }
 
         if ($payment->status === PaymentStatus::Verified) {
             return true;
@@ -119,9 +110,26 @@ class OnlinePaymentService
     {
         $this->verifyOwnership($customer, $payment->reservation);
 
-        if ($payment->status === PaymentStatus::Pending) {
-            $payment->delete();
-        }
+        DB::transaction(function () use ($payment): void {
+            Reservation::whereKey($payment->reservation_id)->lockForUpdate()->firstOrFail();
+            $lockedPayment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedPayment->status !== PaymentStatus::Pending) {
+                return;
+            }
+
+            if ($lockedPayment->proof_path || ! $lockedPayment->reference_number) {
+                throw new InvalidPaymentTransitionException('Only an online checkout can be cancelled here.');
+            }
+
+            if ($this->gateway->isPaid($lockedPayment->reference_number)) {
+                $this->paymentService->verifyPaymentViaGateway($lockedPayment, $lockedPayment->reference_number);
+            } else {
+                // Keep the record so a late provider confirmation can restore
+                // the actual funds even after the guest leaves checkout.
+                $lockedPayment->delete();
+            }
+        });
     }
 
     /**

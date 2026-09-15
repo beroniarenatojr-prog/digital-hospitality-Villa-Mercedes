@@ -18,15 +18,19 @@ class AdminSecurityHardeningTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer1;
+
     private User $customer2;
+
     private Facility $facility;
+
     private Reservation $reservation;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->seed();
 
         $this->admin = clone User::whereHas('roles', function ($q) {
@@ -53,19 +57,22 @@ class AdminSecurityHardeningTest extends TestCase
         $this->actingAs($this->customer1);
 
         $response = $this->get(route('admin.dashboard'));
-        $response->assertForbidden();
+        $response->assertRedirect(route('admin.login'));
 
+        $this->actingAs($this->customer1);
         $response = $this->get(route('admin.reservations.index'));
-        $response->assertForbidden();
+        $response->assertRedirect(route('admin.login'));
 
+        $this->actingAs($this->customer1);
         $response = $this->get(route('admin.payments.index'));
-        $response->assertForbidden();
+        $response->assertRedirect(route('admin.login'));
+        $this->assertGuest();
     }
 
     public function test_unauthenticated_user_cannot_access_admin_routes()
     {
         $response = $this->get(route('admin.dashboard'));
-        $response->assertRedirect('/login');
+        $response->assertRedirect('/admin/login');
     }
 
     public function test_idor_customer_cannot_access_another_customers_reservation_via_admin_routes()
@@ -73,9 +80,9 @@ class AdminSecurityHardeningTest extends TestCase
         $this->actingAs($this->customer2);
 
         $response = $this->get(route('admin.reservations.show', $this->reservation));
-        
-        // Should be forbidden because they are not an admin
-        $response->assertForbidden();
+
+        $response->assertRedirect(route('admin.login'));
+        $this->assertGuest();
     }
 
     public function test_customer_cannot_force_status_change_via_admin_routes()
@@ -83,7 +90,7 @@ class AdminSecurityHardeningTest extends TestCase
         $this->actingAs($this->customer1);
 
         $response = $this->patch(route('admin.reservations.approve', $this->reservation));
-        $response->assertForbidden();
+        $response->assertRedirect(route('admin.login'));
 
         $this->assertEquals(ReservationStatus::Pending, $this->reservation->fresh()->status);
     }
@@ -110,7 +117,7 @@ class AdminSecurityHardeningTest extends TestCase
         $this->reservation->update(['status' => ReservationStatus::Cancelled]);
 
         $response = $this->patch(route('admin.reservations.approve', $this->reservation));
-        
+
         $response->assertSessionHas('error');
         $this->assertEquals(ReservationStatus::Cancelled, $this->reservation->fresh()->status);
     }
@@ -182,7 +189,7 @@ class AdminSecurityHardeningTest extends TestCase
             'check_in' => now()->addDays(10)->toDateString(),
             'check_out' => now()->addDays(11)->toDateString(),
             'guestCount' => $overCapacity,
-        ]);
+        ] + $this->guestInformationPayload());
 
         $this->assertDatabaseMissing('reservations', [
             'guest_count' => $overCapacity,

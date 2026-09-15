@@ -29,6 +29,7 @@ class FacilityFactory extends Factory
             'capacity' => $this->faker->numberBetween(2, 250),
             'status' => $this->faker->randomElement(FacilityStatus::values()),
             'is_active' => true,
+            'is_listed' => true,
             'sort_order' => 0,
         ];
     }

@@ -4,12 +4,28 @@ namespace Tests\Feature\Customer;
 
 use App\Models\Faq;
 use App\Models\FaqCategory;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class CustomerFaqTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_seeded_cancellation_faq_matches_policy_and_pending_rule(): void
+    {
+        $this->seed();
+
+        $cutoff = (int) config('resort.policy.cancellation_cutoff_hours', 48);
+
+        $this->get(route('faq.index'))
+            ->assertOk()
+            ->assertSee('Can I cancel or reschedule my booking?')
+            ->assertSee((string) $cutoff)
+            ->assertSee('submit a withdrawal from My reservations')
+            ->assertSee('Can I undo a withdrawal request?')
+            ->assertSee('the request stays until staff confirm it');
+    }
 
     public function test_public_faq_page_loads()
     {
@@ -33,18 +49,20 @@ class CustomerFaqTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee($category->name);
         $response->assertSee('What is the active question?');
+        $response->assertSee('faq-answer-'.$faq->id, false);
+        $response->assertSee('x-data="{ active: '.$faq->id.' }"', false);
     }
 
     public function test_inactive_faqs_are_hidden()
     {
         $category = FaqCategory::factory()->create(['is_active' => true]);
-        
+
         $activeFaq = Faq::factory()->create([
             'faq_category_id' => $category->id,
             'is_active' => true,
             'question' => 'Active FAQ',
         ]);
-        
+
         $inactiveFaq = Faq::factory()->create([
             'faq_category_id' => $category->id,
             'is_active' => false,
@@ -65,6 +83,25 @@ class CustomerFaqTest extends TestCase
         $response->assertDontSee('Inactive FAQ');
         $response->assertDontSee('Hidden Category');
         $response->assertDontSee('Should be hidden');
+    }
+
+    public function test_seeded_faqs_are_grouped_by_category(): void
+    {
+        $this->seed();
+
+        $this->get(route('faq.index'))
+            ->assertOk()
+            ->assertSee('All')
+            ->assertSee('General')
+            ->assertSee('Facilities')
+            ->assertSee('Reservations')
+            ->assertSee('Payments')
+            ->assertSeeInOrder([
+                'Where is Villa Mercedes located?',
+                'What is the entrance fee?',
+                'How far in advance can I book a room?',
+                'What payment methods do you accept?',
+            ]);
     }
 
     public function test_category_filtering_works()
@@ -89,6 +126,7 @@ class CustomerFaqTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('Question 1');
         $response->assertDontSee('Question 2');
+        $response->assertSee('Category One');
     }
 
     public function test_empty_faq_state_works()
@@ -103,14 +141,15 @@ class CustomerFaqTest extends TestCase
     {
         // There are no post/patch routes for FAQs on the customer side.
         // Even attempting to hit admin routes should fail.
-        $user = \App\Models\User::factory()->create(); // non-admin
+        $user = User::factory()->create(); // non-admin
         $category = FaqCategory::factory()->create();
-        
+
         $response = $this->actingAs($user)->postJson(route('admin.faq-categories.store'), [
             'name' => 'Hacked Category',
         ]);
 
-        // Admins can do this, but regular users will get 403 Forbidden
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
+        $this->assertGuest();
+        $this->assertDatabaseMissing('faq_categories', ['name' => 'Hacked Category']);
     }
 }

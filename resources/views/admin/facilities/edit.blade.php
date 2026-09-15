@@ -3,7 +3,13 @@
         Edit Facility — {{ $facility->name }}
     </x-slot>
 
-    <div class="max-w-2xl">
+    @php
+        $photoCount = $facility->galleryImages->count();
+        $remaining = \App\Models\GalleryImage::MAX_COUNT - $photoCount;
+        $recommended = \App\Models\GalleryImage::RECOMMENDED_COUNT;
+    @endphp
+
+    <div class="max-w-4xl">
         <div class="bg-white shadow-sm rounded-lg border border-gray-200">
             <form method="POST" action="{{ route('admin.facilities.update', $facility) }}" enctype="multipart/form-data" class="p-6 space-y-6">
                 @csrf
@@ -35,7 +41,7 @@
                         <label for="base_capacity" class="block text-sm font-medium text-gray-700">
                             Standard Capacity <span class="text-danger">*</span>
                         </label>
-                        <input type="number" id="base_capacity" name="base_capacity" value="{{ old('base_capacity', $facility->capacity) }}" required min="1"
+                        <input type="number" id="base_capacity" name="base_capacity" value="{{ old('base_capacity', $facility->capacity) }}" @required(! $facility->isCottage()) min="1"
                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                         <p class="mt-1 text-xs text-gray-500">Number of guests included in the base occupancy.</p>
                         @error('base_capacity')
@@ -46,7 +52,7 @@
                         <label for="max_capacity" class="block text-sm font-medium text-gray-700">
                             Maximum Capacity <span class="text-danger">*</span>
                         </label>
-                        <input type="number" id="max_capacity" name="max_capacity" value="{{ old('max_capacity', $facility->max_capacity) }}" required min="1"
+                        <input type="number" id="max_capacity" name="max_capacity" value="{{ old('max_capacity', $facility->max_capacity) }}" @required(! $facility->isCottage()) min="1"
                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                         <p class="mt-1 text-xs text-gray-500">Absolute maximum number of guests allowed.</p>
                         @error('max_capacity')
@@ -54,39 +60,73 @@
                         @enderror
                     </div>
                 </div>
+                @if($facility->isCottage())<p class="-mt-4 text-xs text-gray-500">Leave both blank to keep this cottage without a fixed guest-capacity limit.</p>@endif
 
                 <!-- Images -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Existing Images</label>
-                    @if($facility->galleryImages->count() > 0)
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Guest photos</label>
+                        <p class="mt-1 text-sm text-gray-500">
+                            Upload at least {{ $recommended }} photos so guests can see different angles — bed, bathroom, view, and how much space this {{ strtolower($facility->facilityType?->name ?? 'facility') }} covers.
+                            You can keep up to {{ \App\Models\GalleryImage::MAX_COUNT }} photos ({{ $photoCount }} used).
+                        </p>
+                    </div>
+
+                    @if($photoCount < $recommended)
+                        <p class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                            {{ $photoCount }} of {{ $recommended }} recommended photos. Add {{ $recommended - $photoCount }} more so guests know what they are booking.
+                        </p>
+                    @endif
+
+                    @if($photoCount > 0)
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             @foreach($facility->galleryImages as $image)
-                                <div class="relative group border rounded-md overflow-hidden">
-                                    <img src="{{ Storage::url($image->image_path) }}" class="w-full h-32 object-cover" alt="Facility Image">
-                                    <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                                        <button type="button" 
-                                                onclick="event.preventDefault(); document.getElementById('delete-image-{{ $image->id }}').submit();"
-                                                class="text-white bg-danger hover:bg-red-700 font-bold py-1 px-2 rounded text-xs">
+                                <div class="border rounded-md overflow-hidden bg-gray-50">
+                                    <div class="relative">
+                                        <img src="{{ $image->url() }}" class="w-full h-36 object-cover" alt="{{ $image->caption ?: $facility->name }}">
+                                        <button type="button"
+                                                onclick="event.preventDefault(); if (confirm('Delete this photo?')) document.getElementById('delete-image-{{ $image->id }}').submit();"
+                                                class="absolute top-2 right-2 text-white bg-danger hover:bg-red-700 font-semibold py-1 px-2 rounded text-xs">
                                             Delete
                                         </button>
+                                    </div>
+                                    <div class="p-3">
+                                        <label for="caption-{{ $image->id }}" class="block text-xs font-medium text-gray-700 mb-1">What this photo shows</label>
+                                        <input type="text" id="caption-{{ $image->id }}" name="captions[{{ $image->id }}]"
+                                               value="{{ old('captions.'.$image->id, $image->caption) }}"
+                                               maxlength="120"
+                                               placeholder="e.g. Bathroom, garden view, hall seating"
+                                               class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                                     </div>
                                 </div>
                             @endforeach
                         </div>
                     @else
-                        <p class="text-sm text-gray-500 italic mb-4">No images uploaded yet.</p>
+                        <p class="text-sm text-gray-500 italic">No photos uploaded yet.</p>
                     @endif
 
-                    <label for="images" class="block text-sm font-medium text-gray-700">Upload New Images</label>
-                    <input type="file" id="images" name="images[]" multiple accept="image/*"
-                           class="mt-1 block w-full text-sm text-gray-500
-                                  file:mr-4 file:py-2 file:px-4
-                                  file:rounded-md file:border-0
-                                  file:text-sm file:font-semibold
-                                  file:bg-primary-light file:text-primary
-                                  hover:file:bg-primary-light/80">
-                    <p class="mt-1 text-xs text-gray-500">You can select multiple images (JPEG, PNG, JPG, WEBP). Max 5MB per image.</p>
+                    @if($remaining > 0)
+                        <div>
+                            <label for="images" class="block text-sm font-medium text-gray-700">Upload more photos</label>
+                            <input type="file" id="images" name="images[]" multiple accept="image/jpeg,image/png,image/jpg,image/webp"
+                                   class="mt-1 block w-full text-sm text-gray-500
+                                          file:mr-4 file:py-2 file:px-4
+                                          file:rounded-md file:border-0
+                                          file:text-sm file:font-semibold
+                                          file:bg-primary-light file:text-primary
+                                          hover:file:bg-primary-light/80">
+                            <p class="mt-1 text-xs text-gray-500">Select up to {{ $remaining }} more (JPEG, PNG, JPG, WEBP). Max 5MB each. Add captions after saving.</p>
+                        </div>
+                    @else
+                        <p class="text-sm text-gray-500">This facility already has {{ \App\Models\GalleryImage::MAX_COUNT }} photos. Delete one before adding another.</p>
+                    @endif
+                    @error('images')
+                        <p class="mt-1 text-sm text-danger">{{ $message }}</p>
+                    @enderror
                     @error('images.*')
+                        <p class="mt-1 text-sm text-danger">{{ $message }}</p>
+                    @enderror
+                    @error('captions.*')
                         <p class="mt-1 text-sm text-danger">{{ $message }}</p>
                     @enderror
                 </div>

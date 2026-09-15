@@ -1,26 +1,40 @@
 <x-customer-layout>
+    @php
+        $isCustomerDetail = request()->routeIs('customer.facilities.show');
+        $homeUrl = $isCustomerDetail
+            ? route('customer.reservations.index')
+            : route('home');
+        $publicListRoute = match($facility->facilityType->slug) {
+            \App\Enums\FacilityType::Room->value => 'rooms',
+            \App\Enums\FacilityType::FunctionHall->value => 'halls',
+            \App\Enums\FacilityType::ResortPackage->value => 'packages',
+            \App\Enums\FacilityType::Cottage->value => 'cottages',
+            default => 'home',
+        };
+        $selectionQuery = array_filter(request()->only([
+            'check_in', 'check_out', 'guests', 'date', 'session', 'arrival', 'departure',
+        ]), fn ($value) => $value !== null && $value !== '');
+        $listUrl = $isCustomerDetail
+            ? route('customer.reservations.new', [
+                'type' => $facility->facilityType->slug,
+                ...$selectionQuery,
+            ])
+            : route($publicListRoute);
+    @endphp
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12 pb-24">
         
         {{-- Breadcrumb --}}
         <nav class="flex mb-6 text-sm text-muted-foreground" aria-label="Breadcrumb">
             <ol class="inline-flex items-center space-x-1 md:space-x-3">
                 <li class="inline-flex items-center">
-                    <a href="{{ route('home') }}" class="inline-flex items-center hover:text-text transition-colors">
-                        Home
+                    <a href="{{ $homeUrl }}" class="inline-flex items-center hover:text-text transition-colors">
+                        {{ $isCustomerDetail ? 'My reservations' : 'Home' }}
                     </a>
                 </li>
                 <li>
                     <div class="flex items-center">
                         <svg class="w-4 h-4 text-muted-foreground mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                        @php
-                            $listRoute = match($facility->facilityType->slug) {
-                                'room' => 'rooms',
-                                'function-hall' => 'halls',
-                                'resort-package' => 'packages',
-                                default => 'home'
-                            };
-                        @endphp
-                        <a href="{{ route($listRoute) }}" class="hover:text-text transition-colors">
+                        <a href="{{ $listUrl }}" class="hover:text-text transition-colors">
                             {{ $facility->facilityType->name }}s
                         </a>
                     </div>
@@ -43,24 +57,85 @@
                 <div class="space-y-6">
                     <div>
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-text mb-3">{{ $facility->facilityType->name }}</span>
-                        <h1 class="font-display text-4xl md:text-5xl lg:text-6xl font-extrabold text-text tracking-tight">
+                        <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-semibold text-text tracking-tight">
                             {{ $facility->name }}
                         </h1>
                     </div>
 
-                    <div class="relative w-full h-[300px] md:h-[400px] rounded-2xl overflow-hidden bg-muted flex items-center justify-center text-muted-foreground border border-border shadow-sm">
+                    <div
+                        class="space-y-3"
                         @if($facility->galleryImages->count() > 0)
-                            <img src="{{ Storage::url($facility->galleryImages->first()->image_path) }}" alt="{{ $facility->name }}" class="w-full h-full object-cover" />
-                        @else
-                            <svg class="w-16 h-16 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                            <span class="absolute text-sm font-medium opacity-50 uppercase tracking-widest mt-24">No Image Available</span>
+                            x-data="{
+                                active: 0,
+                                lightbox: false,
+                                photos: {{ \Illuminate\Support\Js::from($facility->galleryImages->map(fn ($image) => [
+                                    'url' => $image->url(),
+                                    'caption' => $image->caption,
+                                    'alt' => $image->caption ?: $facility->name,
+                                ])->values()) }}
+                            }"
+                        @endif
+                    >
+                        <div class="relative w-full h-[300px] md:h-[440px] rounded-2xl overflow-hidden bg-muted flex items-center justify-center text-muted-foreground border border-border shadow-sm">
+                            @if($facility->galleryImages->count() > 0)
+                                <button type="button" class="absolute inset-0" @click="lightbox = true">
+                                    <img :src="photos[active].url" :alt="photos[active].alt" class="w-full h-full object-cover">
+                                </button>
+                                @if($facility->galleryImages->count() > 1)
+                                    <button type="button" class="absolute left-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full w-10 h-10 flex items-center justify-center"
+                                            @click.stop="active = (active - 1 + photos.length) % photos.length" aria-label="Previous photo">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full w-10 h-10 flex items-center justify-center"
+                                            @click.stop="active = (active + 1) % photos.length" aria-label="Next photo">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                @endif
+                                <span class="absolute bottom-3 right-3 text-xs font-medium text-white bg-black/60 rounded-full px-2.5 py-1" x-text="(active + 1) + ' / ' + photos.length">1 / {{ $facility->galleryImages->count() }}</span>
+                            @else
+                                <svg class="w-16 h-16 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span class="absolute text-sm font-medium opacity-50 uppercase tracking-widest mt-24">No Image Available</span>
+                            @endif
+                        </div>
+
+                        @if($facility->galleryImages->count() > 0)
+                            <p class="text-sm text-muted-foreground min-h-[1.25rem]" x-text="photos[active].caption || ''"></p>
+                        @endif
+
+                        @if($facility->galleryImages->count() > 1)
+                            <div class="grid grid-cols-5 sm:grid-cols-6 gap-2">
+                                @foreach($facility->galleryImages as $index => $image)
+                                    <button type="button"
+                                            @click="active = {{ $index }}"
+                                            class="aspect-square rounded-lg overflow-hidden border-2 transition"
+                                            :class="active === {{ $index }} ? 'border-primary' : 'border-transparent hover:border-border'">
+                                        <img src="{{ $image->url() }}" alt="{{ $image->caption ?: $facility->name }}" class="w-full h-full object-cover">
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        @if($facility->galleryImages->count() > 0)
+                            <div
+                                x-show="lightbox"
+                                x-cloak
+                                class="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-6"
+                                @keydown.escape.window="lightbox = false"
+                                @click.self="lightbox = false"
+                            >
+                                <div class="max-w-5xl w-full">
+                                    <img :src="photos[active].url" :alt="photos[active].alt" class="w-full max-h-[80vh] object-contain">
+                                    <p class="mt-4 text-center text-white" x-text="photos[active].caption || ''"></p>
+                                    <button type="button" class="mt-4 mx-auto block text-sm font-medium text-white/80 hover:text-white" @click="lightbox = false">Close</button>
+                                </div>
+                            </div>
                         @endif
                     </div>
                 </div>
 
                 {{-- Overview --}}
                 <section>
-                    <h2 class="font-display text-2xl md:text-3xl font-bold text-text mb-4">Overview</h2>
+                    <h2 class="font-heading text-3xl md:text-4xl font-semibold text-text mb-4">Overview</h2>
                     <p class="text-lg text-muted-foreground leading-relaxed whitespace-pre-wrap">{{ $facility->description }}</p>
                 </section>
 
@@ -69,7 +144,7 @@
                 {{-- Amenities / Inclusions --}}
                 @if($facility->amenities->count() > 0)
                 <section>
-                    <h2 class="font-display text-2xl md:text-3xl font-bold text-text mb-6">Amenities / Inclusions</h2>
+                    <h2 class="font-heading text-3xl md:text-4xl font-semibold text-text mb-6">Amenities / Inclusions</h2>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         @foreach($facility->amenities as $amenity)
                             <div class="flex items-start gap-3 bg-surface p-4 rounded-xl border border-border">
@@ -84,7 +159,7 @@
                 {{-- Included Bookable Resources (Package Components) --}}
                 @if($facility->packageComponents->count() > 0)
                 <section>
-                    <h2 class="font-display text-2xl md:text-3xl font-bold text-text mb-6">Included Resources</h2>
+                    <h2 class="font-heading text-3xl md:text-4xl font-semibold text-text mb-6">Included Resources</h2>
                     <p class="text-muted-foreground mb-4">This package reserves the following facilities for your exclusive use:</p>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         @foreach($facility->packageComponents as $component)
@@ -104,7 +179,7 @@
 
             </div>
 
-            {{-- Sidebar (Booking & Pricing CTA) --}}
+            {{-- Sidebar (Reserve & Pricing CTA) --}}
             <div class="lg:col-span-1">
                 <div class="sticky top-24">
                     <x-card class="glass p-6 md:p-8 relative overflow-hidden rounded-3xl border border-white/50 shadow-2xl">
@@ -112,7 +187,7 @@
                         <div class="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                         
                         <div class="relative z-10">
-                            <h3 class="font-display text-xl md:text-2xl font-bold text-text mb-6">Booking Details</h3>
+                            <h3 class="font-display text-xl md:text-2xl font-bold text-text mb-6">Reservation details</h3>
                             
                             <div class="space-y-4 mb-8">
                                 <div class="flex items-center justify-between pb-4 border-b border-border">
@@ -127,7 +202,9 @@
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                                         Maximum Capacity
                                     </span>
-                                    <span class="font-medium text-text">{{ $facility->effectiveMaxCapacity() }} pax</span>
+                                    <span class="font-medium text-text">
+                                        {{ $facility->effectiveMaxCapacity() === null ? 'No fixed guest limit' : $facility->effectiveMaxCapacity().' pax' }}
+                                    </span>
                                 </div>
                             </div>
 
@@ -147,14 +224,40 @@
                                 @endif
                             </div>
 
-                            {{-- Booking Flow is incomplete, so we provide a disabled/informational CTA per requirements --}}
                             <div class="space-y-3">
-                                <x-primary-button tag="a" href="{{ route('customer.booking.create', $facility) }}" class="w-full justify-center text-center">
-                                    Book This Service
-                                </x-primary-button>
-                                <p class="text-xs text-center text-muted-foreground">
-                                    For manual reservations, please contact our support desk.
-                                </p>
+                                @if($facility->isOnlineBookable())
+                                    @php
+                                        // Carry dates from discovery into the next step without
+                                        // treating the published starting rate as a final quote.
+                                        $stayQuery = array_filter(request()->only([
+                                            'check_in', 'check_out', 'arrival', 'departure', 'guests', 'date', 'session',
+                                        ]), fn ($value) => $value !== null && $value !== '');
+                                        $cameFromAvailability = request('availability_checked') === '1';
+                                        $nextUrl = $cameFromAvailability
+                                            ? route('customer.booking.create', [
+                                                'facility' => $facility,
+                                                ...$stayQuery,
+                                                'availability_checked' => 1,
+                                            ])
+                                            : route('facilities.availability', ['facility' => $facility, ...$stayQuery]);
+                                    @endphp
+                                    <x-primary-button tag="a" href="{{ $nextUrl }}" class="w-full justify-center text-center !py-3 !text-base">
+                                        {{ $cameFromAvailability ? 'Continue to reservation' : 'Check availability' }}
+                                    </x-primary-button>
+                                    <p class="text-xs text-center text-muted-foreground">
+                                        {{ $cameFromAvailability
+                                            ? 'Your dates are available. The exact total is calculated and revalidated on the next step.'
+                                            : 'Checking dates is free. The exact total is calculated before you confirm.' }}
+                                    </p>
+                                @else
+                                    <p class="text-sm text-text">This package cannot be reserved online. Call or message the resort to arrange it.</p>
+                                    <x-secondary-button tag="a" href="{{ route('contact') }}" class="w-full justify-center text-center">
+                                        Contact the resort
+                                    </x-secondary-button>
+                                    <p class="text-xs text-center text-muted-foreground">
+                                        <a href="{{ config('resort.phone_href') }}" class="font-medium text-primary hover:underline">{{ config('resort.phone') }}</a>
+                                    </p>
+                                @endif
                             </div>
                         </div>
                     </x-card>
@@ -163,32 +266,6 @@
 
         </div>
     </div>
-    @push('scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            if (document.querySelector('.facility-swiper')) {
-                new Swiper('.facility-swiper', {
-                    modules: [SwiperModules.Navigation, SwiperModules.Pagination],
-                    loop: true,
-                    navigation: {
-                        nextEl: '.swiper-button-next',
-                        prevEl: '.swiper-button-prev',
-                    },
-                    pagination: {
-                        el: '.swiper-pagination',
-                        clickable: true,
-                    },
-                    autoplay: {
-                        delay: 4000,
-                        disableOnInteraction: false,
-                    }
-                });
-            }
-        });
-    </script>
-    @endpush
 </x-customer-layout>
-
-
 
 

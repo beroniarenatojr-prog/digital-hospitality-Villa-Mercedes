@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Models\User;
+use App\Support\AuthRedirect;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
-use App\Enums\Role;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -23,23 +26,22 @@ class AuthenticatedSessionController extends Controller
     /**
      * Handle an incoming authentication request.
      */
-    public function store(LoginRequest $request): RedirectResponse
+    public function store(LoginRequest $request): RedirectResponse|JsonResponse
     {
         $request->authenticate();
 
         $request->session()->regenerate();
 
         $user = $request->user();
+        $url = $user instanceof User && $user->hasRole(Role::Administrator->value)
+            ? AuthRedirect::adminUrl()
+            : AuthRedirect::customerUrl();
 
-        if ($user->hasRole(Role::Administrator->value)) {
-            return redirect()->intended(route('admin.dashboard', absolute: false));
+        if ($request->expectsJson()) {
+            return response()->json(['redirect' => $url]);
         }
 
-        if ($user->hasRole(Role::Customer->value)) {
-            return redirect()->intended(route('customer.reservations.index', absolute: false));
-        }
-
-        return redirect()->intended(route('dashboard', absolute: false));
+        return redirect()->to($url);
     }
 
     /**

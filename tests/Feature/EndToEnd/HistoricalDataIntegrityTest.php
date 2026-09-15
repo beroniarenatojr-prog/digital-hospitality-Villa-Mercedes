@@ -24,19 +24,19 @@ class HistoricalDataIntegrityTest extends TestCase
         $customer = User::factory()->create();
         $customer->assignRole('Customer');
 
-        $facility = Facility::where('is_active', true)->first();
+        $facility = Facility::query()->where('slug', 'deluxe-room-27')->firstOrFail();
         $rate = $facility->rates()->where('type', 'base')->first();
 
-        // 1. Create Reservation A
-        $checkInA = Carbon::now()->addDays(5)->format('Y-m-d');
-        $checkOutA = Carbon::now()->addDays(7)->format('Y-m-d');
+        // 1. Create Reservation A well clear of demo-seeded stays
+        $checkInA = Carbon::now()->addDays(40)->format('Y-m-d');
+        $checkOutA = Carbon::now()->addDays(42)->format('Y-m-d');
 
         $this->actingAs($customer)->post(route('customer.reservations.store'), [
             'facility_id' => $facility->id,
             'check_in' => $checkInA,
             'check_out' => $checkOutA,
             'guestCount' => 2,
-        ]);
+        ] + $this->guestInformationPayload());
 
         $reservationA = Reservation::where('user_id', $customer->id)->first();
         $originalPrice = $reservationA->total_price;
@@ -56,15 +56,15 @@ class HistoricalDataIntegrityTest extends TestCase
         $this->assertEquals($newAmount, $rate->fresh()->amount);
 
         // 3. Create Reservation B
-        $checkInB = Carbon::now()->addDays(15)->format('Y-m-d');
-        $checkOutB = Carbon::now()->addDays(17)->format('Y-m-d');
+        $checkInB = Carbon::now()->addDays(50)->format('Y-m-d');
+        $checkOutB = Carbon::now()->addDays(52)->format('Y-m-d');
 
         $this->actingAs($customer)->post(route('customer.reservations.store'), [
             'facility_id' => $facility->id,
             'check_in' => $checkInB,
             'check_out' => $checkOutB,
             'guestCount' => 2,
-        ]);
+        ] + $this->guestInformationPayload());
 
         $reservationB = Reservation::where('user_id', $customer->id)->where('id', '!=', $reservationA->id)->first();
 

@@ -18,7 +18,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seedReservationCatalog();
     }
 
     public function test_package_and_component_booking_conflict()
@@ -29,9 +29,13 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
         $customerB = User::factory()->create();
         $customerB->assignRole('Customer');
 
-        // Find a package
         $packageType = FacilityType::where('slug', 'resort_package')->first();
-        $package = Facility::where('facility_type_id', $packageType->id)->whereHas('packageComponents')->where('is_active', true)->first();
+        $package = Facility::where('facility_type_id', $packageType->id)
+            ->where('is_active', true)
+            ->whereHas('packageComponents.componentFacility', function ($query) {
+                $query->where('is_listed', true)->where('is_active', true);
+            })
+            ->first();
         
         // Find a resource that is part of the package
         $component = $package->packageComponents()->first()->componentFacility;
@@ -51,6 +55,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
 
         // 1. Customer A books the Package
         $responseA = $this->actingAs($customerA)->post(route('customer.reservations.store'), [
+            ...$this->guestInformationPayload(),
             'facility_id' => $package->id,
             'check_in' => $checkIn,
             'check_out' => $checkOut,
@@ -65,6 +70,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
 
         // 2. Customer B attempts to book the Component on the same dates
         $responseB = $this->actingAs($customerB)->post(route('customer.reservations.store'), [
+            ...$this->guestInformationPayload(),
             'facility_id' => $component->id,
             'check_in' => $checkIn,
             'check_out' => $checkOut,
@@ -87,6 +93,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
 
         // Customer B books the Component
         $responseB2 = $this->actingAs($customerB)->post(route('customer.reservations.store'), [
+            ...$this->guestInformationPayload(),
             'facility_id' => $component->id,
             'check_in' => $checkIn2,
             'check_out' => $checkOut2,
@@ -101,6 +108,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
 
         // Customer A attempts to book the Package
         $responseA2 = $this->actingAs($customerA)->post(route('customer.reservations.store'), [
+            ...$this->guestInformationPayload(),
             'facility_id' => $package->id,
             'check_in' => $checkIn2,
             'check_out' => $checkOut2,
@@ -128,6 +136,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
         // Over capacity fails
         $overCapacity = $facility->max_capacity + 5;
         $response = $this->actingAs($customer)->post(route('customer.reservations.store'), [
+            ...$this->guestInformationPayload(),
             'facility_id' => $facility->id,
             'check_in' => $checkIn,
             'check_out' => $checkOut,

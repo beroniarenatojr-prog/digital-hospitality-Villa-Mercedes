@@ -304,6 +304,8 @@ class AdministrativeManagementTest extends TestCase
             2
         );
 
+        $reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+
         $payment = $paymentService->createPayment(
             $reservation,
             $this->customer,

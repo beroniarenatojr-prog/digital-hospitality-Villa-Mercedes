@@ -21,13 +21,7 @@ class PricingService
     /**
      * Calculate the expected price of a reservation before creation.
      *
-     * @param Facility $facility
-     * @param Carbon $checkIn
-     * @param Carbon $checkOut
-     * @param int $earlyCheckInHours
-     * @param int $lateCheckOutHours
-     * @return PriceBreakdown
-     * 
+     *
      * @throws InvalidPricingPeriodException
      * @throws OverlappingSeasonalRatesException
      * @throws NoApplicableRateException
@@ -38,22 +32,24 @@ class PricingService
         Carbon $checkOut,
         int $earlyCheckInHours = 0,
         int $lateCheckOutHours = 0,
-        ?int $guestCount = null
+        ?int $guestCount = null,
+        ?int $paxTier = null
     ): PriceBreakdown {
         $this->validateInputs($checkIn, $checkOut, $earlyCheckInHours, $lateCheckOutHours);
 
-        $activeRates = $facility->rates()->where('is_active', true)->get();
+        $activeRates = $this->activeRates($facility);
 
-        $applicableRate = $this->determineApplicableRate($activeRates, $checkIn);
-        
+        $applicableRate = $this->determineApplicableRate($activeRates, $checkIn, $paxTier);
+
         $baseAmount = $this->calculateBaseAmount($applicableRate, $checkIn, $checkOut);
-        
+
         $earlyCharge = $this->calculateAdditionalCharge($activeRates, self::EARLY_CHECK_IN_RATE_NAME, $earlyCheckInHours);
         $lateCharge = $this->calculateAdditionalCharge($activeRates, self::LATE_CHECK_OUT_RATE_NAME, $lateCheckOutHours);
 
         $extraPersonCharge = 0;
-        if ($guestCount !== null && $guestCount > $facility->capacity) {
-            $extraGuests = $guestCount - $facility->capacity;
+        $included = $paxTier ?? $facility->capacity;
+        if ($paxTier === null && $guestCount !== null && $included !== null && $guestCount > $included) {
+            $extraGuests = $guestCount - $included;
             $extraPersonCharge = $this->calculateExtraPersonCharge($activeRates, $extraGuests, $applicableRate->unit, $checkIn, $checkOut);
         }
 
@@ -85,6 +81,24 @@ class PricingService
     }
 
     /**
+     * Prefer already-eager-loaded rates so a catalog search does not re-query
+     * each facility. Callers that constrain the relation to a subset of types
+     * should not reuse that relation for quotes.
+     *
+     * @return Collection<int, Rate>
+     */
+    private function activeRates(Facility $facility): Collection
+    {
+        if ($facility->relationLoaded('rates')) {
+            return $facility->rates
+                ->filter(fn (Rate $rate): bool => $rate->is_active)
+                ->values();
+        }
+
+        return $facility->rates()->where('is_active', true)->get();
+    }
+
+    /**
      * @throws InvalidPricingPeriodException
      */
     private function validateInputs(Carbon $checkIn, Carbon $checkOut, int $early, int $late): void
@@ -99,11 +113,12 @@ class PricingService
     }
 
     /**
-     * @param Collection<int, Rate> $activeRates
+     * @param  Collection<int, Rate>  $activeRates
+     *
      * @throws OverlappingSeasonalRatesException
      * @throws NoApplicableRateException
      */
-    private function determineApplicableRate(Collection $activeRates, Carbon $checkIn): Rate
+    private function determineApplicableRate(Collection $activeRates, Carbon $checkIn, ?int $paxTier = null): Rate
     {
         $seasonalRates = $activeRates->filter(function (Rate $rate) use ($checkIn) {
             if ($rate->type !== RateType::Seasonal) {
@@ -132,7 +147,26 @@ class PricingService
             return $seasonalRates->first();
         }
 
-        $baseRate = $activeRates->firstWhere('type', RateType::Base);
+        $baseRates = $activeRates->filter(fn (Rate $rate): bool => $rate->type === RateType::Base)->values();
+        $tieredRates = $baseRates->filter(fn (Rate $rate): bool => $rate->max_occupancy !== null)->values();
+
+        if ($paxTier !== null) {
+            $tierRate = $tieredRates->first(fn (Rate $rate): bool => (int) $rate->max_occupancy === $paxTier);
+
+            if ($tierRate) {
+                return $tierRate;
+            }
+        }
+
+        if ($tieredRates->count() === 1) {
+            return $tieredRates->first();
+        }
+
+        if ($tieredRates->count() > 1) {
+            throw new NoApplicableRateException('Please select a guest tier for this package.');
+        }
+
+        $baseRate = $baseRates->first();
 
         if (! $baseRate) {
             throw new NoApplicableRateException('No active base or seasonal rate found for this facility.');
@@ -149,7 +183,7 @@ class PricingService
         if ($rate->unit === 'per night') {
             $nights = $checkIn->copy()->startOfDay()->diffInDays($checkOut->copy()->startOfDay());
             $nights = max(1, (int) $nights); // Ensure at least 1 night is charged
-            
+
             return $ratePerUnitInCents * $nights;
         }
 
@@ -158,7 +192,7 @@ class PricingService
     }
 
     /**
-     * @param Collection<int, Rate> $activeRates
+     * @param  Collection<int, Rate>  $activeRates
      */
     private function calculateAdditionalCharge(Collection $activeRates, string $chargeName, int $hours): int
     {
@@ -180,7 +214,7 @@ class PricingService
     }
 
     /**
-     * @param Collection<int, Rate> $activeRates
+     * @param  Collection<int, Rate>  $activeRates
      */
     private function calculateExtraPersonCharge(Collection $activeRates, int $extraGuests, string $baseRateUnit, Carbon $checkIn, Carbon $checkOut): int
     {

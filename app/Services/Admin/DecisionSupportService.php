@@ -7,13 +7,12 @@ use App\DTOs\OccupancyClaim;
 use App\Enums\ReservationStatus;
 use App\Models\Facility;
 use App\Models\Reservation;
-use App\Models\TrainingBatch;
 use App\Services\PricingService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * Turns the reservation and training data into decisions an owner can act on.
+ * Turns reservation data into decisions an owner can act on.
  *
  * Everything here is rule-based and traceable: each peso figure comes from a
  * configured rate and each statement names the claim it came from. That is
@@ -29,19 +28,48 @@ class DecisionSupportService
      * One calendar for the whole property: every claim on every bookable
      * resource in the window, positioned for display.
      *
+     * Rows include active facilities plus any inactive ones that still have a
+     * hold in this window (so pending halls/packages are never hidden just
+     * because a catalog item was renamed or turned off).
+     *
      * @return list<array{facility: Facility, claims: list<array{claim: OccupancyClaim, offset: float, width: float}>}>
      */
     public function timeline(Carbon $from, Carbon $to, ?string $facilityTypeSlug = null): array
     {
-        $facilities = Facility::with('facilityType')
+        // Load every overlapping hold first, then decide which facility rows to show.
+        // Filtering by active facilities alone used to drop pending packages/halls
+        // that still sit on retired catalog rows.
+        $claims = $this->claimsInWindow($from, $to);
+
+        $facilityIds = Facility::query()
             ->where('is_active', true)
             ->when($facilityTypeSlug, fn ($q) => $q->whereHas('facilityType', fn ($t) => $t->where('slug', $facilityTypeSlug)))
-            ->orderBy('facility_type_id')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
+            ->pluck('id')
+            ->merge($claims->pluck('facilityId'))
+            ->unique()
+            ->values()
+            ->all();
 
-        $claims = $this->claimsInWindow($from, $to, $facilities->pluck('id')->all());
+        $facilities = Facility::with('facilityType')
+            ->whereIn('id', $facilityIds)
+            ->when($facilityTypeSlug, fn ($q) => $q->whereHas('facilityType', fn ($t) => $t->where('slug', $facilityTypeSlug)))
+            ->get()
+            ->sortBy(function (Facility $facility) use ($claims) {
+                // Keep resource types together, then booked rows first within each type.
+                $hasClaim = $claims->contains(fn (OccupancyClaim $claim) => $claim->facilityId === $facility->id) ? 0 : 1;
+
+                return sprintf(
+                    '%05d-%d-%05d-%s',
+                    $facility->facility_type_id,
+                    $hasClaim,
+                    $facility->sort_order,
+                    mb_strtolower($facility->name)
+                );
+            })
+            ->values();
+
+        $shownIds = $facilities->pluck('id')->all();
+        $claims = $claims->whereIn('facilityId', $shownIds);
         $totalMinutes = max(1, $from->diffInMinutes($to));
 
         $rows = [];
@@ -75,14 +103,12 @@ class DecisionSupportService
     /**
      * Every claim overlapping the window, from all claim types.
      *
-     * @param list<int>|null $facilityIds
+     * @param  list<int>|null  $facilityIds
      * @return Collection<int, OccupancyClaim>
      */
     public function claimsInWindow(Carbon $from, Carbon $to, ?array $facilityIds = null): Collection
     {
-        return $this->reservationClaims($from, $to, $facilityIds)
-            ->merge($this->trainingClaims($from, $to, $facilityIds))
-            ->values();
+        return $this->reservationClaims($from, $to, $facilityIds);
     }
 
     /**
@@ -120,20 +146,16 @@ class DecisionSupportService
         $opportunityCost = 0.0;
 
         $explanations[] = sprintf(
-            'Holds %s from %s to %s (%s).',
+            'This booking keeps %s from %s until %s (%s).',
             $facility->name,
-            $windowStart->format('M d, g:i A'),
-            $windowEnd->format('M d, g:i A'),
+            $windowStart->format('M j, g:i A'),
+            $windowEnd->format('M j, g:i A'),
             $this->humanDuration($windowStart, $windowEnd)
         );
 
         if ($reservation->early_check_in_hours || $reservation->late_check_out_hours) {
             $explanations[] = sprintf(
-                'Occupancy runs %s beyond the booked period (%dh early check-in, %dh late check-out), so the space cannot be turned over inside that time.',
-                $this->humanDuration(
-                    $reservation->check_out,
-                    $reservation->check_out->copy()->addHours((int) $reservation->early_check_in_hours + (int) $reservation->late_check_out_hours)
-                ),
+                'Extra time is included (%d hour(s) early check-in, %d hour(s) late check-out), so the space stays occupied longer than the main stay.',
                 (int) $reservation->early_check_in_hours,
                 (int) $reservation->late_check_out_hours
             );
@@ -144,8 +166,8 @@ class DecisionSupportService
             $opportunityCost += $listValue;
 
             $reason = $facility->isPackage()
-                ? sprintf('Consumed as a component of %s', $facility->name)
-                : sprintf('Cannot be sold because %s is part of it', $facility->name);
+                ? sprintf('Included in the %s package, so it cannot be sold on its own', $facility->name)
+                : sprintf('Tied to this booking because %s is part of that package', $facility->name);
 
             $frozenResources[] = [
                 'name' => $contender->name,
@@ -155,12 +177,11 @@ class DecisionSupportService
         }
 
         if ($frozenResources === []) {
-            $explanations[] = 'No other bookable resource is linked to this facility, so nothing else is taken off the market.';
+            $explanations[] = 'Nothing else is blocked — this space is not tied to a package or shared hall.';
         } else {
             $names = implode(', ', array_column($frozenResources, 'name'));
             $explanations[] = sprintf(
-                'Also freezes %d linked resource(s): %s — ₱%s of list value for the same window.',
-                count($frozenResources),
+                'Approving this also blocks %s for the same dates (about ₱%s if those were sold separately).',
                 $names,
                 number_format($opportunityCost, 2)
             );
@@ -170,9 +191,9 @@ class DecisionSupportService
 
         foreach ($conflicts as $conflict) {
             $explanations[] = sprintf(
-                'Conflict: %s already claims %s for %s. Approving this would double-book the space.',
-                $conflict->label,
+                'Heads up: %s already has %s for %s. Approving this would double-book that space.',
                 $conflict->facilityName,
+                $conflict->label,
                 $conflict->durationLabel()
             );
         }
@@ -182,32 +203,38 @@ class DecisionSupportService
 
         if ($reservation->status === ReservationStatus::Pending) {
             $explanations[] = sprintf(
-                'While this request waits, the space is already blocked. It has been pending for %s.',
+                'This is still waiting for your answer. The dates are already held so no one else can book them (waiting for %s).',
                 $this->humanDuration($reservation->created_at, now())
             );
         }
 
         if ($unpaid > 0) {
             $explanations[] = sprintf(
-                '₱%s of ₱%s is still unpaid, so the hold is not yet secured by a verified payment.',
+                'Guest still owes ₱%s of ₱%s — collect the rest at the resort on arrival.',
                 number_format($unpaid, 2),
                 number_format($reservationValue, 2)
             );
+            if ($reservation->deposit_required !== null) {
+                $verified = round($reservationValue - $unpaid, 2);
+                $explanations[] = $verified >= $reservation->requiredDepositAmount()
+                    ? 'The required deposit is already verified.'
+                    : 'The required deposit is not fully verified yet — check payments before you confirm.';
+            }
         }
 
         $net = $reservationValue - $opportunityCost;
         $explanations[] = $net >= 0
             ? sprintf(
-                'Net effect if approved: +₱%s (₱%s booking value against ₱%s of space taken off the market).',
-                number_format($net, 2),
+                'If you approve: you earn ₱%s from this booking, while about ₱%s of other sellable space stays blocked. Net: +₱%s.',
                 number_format($reservationValue, 2),
-                number_format($opportunityCost, 2)
+                number_format($opportunityCost, 2),
+                number_format($net, 2)
             )
             : sprintf(
-                'Net effect if approved: -₱%s. This booking earns ₱%s but blocks ₱%s of space that could be sold separately.',
-                number_format(abs($net), 2),
+                'If you approve: this booking earns ₱%s, but it blocks about ₱%s of space that could be sold separately. Net: -₱%s.',
                 number_format($reservationValue, 2),
-                number_format($opportunityCost, 2)
+                number_format($opportunityCost, 2),
+                number_format(abs($net), 2)
             );
 
         return new DecisionImpact(
@@ -226,7 +253,7 @@ class DecisionSupportService
      *
      * @return list<array{hours: int, charge: float, collides: bool, collides_with: string|null, blocked_release: string|null}>
      */
-    public function extraHourOptions(Reservation $reservation, int $maxHours = null): array
+    public function extraHourOptions(Reservation $reservation, ?int $maxHours = null): array
     {
         $maxHours ??= (int) config('resort.stay.max_additional_hours', 12);
         $reservation->loadMissing('facility.facilityType');
@@ -257,7 +284,7 @@ class DecisionSupportService
                 'hours' => $hours,
                 'charge' => $hourlyRate !== null ? $hourlyRate * $hours : 0.0,
                 'collides' => $collides,
-                'collides_with' => $collides ? $nextClaim->label . ' on ' . $nextClaim->facilityName : null,
+                'collides_with' => $collides ? $nextClaim->label.' on '.$nextClaim->facilityName : null,
                 'blocked_release' => $releaseAt->format('M d, g:i A'),
             ];
         }
@@ -283,95 +310,104 @@ class DecisionSupportService
         $frozenListValue = $pending->sum(fn (Reservation $reservation) => $this->analyze($reservation)->opportunityCost);
 
         $claims = $this->claimsInWindow($from, $to);
-        $bookableCount = Facility::where('is_active', true)->count();
-        $claimedFacilityIds = $claims->pluck('facilityId')->unique();
+        $activeFacilityIds = Facility::where('is_active', true)->pluck('id');
+        $bookableCount = $activeFacilityIds->count();
+        $claimedActiveCount = $claims->pluck('facilityId')->unique()->intersect($activeFacilityIds)->count();
 
         return [
             'pending_count' => $pending->count(),
             'pending_value' => (float) $pending->sum('total_price'),
             'frozen_list_value' => (float) $frozenListValue,
-            'claim_count' => $claims->count(),
-            'training_claim_count' => $claims->filter(fn (OccupancyClaim $c) => $c->isTraining())->count(),
-            'unclaimed_facilities' => max(0, $bookableCount - $claimedFacilityIds->count()),
+            'claim_count' => $claims->pluck('url')->filter()->unique()->count(),
+            'unclaimed_facilities' => max(0, $bookableCount - $claimedActiveCount),
             'bookable_facilities' => $bookableCount,
         ];
     }
 
     /**
-     * @param list<int>|null $facilityIds
+     * @param  list<int>|null  $facilityIds
      * @return Collection<int, OccupancyClaim>
      */
     private function reservationClaims(Carbon $from, Carbon $to, ?array $facilityIds = null): Collection
     {
         $pad = (int) config('resort.stay.max_additional_hours', 12);
 
-        return Reservation::with(['user', 'facility'])
+        // Do not filter by facility_id in SQL: package holds often sit on a
+        // different facility id than the rooms/halls they freeze. We expand
+        // each reservation onto its linked resources, then filter.
+        return Reservation::with([
+            'user',
+            'facility.facilityType',
+            'facility.packageComponents.componentFacility.facilityType',
+            'facility.partOfPackages.facilityType',
+        ])
             ->whereIn('status', Reservation::blockingStatuses())
-            ->when($facilityIds !== null, fn ($q) => $q->whereIn('facility_id', $facilityIds))
             ->where('check_in', '<', $to->copy()->addHours($pad))
             ->where('check_out', '>', $from->copy()->subHours($pad))
             ->get()
+            ->toBase()
             ->filter(fn (Reservation $reservation) => $reservation->occupancyStart()->lessThan($to)
                 && $reservation->occupancyEnd()->greaterThan($from))
-            ->map(fn (Reservation $reservation) => new OccupancyClaim(
-                claimType: OccupancyClaim::TYPE_RESERVATION,
-                facilityId: $reservation->facility_id,
-                facilityName: $reservation->facility->name,
-                label: $reservation->reservation_code . ' — ' . $reservation->guestName(),
-                from: $reservation->occupancyStart(),
-                to: $reservation->occupancyEnd(),
-                status: $reservation->status->label(),
-                value: (float) $reservation->total_price,
-                url: route('admin.reservations.show', $reservation),
-                note: $reservation->guest_count . ' pax',
-            ))
+            ->flatMap(function (Reservation $reservation) use ($facilityIds) {
+                $claims = $this->claimsForReservation($reservation);
+
+                if ($facilityIds !== null) {
+                    $claims = $claims->whereIn('facilityId', $facilityIds)->values();
+                }
+
+                return $claims;
+            })
             ->values();
     }
 
     /**
-     * @param list<int>|null $facilityIds
+     * Primary claim on the booked facility, plus linked holds on package components
+     * (or parent packages) so the calendar shows halls/rooms blocked by packages.
+     *
      * @return Collection<int, OccupancyClaim>
      */
-    private function trainingClaims(Carbon $from, Carbon $to, ?array $facilityIds = null): Collection
+    private function claimsForReservation(Reservation $reservation): Collection
     {
-        $batches = TrainingBatch::with('facilities')
-            ->blocking()
-            ->whereDate('start_date', '<=', $to->toDateString())
-            ->whereDate('end_date', '>=', $from->toDateString())
-            ->get();
+        $facility = $reservation->facility;
+        $from = $reservation->occupancyStart();
+        $to = $reservation->occupancyEnd();
+        $url = route('admin.reservations.show', $reservation);
+        $status = $reservation->status->label();
+        $value = (float) $reservation->total_price;
 
-        $claims = collect();
+        $claims = collect([
+            new OccupancyClaim(
+                claimType: OccupancyClaim::TYPE_RESERVATION,
+                facilityId: $facility->id,
+                facilityName: $facility->name,
+                label: $reservation->reservation_code.' — '.$reservation->guestName(),
+                from: $from,
+                to: $to,
+                status: $status,
+                value: $value,
+                url: $url,
+                note: $reservation->guest_count.' guests',
+                isLinkedHold: false,
+            ),
+        ]);
 
-        foreach ($batches as $batch) {
-            $facilities = $facilityIds === null
-                ? $batch->facilities
-                : $batch->facilities->whereIn('id', $facilityIds);
-
-            // A batch with session hours holds its rooms once per training day,
-            // so each day is its own claim on the calendar.
-            foreach ($batch->occupancyWindows() as [$start, $end]) {
-                if ($start->greaterThanOrEqualTo($to) || $end->lessThanOrEqualTo($from)) {
-                    continue;
-                }
-
-                foreach ($facilities as $facility) {
-                    $claims->push(new OccupancyClaim(
-                        claimType: OccupancyClaim::TYPE_TRAINING,
-                        facilityId: $facility->id,
-                        facilityName: $facility->name,
-                        label: $batch->cohort_code . ' — ' . $batch->program,
-                        from: $start,
-                        to: $end,
-                        status: $batch->status->label(),
-                        value: 0.0,
-                        url: route('admin.training-batches.show', $batch),
-                        note: $batch->slotsLabel(),
-                    ));
-                }
-            }
+        foreach ($facility->contendingFacilities() as $contender) {
+            $claims->push(new OccupancyClaim(
+                claimType: OccupancyClaim::TYPE_RESERVATION,
+                facilityId: $contender->id,
+                facilityName: $contender->name,
+                label: $reservation->reservation_code.' — via '.$facility->name,
+                from: $from,
+                to: $to,
+                status: $status,
+                value: 0.0,
+                url: $url,
+                note: 'Also blocked by this booking',
+                isLinkedHold: true,
+            ));
         }
 
-        return $claims->values();
+        return $claims;
     }
 
     /**
@@ -419,15 +455,17 @@ class DecisionSupportService
         $minutes = max(0, $from->diffInMinutes($to));
 
         if ($minutes < 60) {
-            return $minutes . ' min';
+            return $minutes === 1 ? '1 minute' : $minutes.' minutes';
         }
 
         $hours = intdiv($minutes, 60);
 
         if ($hours < 48) {
-            return $hours . 'h';
+            return $hours === 1 ? 'about 1 hour' : 'about '.$hours.' hours';
         }
 
-        return intdiv($hours, 24) . ' days';
+        $days = intdiv($hours, 24);
+
+        return $days === 1 ? 'about 1 day' : 'about '.$days.' days';
     }
 }

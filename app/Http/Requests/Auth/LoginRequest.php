@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Enums\Role;
+use App\Models\User;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -30,7 +32,15 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            'remember' => ['sometimes', 'boolean'],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'remember' => $this->boolean('remember'),
+        ]);
     }
 
     /**
@@ -38,11 +48,22 @@ class LoginRequest extends FormRequest
      *
      * @throws ValidationException
      */
-    public function authenticate(): void
+    public function authenticate(?Role $requiredRole = null): void
     {
         $this->ensureIsNotRateLimited();
 
         if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+            RateLimiter::hit($this->throttleKey());
+
+            throw ValidationException::withMessages([
+                'email' => trans('auth.failed'),
+            ]);
+        }
+
+        $user = Auth::user();
+
+        if ($requiredRole instanceof Role && (! $user instanceof User || ! $user->hasRole($requiredRole->value))) {
+            Auth::logout();
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
@@ -60,7 +81,7 @@ class LoginRequest extends FormRequest
      */
     public function ensureIsNotRateLimited(): void
     {
-        if (! RateLimiter::tooManyAttempts($this->throttleKey(), 5)) {
+        if (! RateLimiter::tooManyAttempts($this->throttleKey(), $this->maxAttempts())) {
             return;
         }
 
@@ -82,5 +103,10 @@ class LoginRequest extends FormRequest
     public function throttleKey(): string
     {
         return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
+    }
+
+    private function maxAttempts(): int
+    {
+        return max(1, (int) config('auth.login.max_attempts', 5));
     }
 }

@@ -9,7 +9,6 @@ use App\Enums\ReservationStatus;
 use App\Models\Facility;
 use App\Models\Payment;
 use App\Models\Reservation;
-use App\Models\User;
 use App\Services\Admin\ReportingService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,14 +24,14 @@ class ReportingServiceTest extends TestCase
     {
         parent::setUp();
         // Setup facilities and types through seeders to ensure enum slugs are correct
-        $this->seed();
+        $this->seedReservationCatalog();
         $this->service = app(ReportingService::class);
     }
 
     public function test_booking_summary()
     {
-        $room = Facility::whereHas('facilityType', fn($q) => $q->where('slug', FacilityType::Room->value))->first();
-        $hall = Facility::whereHas('facilityType', fn($q) => $q->where('slug', FacilityType::FunctionHall->value))->first();
+        $room = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', FacilityType::Room->value))->first();
+        $hall = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', FacilityType::FunctionHall->value))->first();
 
         Reservation::factory()->create([
             'facility_id' => $room->id,
@@ -56,7 +55,7 @@ class ReportingServiceTest extends TestCase
 
     public function test_booking_trends()
     {
-        $room = Facility::whereHas('facilityType', fn($q) => $q->where('slug', FacilityType::Room->value))->first();
+        $room = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', FacilityType::Room->value))->first();
 
         // One in Jan, Two in Feb
         Reservation::factory()->create([
@@ -72,15 +71,37 @@ class ReportingServiceTest extends TestCase
             'created_at' => Carbon::parse('2026-02-20'),
         ]);
 
-        $trends = $this->service->getBookingTrends('month');
+        $trends = $this->service->getBookingTrends(
+            'month',
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-02-28')
+        );
 
-        $this->assertEquals(1, $trends['2026-01']);
-        $this->assertEquals(2, $trends['2026-02']);
+        $byPeriod = collect($trends)->mapWithKeys(fn (array $point) => [$point['period'] => $point['value']]);
+        $this->assertEquals(1, $byPeriod['2026-01']);
+        $this->assertEquals(2, $byPeriod['2026-02']);
+        $this->assertCount(2, $trends);
+
+        $yearly = $this->service->getBookingTrends(
+            'year',
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31')
+        );
+        $this->assertEquals(3, collect($yearly)->firstWhere('period', '2026')['value']);
+
+        $weekly = $this->service->getBookingTrends(
+            'week',
+            Carbon::parse('2026-02-01'),
+            Carbon::parse('2026-02-28')
+        );
+        $this->assertNotEmpty($weekly);
+        $this->assertEquals(2, collect($weekly)->sum('value'));
+        $this->assertTrue(collect($weekly)->every(fn (array $point) => isset($point['label'], $point['period'], $point['value'])));
     }
 
     public function test_revenue_and_payment_summary()
     {
-        $room = Facility::whereHas('facilityType', fn($q) => $q->where('slug', FacilityType::Room->value))->first();
+        $room = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', FacilityType::Room->value))->first();
 
         // 1. Approved reservation with a verified payment
         $res1 = Reservation::factory()->create([
@@ -125,5 +146,47 @@ class ReportingServiceTest extends TestCase
         $this->assertEquals(2, $payments['total_payments']);
         $this->assertEquals(1, $payments['by_status'][PaymentStatus::Verified->value]['count']);
         $this->assertEquals(2500, $payments['by_status'][PaymentStatus::Verified->value]['total_amount']);
+    }
+
+    public function test_occupancy_by_type_counts_blocking_reservations_today(): void
+    {
+        $room = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', FacilityType::Room->value))->first();
+        $this->assertNotNull($room);
+
+        Reservation::factory()->create([
+            'facility_id' => $room->id,
+            'status' => ReservationStatus::Approved->value,
+            'check_in' => now()->startOfDay()->addHours(14),
+            'check_out' => now()->addDay()->startOfDay()->addHours(12),
+        ]);
+
+        $occupancy = $this->service->getOccupancyByType(now());
+        $row = collect($occupancy)->firstWhere('slug', FacilityType::Room->value);
+
+        $this->assertNotNull($row);
+        $this->assertGreaterThan(0, $row['occupied']);
+        $this->assertGreaterThanOrEqual($row['occupied'], $row['total']);
+        $this->assertSame((int) round(($row['occupied'] / $row['total']) * 100), $row['pct']);
+    }
+
+    public function test_verified_revenue_trend_fills_daily_periods(): void
+    {
+        $room = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', FacilityType::Room->value))->first();
+        $reservation = Reservation::factory()->create(['facility_id' => $room->id]);
+
+        Payment::factory()->create([
+            'reservation_id' => $reservation->id,
+            'amount' => 1500,
+            'status' => PaymentStatus::Verified->value,
+            'created_at' => now(),
+        ]);
+
+        $trend = $this->service->getVerifiedRevenueTrend('day', now()->subDays(6), now());
+
+        $this->assertCount(7, $trend);
+
+        $today = collect($trend)->firstWhere('period', now()->format('Y-m-d'));
+        $this->assertNotNull($today);
+        $this->assertEquals(1500, $today['value']);
     }
 }

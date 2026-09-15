@@ -5,7 +5,7 @@ namespace App\Services\Customer;
 use App\Enums\InquiryStatus;
 use App\Models\Inquiry;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class CustomerInquiryService
@@ -26,7 +26,7 @@ class CustomerInquiryService
             ->performedOn($inquiry)
             ->causedBy($customer)
             ->event('created')
-            ->log("Customer submitted a new inquiry.");
+            ->log('Customer submitted a new inquiry.');
 
         return $inquiry;
     }
@@ -34,13 +34,14 @@ class CustomerInquiryService
     /**
      * Retrieve all inquiries belonging to a customer.
      *
-     * @return Collection<int, Inquiry>
+     * @return LengthAwarePaginator<int, Inquiry>
      */
-    public function getCustomerInquiries(User $customer): Collection
+    public function getCustomerInquiries(User $customer): LengthAwarePaginator
     {
         return Inquiry::where('user_id', $customer->id)
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate(20)
+            ->withQueryString();
     }
 
     /**

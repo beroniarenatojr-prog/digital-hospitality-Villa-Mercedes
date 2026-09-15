@@ -9,6 +9,7 @@ use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Exceptions\Payment\InvalidPaymentAmountException;
 use App\Exceptions\Payment\InvalidPaymentTransitionException;
+use App\Exceptions\Payment\PaymentNotEligibleException;
 use App\Exceptions\Payment\PaymentOwnershipException;
 use App\Exceptions\Payment\UnauthorizedPaymentActionException;
 use App\Models\Facility;
@@ -28,35 +29,40 @@ class PaymentServiceTest extends TestCase
     use RefreshDatabase;
 
     private PaymentService $paymentService;
+
     private ReservationService $reservationService;
+
     private Facility $facility;
+
     private User $customer;
+
     private User $otherCustomer;
+
     private User $admin;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->artisan('db:seed');
 
         $this->paymentService = app(PaymentService::class);
         $this->reservationService = app(ReservationService::class);
-        $this->facility = Facility::where('slug', 'deluxe')->firstOrFail();
-        
+        $this->facility = Facility::where('slug', 'deluxe-room-26')->firstOrFail();
+
         $this->customer = User::factory()->create();
         $this->customer->assignRole(Role::Customer->value);
 
         $this->otherCustomer = User::factory()->create();
         $this->otherCustomer->assignRole(Role::Customer->value);
-        
+
         $this->admin = User::factory()->create();
         $this->admin->assignRole(Role::Administrator->value);
     }
 
     private function createTestReservation(User $user): Reservation
     {
-        return $this->reservationService->createReservation(
+        $reservation = $this->reservationService->createReservation(
             $this->facility,
             $user,
             Carbon::parse('2026-08-01 14:00:00'),
@@ -64,6 +70,10 @@ class PaymentServiceTest extends TestCase
             ReservationSource::Online,
             2
         );
+
+        $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+
+        return $reservation->fresh();
     }
 
     // --- PAYMENT CREATION TESTS ---
@@ -71,7 +81,7 @@ class PaymentServiceTest extends TestCase
     public function test_customer_can_submit_payment_for_own_reservation(): void
     {
         $reservation = $this->createTestReservation($this->customer);
-        
+
         $payment = $this->paymentService->createPayment(
             $reservation,
             $this->customer,
@@ -87,6 +97,41 @@ class PaymentServiceTest extends TestCase
         $this->assertEquals('1500.00', $payment->amount);
         $this->assertEquals('proof/123.jpg', $payment->proof_path);
         $this->assertNull($payment->verified_by);
+    }
+
+    public function test_customer_cannot_submit_payment_for_a_pending_reservation(): void
+    {
+        $reservation = $this->reservationService->createReservation(
+            $this->facility,
+            $this->customer,
+            Carbon::parse('2026-08-01 14:00:00'),
+            Carbon::parse('2026-08-03 12:00:00'),
+            ReservationSource::Online,
+            2
+        );
+
+        $this->expectException(PaymentNotEligibleException::class);
+
+        $this->paymentService->createPayment(
+            $reservation,
+            $this->customer,
+            1500,
+            PaymentMethod::GCash
+        );
+    }
+
+    public function test_customer_cannot_pay_more_than_the_remaining_balance(): void
+    {
+        $reservation = $this->createTestReservation($this->customer);
+
+        $this->expectException(InvalidPaymentAmountException::class);
+
+        $this->paymentService->createPayment(
+            $reservation,
+            $this->customer,
+            ((float) $reservation->total_price) + 1,
+            PaymentMethod::GCash
+        );
     }
 
     public function test_customer_cannot_submit_payment_for_another_customers_reservation(): void
@@ -208,14 +253,16 @@ class PaymentServiceTest extends TestCase
     public function test_failed_payment_creation_rolls_back(): void
     {
         $reservation = $this->createTestReservation($this->customer);
-        
+
         try {
             $this->paymentService->createPayment($reservation, $this->customer, -100, PaymentMethod::GCash);
         } catch (\Exception $e) {
             // expected
         }
 
-        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseMissing('payments', [
+            'reservation_id' => $reservation->id,
+        ]);
     }
 
     public function test_activity_is_logged_on_creation(): void
@@ -236,7 +283,7 @@ class PaymentServiceTest extends TestCase
     {
         $reservation = $this->createTestReservation($this->customer);
         $payment = $this->paymentService->createPayment($reservation, $this->customer, 1000, PaymentMethod::GCash);
-        
+
         $this->paymentService->verifyPayment($payment, $this->admin);
 
         $activity = Activity::where('subject_type', Payment::class)
@@ -255,15 +302,15 @@ class PaymentServiceTest extends TestCase
         // Since we are doing a real database test, we can observe that it uses transactions properly.
         $reservation = $this->createTestReservation($this->customer);
         $payment = $this->paymentService->createPayment($reservation, $this->customer, 1000, PaymentMethod::GCash);
-        
+
         DB::transaction(function () use ($payment) {
             $this->paymentService->verifyPayment($payment, $this->admin);
-            
+
             // Re-read inside transaction to assert lock was released or changes were flushed
             $updated = Payment::find($payment->id);
             $this->assertEquals(PaymentStatus::Verified, $updated->status);
         });
-        
+
         $this->assertEquals(PaymentStatus::Verified, $payment->fresh()->status);
     }
 }

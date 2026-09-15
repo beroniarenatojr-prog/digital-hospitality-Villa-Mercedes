@@ -20,7 +20,7 @@ class ReportingIntegrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seedReservationCatalog();
         Storage::fake('uploads');
     }
 
@@ -46,6 +46,7 @@ class ReportingIntegrationTest extends TestCase
         $checkOut = Carbon::now()->addDays(4)->format('Y-m-d');
         
         $this->actingAs($customer)->post(route('customer.reservations.store'), [
+            ...$this->guestInformationPayload(),
             'facility_id' => $facility->id,
             'check_in' => $checkIn,
             'check_out' => $checkOut,

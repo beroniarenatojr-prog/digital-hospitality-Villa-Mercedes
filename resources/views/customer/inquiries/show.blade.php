@@ -14,12 +14,6 @@
             <p class="text-text-muted mt-2">Submitted on {{ $inquiry->created_at->format('F d, Y \a\t h:i A') }}</p>
         </div>
 
-        @if(session('success'))
-            <x-alert type="success" class="mb-6">
-                {{ session('success') }}
-            </x-alert>
-        @endif
-
         <div class="space-y-6">
             <!-- Customer Message -->
             <x-card class="p-6">
@@ -56,7 +50,7 @@
                 </x-card>
             @elseif($inquiry->status !== \App\Enums\InquiryStatus::Closed)
                 <div class="text-center py-8">
-                    <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 text-gray-500 mb-3">
+                    <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted text-text-muted mb-3">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>

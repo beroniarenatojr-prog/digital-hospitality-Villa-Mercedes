@@ -2,8 +2,15 @@
 
 namespace App\Services;
 
+use App\Enums\FacilityType;
 use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
+use App\Enums\Role;
+use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
+use App\Exceptions\Availability\PackageAvailabilityLimitationException;
+use App\Exceptions\Pricing\InvalidPricingPeriodException;
+use App\Exceptions\Pricing\NoApplicableRateException;
+use App\Exceptions\Pricing\OverlappingSeasonalRatesException;
 use App\Exceptions\Reservation\InvalidReservationTransitionException;
 use App\Exceptions\Reservation\ReservationCancellationException;
 use App\Exceptions\Reservation\ReservationConflictException;
@@ -12,7 +19,7 @@ use App\Models\Facility;
 use App\Models\Reservation;
 use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -20,20 +27,17 @@ class ReservationService
 {
     public function __construct(
         private readonly AvailabilityService $availabilityService,
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly CottageBookingService $cottageBookingService,
     ) {}
 
     /**
      * Create a new reservation.
      *
-     * @param Facility $facility
-     * @param User $actor The user making/creating the reservation (customer or staff)
-     * @param Carbon $checkIn
-     * @param Carbon $checkOut
-     * @param ReservationSource $source
-     * @param int $guestCount
+     * @param  User  $actor  The user making/creating the reservation (customer or staff)
      * @param array{
      *   special_requests?: string|null,
+     *   policies_accepted_at?: \Carbon\CarbonInterface|null,
      *   admin_notes?: string|null,
      *   early_check_in_hours?: int,
      *   late_check_out_hours?: int,
@@ -41,14 +45,13 @@ class ReservationService
      *   guest_email?: string|null,
      *   guest_phone?: string|null
      * } $options
-     * @return Reservation
-     * 
+     *
      * @throws ReservationConflictException
-     * @throws \App\Exceptions\Availability\InvalidAvailabilityPeriodException
-     * @throws \App\Exceptions\Availability\PackageAvailabilityLimitationException
-     * @throws \App\Exceptions\Pricing\InvalidPricingPeriodException
-     * @throws \App\Exceptions\Pricing\OverlappingSeasonalRatesException
-     * @throws \App\Exceptions\Pricing\NoApplicableRateException
+     * @throws InvalidAvailabilityPeriodException
+     * @throws PackageAvailabilityLimitationException
+     * @throws InvalidPricingPeriodException
+     * @throws OverlappingSeasonalRatesException
+     * @throws NoApplicableRateException
      */
     public function createReservation(
         Facility $facility,
@@ -61,9 +64,10 @@ class ReservationService
     ): Reservation {
         $earlyCheckInHours = $options['early_check_in_hours'] ?? 0;
         $lateCheckOutHours = $options['late_check_out_hours'] ?? 0;
+        $paxTier = isset($options['pax_tier']) ? (int) $options['pax_tier'] : $this->inferPaxTier($facility, $guestCount);
 
         if ($source === ReservationSource::WalkIn) {
-            if (! $actor->hasRole([\App\Enums\Role::Administrator->value])) {
+            if (! $actor->hasRole([Role::Administrator->value])) {
                 throw new UnauthorizedReservationSourceException('Only authorized staff can create walk-in reservations.');
             }
         }
@@ -77,7 +81,8 @@ class ReservationService
             $guestCount,
             $options,
             $earlyCheckInHours,
-            $lateCheckOutHours
+            $lateCheckOutHours,
+            $paxTier
         ) {
             // 1. Concurrency Protection
             // Lock the facility row and all its related package/component rows in deterministic order.
@@ -92,7 +97,9 @@ class ReservationService
                 null,
                 $guestCount,
                 $earlyCheckInHours,
-                $lateCheckOutHours
+                $lateCheckOutHours,
+                lockForUpdate: true,
+                paxTier: $paxTier
             );
 
             if (! $availability->isAvailable) {
@@ -102,14 +109,32 @@ class ReservationService
             }
 
             // 3. Calculate Pricing
-            $priceBreakdown = $this->pricingService->calculate(
-                $lockedFacility,
-                $checkIn,
-                $checkOut,
-                $earlyCheckInHours,
-                $lateCheckOutHours,
-                $guestCount
-            );
+            $priceBreakdown = $lockedFacility->isCottage()
+                ? $this->cottageBookingService->price(
+                    $lockedFacility,
+                    $options['swimming_session_id'] ?? null,
+                    $checkIn,
+                    $checkOut
+                )
+                : $this->pricingService->calculate(
+                    $lockedFacility,
+                    $checkIn,
+                    $checkOut,
+                    $earlyCheckInHours,
+                    $lateCheckOutHours,
+                    $guestCount,
+                    $paxTier
+                );
+
+            $usesDeposit = config('payments.deposit_workflow') && $source === ReservationSource::Online
+                && $lockedFacility->facilityType->slug !== 'function_hall';
+            $depositDeadline = $usesDeposit ? \App\Support\DepositDeadline::forVisit($checkIn->copy()->subHours($earlyCheckInHours)) : null;
+            if ($usesDeposit && $depositDeadline->lte(now())) {
+                throw new ReservationConflictException('The visit has already started in Philippine time. Contact the resort to arrange arrival.');
+            }
+            if ($usesDeposit && ! \App\Models\PaymentDestination::where('is_active', true)->lockForUpdate()->exists()) {
+                throw new ReservationConflictException('Deposit payment instructions are not available yet. Please contact the resort before reserving.');
+            }
 
             // 4. Determine Initial Status
             $status = match ($source) {
@@ -123,18 +148,31 @@ class ReservationService
             // 6. Create Reservation (Convert cents to exact decimal representation)
             $reservation = Reservation::create([
                 'user_id' => $actor->id,
+                'deposit_required' => $usesDeposit ? ceil($priceBreakdown->totalAmount / 2) / 100 : null,
+                'deposit_due_at' => $depositDeadline,
                 'guest_name' => $options['guest_name'] ?? null,
                 'guest_email' => $options['guest_email'] ?? null,
                 'guest_phone' => $options['guest_phone'] ?? null,
+                'guest_place_of_origin' => $options['guest_place_of_origin'] ?? null,
+                'guest_nationality' => $options['guest_nationality'] ?? null,
+                'guest_company' => $options['guest_company'] ?? null,
+                'guest_valid_id' => $options['guest_valid_id'] ?? null,
+                'guest_gender' => $options['guest_gender'] ?? null,
+                'other_guest_names' => $options['other_guest_names'] ?? [],
                 'facility_id' => $lockedFacility->id,
+                'swimming_session_id' => $options['swimming_session_id'] ?? null,
                 'reservation_code' => $reservationCode,
                 'reservation_date' => now()->toDateString(),
                 'check_in' => $checkIn,
                 'check_out' => $checkOut,
                 'guest_count' => $guestCount,
+                'pax_tier' => $paxTier,
                 'early_check_in_hours' => $earlyCheckInHours,
                 'late_check_out_hours' => $lateCheckOutHours,
-                'special_requests' => $options['special_requests'] ?? null,
+                'special_requests' => filled($options['special_requests'] ?? null)
+                    ? trim((string) $options['special_requests'])
+                    : null,
+                'policies_accepted_at' => $options['policies_accepted_at'] ?? null,
                 'admin_notes' => $options['admin_notes'] ?? null,
                 'base_price' => number_format($priceBreakdown->baseAmount / 100, 2, '.', ''),
                 'additional_charges' => number_format(($priceBreakdown->earlyCheckInCharge + $priceBreakdown->lateCheckOutCharge + $priceBreakdown->extraPersonCharge) / 100, 2, '.', ''),
@@ -152,30 +190,23 @@ class ReservationService
                 ->log("Reservation created via {$source->label()} with status {$status->label()}.");
 
             return $reservation;
-        });
+        }, 5);
     }
 
     /**
      * Reschedule an existing reservation.
      *
-     * @param Reservation $reservation
-     * @param Facility $newFacility
-     * @param Carbon $newCheckIn
-     * @param Carbon $newCheckOut
-     * @param User $actor
-     * @param int $newGuestCount
      * @param array{
      *   early_check_in_hours?: int,
      *   late_check_out_hours?: int
      * } $options
-     * @return Reservation
      *
      * @throws InvalidReservationTransitionException
      * @throws ReservationConflictException
-     * @throws \App\Exceptions\Availability\InvalidAvailabilityPeriodException
-     * @throws \App\Exceptions\Pricing\InvalidPricingPeriodException
-     * @throws \App\Exceptions\Pricing\OverlappingSeasonalRatesException
-     * @throws \App\Exceptions\Pricing\NoApplicableRateException
+     * @throws InvalidAvailabilityPeriodException
+     * @throws InvalidPricingPeriodException
+     * @throws OverlappingSeasonalRatesException
+     * @throws NoApplicableRateException
      */
     public function reschedule(
         Reservation $reservation,
@@ -186,19 +217,6 @@ class ReservationService
         int $newGuestCount,
         array $options = []
     ): Reservation {
-        $earlyCheckInHours = array_key_exists('early_check_in_hours', $options)
-            ? (int) $options['early_check_in_hours']
-            : (int) ($reservation->early_check_in_hours ?? 0);
-        $lateCheckOutHours = array_key_exists('late_check_out_hours', $options)
-            ? (int) $options['late_check_out_hours']
-            : (int) ($reservation->late_check_out_hours ?? 0);
-
-        if (!in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
-            throw new InvalidReservationTransitionException(
-                "Cannot reschedule a reservation that is currently {$reservation->status->label()}."
-            );
-        }
-
         return DB::transaction(function () use (
             $reservation,
             $newFacility,
@@ -206,16 +224,35 @@ class ReservationService
             $newCheckOut,
             $actor,
             $newGuestCount,
-            $earlyCheckInHours,
-            $lateCheckOutHours
+            $options
         ) {
-            // Lock the old and new facility graphs in deterministic order
-            $oldFacility = Facility::withTrashed()->findOrFail($reservation->facility_id);
-            $lockedFacilities = $this->lockFacilityGraph([$oldFacility, $newFacility]);
+            // Lock the resources being claimed before locking the reservation,
+            // matching the order used by booking creation and overlap checks.
+            $lockedFacilities = $this->lockFacilityGraph($newFacility);
             $lockedNewFacility = $lockedFacilities->firstWhere('id', $newFacility->id);
 
             // Lock the reservation
             $lockedReservation = Reservation::where('id', $reservation->id)->lockForUpdate()->firstOrFail();
+
+            if (! in_array($lockedReservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
+                throw new InvalidReservationTransitionException(
+                    "Cannot reschedule a reservation that is currently {$lockedReservation->status->label()}."
+                );
+            }
+
+            $earlyCheckInHours = (int) ($options['early_check_in_hours'] ?? $lockedReservation->early_check_in_hours ?? 0);
+            $lateCheckOutHours = (int) ($options['late_check_out_hours'] ?? $lockedReservation->late_check_out_hours ?? 0);
+            $paxTier = isset($options['pax_tier'])
+                ? (int) $options['pax_tier']
+                : ($lockedReservation->pax_tier ?? $this->inferPaxTier($lockedNewFacility, $newGuestCount));
+            $sessionId = $lockedNewFacility->isCottage()
+                ? ($options['swimming_session_id'] ?? $lockedReservation->swimming_session_id)
+                : null;
+
+            if ($lockedNewFacility->isCottage()) {
+                $earlyCheckInHours = 0;
+                $lateCheckOutHours = 0;
+            }
 
             // Check availability (excluding this reservation's own ID)
             $availability = $this->availabilityService->isAvailable(
@@ -225,24 +262,41 @@ class ReservationService
                 $lockedReservation->id,
                 $newGuestCount,
                 $earlyCheckInHours,
-                $lateCheckOutHours
+                $lateCheckOutHours,
+                lockForUpdate: true,
+                paxTier: $paxTier
             );
 
-            if (!$availability->isAvailable) {
+            if (! $availability->isAvailable) {
                 throw new ReservationConflictException(
                     $availability->reason ?? 'Facility is already booked for the requested period.'
                 );
             }
 
             // Calculate new pricing
-            $priceBreakdown = $this->pricingService->calculate(
-                $lockedNewFacility,
-                $newCheckIn,
-                $newCheckOut,
-                $earlyCheckInHours,
-                $lateCheckOutHours,
-                $newGuestCount
-            );
+            if ($lockedReservation->deposit_required !== null) {
+                $payments = $lockedReservation->payments()->lockForUpdate()->get();
+                if ($payments->contains(fn ($payment) => in_array($payment->status, [\App\Enums\PaymentStatus::Pending, \App\Enums\PaymentStatus::Verified], true))) {
+                    throw new InvalidReservationTransitionException('This booking has a deposit or proof under review. Contact staff to reconcile the existing payment before changing the booking.');
+                }
+                if ($lockedReservation->deposit_due_at?->isPast()) {
+                    throw new InvalidReservationTransitionException('This hold has reached its payment deadline. Contact staff before changing it.');
+                }
+                if ($lockedNewFacility->facilityType->slug === 'function_hall') {
+                    throw new InvalidReservationTransitionException('Request a separate staff quotation for a function hall.');
+                }
+            }
+            $priceBreakdown = $lockedNewFacility->isCottage()
+                ? $this->cottageBookingService->price($lockedNewFacility, $sessionId, $newCheckIn, $newCheckOut)
+                : $this->pricingService->calculate(
+                    $lockedNewFacility,
+                    $newCheckIn,
+                    $newCheckOut,
+                    $earlyCheckInHours,
+                    $lateCheckOutHours,
+                    $newGuestCount,
+                    $paxTier
+                );
 
             // Keep the old values for activity logging properties
             $oldProperties = [
@@ -253,12 +307,20 @@ class ReservationService
                 'total_price' => $lockedReservation->total_price,
             ];
 
+            // A date change never restarts the original unpaid hold.
+            if ($lockedReservation->deposit_required !== null) {
+                $lockedReservation->deposit_required = ceil($priceBreakdown->totalAmount / 2) / 100;
+                $lockedReservation->deposit_due_at = \App\Support\DepositDeadline::forVisit($newCheckIn->copy()->subHours($earlyCheckInHours), $lockedReservation->deposit_due_at);
+                if ($lockedReservation->deposit_due_at->lte(now())) throw new InvalidReservationTransitionException('Choose a visit that has not started in Philippine time.');
+            }
             // Update reservation
             $lockedReservation->update([
                 'facility_id' => $lockedNewFacility->id,
+                'swimming_session_id' => $sessionId,
                 'check_in' => $newCheckIn,
                 'check_out' => $newCheckOut,
                 'guest_count' => $newGuestCount,
+                'pax_tier' => $paxTier,
                 'early_check_in_hours' => $earlyCheckInHours,
                 'late_check_out_hours' => $lateCheckOutHours,
                 'base_price' => number_format($priceBreakdown->baseAmount / 100, 2, '.', ''),
@@ -282,36 +344,86 @@ class ReservationService
                     'old' => $oldProperties,
                     'new' => $newProperties,
                 ])
-                ->log("Reservation rescheduled to new dates/facility.");
+                ->log('Reservation rescheduled to new dates/facility.');
 
             return $lockedReservation;
-        });
+        }, 5);
     }
 
     /**
      * Change the status of a reservation.
-     * 
+     *
      * Valid transitions:
      * Pending -> Approved, Rejected
      * Approved -> Cancelled, Rescheduled, Completed
      *
-     * @param Reservation $reservation
-     * @param ReservationStatus $newStatus
-     * @param User $actor
-     * @param string|null $reason Used for Rejection or Cancellation
-     * @return void
-     * 
+     * @param  string|null  $reason  Used for Rejection or Cancellation
+     *
      * @throws InvalidReservationTransitionException
      */
     public function changeStatus(Reservation $reservation, ReservationStatus $newStatus, User $actor, ?string $reason = null): void
     {
-        $currentStatus = $reservation->status;
+        DB::transaction(function () use ($reservation, $newStatus, $actor, $reason): void {
+            $lockedReservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
 
-        if ($currentStatus === $newStatus) {
-            return;
+            if ($lockedReservation->status === $newStatus) {
+                return;
+            }
+
+            if (config('payments.deposit_workflow') && $newStatus === ReservationStatus::Completed && ! $lockedReservation->checked_out_at) {
+                throw new InvalidReservationTransitionException('Use Check out & complete after recording the guest arrival.');
+            }
+            if ($newStatus === ReservationStatus::Approved && $lockedReservation->deposit_required !== null && $lockedReservation->cancellation_requested_at) {
+                throw new InvalidReservationTransitionException('Resolve the guest withdrawal request before confirmation.');
+            }
+            if ($newStatus === ReservationStatus::Approved && $lockedReservation->deposit_required !== null
+                && $lockedReservation->getVerifiedTotalPaid() < $lockedReservation->requiredDepositAmount()) {
+                throw new InvalidReservationTransitionException('Verify the required deposit before confirming this reservation.');
+            }
+            $this->validateTransition($lockedReservation->status, $newStatus);
+            $this->updateStatus($lockedReservation, $newStatus, $actor, $reason);
+        }, 5);
+
+        $reservation->refresh();
+    }
+
+    public function confirmWithdrawal(Reservation $reservation, User $actor): void
+    {
+        if (! $actor->hasRole(Role::Administrator->value)) {
+            throw new InvalidReservationTransitionException('Only administrators can confirm a guest withdrawal.');
         }
 
-        $this->validateTransition($currentStatus, $newStatus);
+        DB::transaction(function () use ($reservation, $actor): void {
+            $lockedReservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedReservation->status !== ReservationStatus::Pending || $lockedReservation->cancellation_requested_at === null) {
+                throw new InvalidReservationTransitionException('Only a pending reservation with a guest withdrawal request can be withdrawn.');
+            }
+
+            $this->updateStatus(
+                $lockedReservation,
+                ReservationStatus::Cancelled,
+                $actor,
+                $lockedReservation->cancellation_request_reason ?: 'Guest requested withdrawal.'
+            );
+        }, 5);
+
+        $reservation->refresh();
+    }
+
+    /** Apply a transition already validated while holding the reservation lock. */
+    private function updateStatus(Reservation $reservation, ReservationStatus $newStatus, User $actor, ?string $reason = null): void
+    {
+        if ($reservation->deposit_required !== null && in_array($newStatus, [ReservationStatus::Cancelled, ReservationStatus::Rejected], true)) {
+            $reservation->setRelation('payments', $reservation->payments()->lockForUpdate()->get());
+            if ($reservation->getPendingVerificationTotal() > 0) {
+                throw new InvalidReservationTransitionException('Reconcile pending deposit proofs before releasing this booking.');
+            }
+            if ($reservation->getVerifiedTotalPaid() > 0 && (! $actor->hasRole(Role::Administrator->value) || blank($reason))) {
+                throw new InvalidReservationTransitionException('Staff must record a funds reconciliation reason before cancelling a booking with a verified deposit.');
+            }
+        }
+        $currentStatus = $reservation->status;
 
         $updates = ['status' => $newStatus->value];
 
@@ -347,27 +459,34 @@ class ReservationService
      */
     public function checkIn(Reservation $reservation, User $actor): Reservation
     {
-        if ($reservation->status !== ReservationStatus::Approved) {
-            throw new InvalidReservationTransitionException(
-                "Only approved reservations can be checked in. This one is {$reservation->status->label()}."
-            );
-        }
+        DB::transaction(function () use ($reservation, $actor): void {
+            $reservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
 
-        if ($reservation->checked_in_at !== null) {
-            throw new InvalidReservationTransitionException(
-                'This reservation was already checked in on ' . $reservation->checked_in_at->format('M d, Y g:i A') . '.'
-            );
-        }
+            if ($reservation->status !== ReservationStatus::Approved) {
+                throw new InvalidReservationTransitionException(
+                    "Only approved reservations can be checked in. This one is {$reservation->status->label()}."
+                );
+            }
 
-        $reservation->update(['checked_in_at' => now()]);
+            if ($reservation->checked_in_at !== null) {
+                throw new InvalidReservationTransitionException(
+                    'This reservation was already checked in on '.$reservation->checked_in_at->format('M d, Y g:i A').'.'
+                );
+            }
 
-        activity()
-            ->performedOn($reservation)
-            ->causedBy($actor)
-            ->event('checked_in')
-            ->log("Guest checked in for reservation {$reservation->reservation_code}.");
+            if (config('payments.deposit_workflow') && $reservation->getRemainingBalance() > 0) {
+                throw new InvalidReservationTransitionException('Record the remaining reservation balance at arrival before check-in.');
+            }
+            $reservation->update(['checked_in_at' => now()]);
 
-        return $reservation;
+            activity()
+                ->performedOn($reservation)
+                ->causedBy($actor)
+                ->event('checked_in')
+                ->log("Guest checked in for reservation {$reservation->reservation_code}.");
+        }, 5);
+
+        return $reservation->refresh();
     }
 
     /**
@@ -378,36 +497,37 @@ class ReservationService
      */
     public function checkOut(Reservation $reservation, User $actor): Reservation
     {
-        if ($reservation->checked_in_at === null) {
-            throw new InvalidReservationTransitionException('This reservation has not been checked in yet.');
-        }
+        DB::transaction(function () use ($reservation, $actor): void {
+            $reservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
 
-        if ($reservation->checked_out_at !== null) {
-            throw new InvalidReservationTransitionException(
-                'This reservation was already checked out on ' . $reservation->checked_out_at->format('M d, Y g:i A') . '.'
-            );
-        }
+            if ($reservation->checked_in_at === null) {
+                throw new InvalidReservationTransitionException('This reservation has not been checked in yet.');
+            }
 
-        $reservation->update(['checked_out_at' => now()]);
-        $this->changeStatus($reservation, ReservationStatus::Completed, $actor);
+            if ($reservation->checked_out_at !== null) {
+                throw new InvalidReservationTransitionException(
+                    'This reservation was already checked out on '.$reservation->checked_out_at->format('M d, Y g:i A').'.'
+                );
+            }
 
-        activity()
-            ->performedOn($reservation)
-            ->causedBy($actor)
-            ->event('checked_out')
-            ->log("Guest checked out for reservation {$reservation->reservation_code}.");
+            $this->validateTransition($reservation->status, ReservationStatus::Completed);
+            $reservation->update(['checked_out_at' => now()]);
+            $this->updateStatus($reservation, ReservationStatus::Completed, $actor);
 
-        return $reservation;
+            activity()
+                ->performedOn($reservation)
+                ->causedBy($actor)
+                ->event('checked_out')
+                ->log("Guest checked out for reservation {$reservation->reservation_code}.");
+        }, 5);
+
+        return $reservation->refresh();
     }
 
     /**
      * Cancel a reservation.
      *
-     * @param Reservation $reservation
-     * @param User $actor
-     * @param string|null $reason
-     * @return void
-     * 
+     *
      * @throws ReservationCancellationException
      */
     public function cancel(Reservation $reservation, User $actor, ?string $reason = null): void
@@ -421,8 +541,6 @@ class ReservationService
 
     /**
      * Generates a unique reservation code handling potential collisions safely.
-     *
-     * @return string
      */
     private function generateUniqueReservationCode(): string
     {
@@ -455,6 +573,7 @@ class ReservationService
             ReservationStatus::Cancelled->value => [],
             ReservationStatus::Rescheduled->value => [],
             ReservationStatus::Completed->value => [],
+            ReservationStatus::Expired->value => [],
         ];
 
         $allowedNextStatuses = $validTransitions[$currentStatus->value] ?? [];
@@ -465,24 +584,40 @@ class ReservationService
             );
         }
     }
+
+    private function inferPaxTier(Facility $facility, int $guestCount): ?int
+    {
+        if (! $facility->hasPaxTiers()) {
+            return null;
+        }
+
+        foreach ($facility->paxTiers() as $tier) {
+            if ($guestCount <= $tier) {
+                return $tier;
+            }
+        }
+
+        return $facility->effectiveMaxCapacity();
+    }
+
     /**
      * Locks a facility and its related component/parent facilities in a deterministic order to prevent deadlocks.
      *
-     * @param Facility|Facility[] $facilities
-     * @return \Illuminate\Database\Eloquent\Collection<int, Facility>
+     * @param  Facility|Facility[]  $facilities
+     * @return Collection<int, Facility>
      */
-    private function lockFacilityGraph(Facility|array $facilities): \Illuminate\Database\Eloquent\Collection
+    private function lockFacilityGraph(Facility|array $facilities): Collection
     {
         $facilities = is_array($facilities) ? $facilities : [$facilities];
         $ids = [];
 
         foreach ($facilities as $facility) {
             $ids[] = $facility->id;
-            
+
             $facility->loadMissing('facilityType');
             $typeSlug = $facility->facilityType?->slug;
 
-            if ($typeSlug === \App\Enums\FacilityType::ResortPackage->value || $typeSlug === \App\Enums\FacilityType::ResortPackage->name) {
+            if ($typeSlug === FacilityType::ResortPackage->value || $typeSlug === FacilityType::ResortPackage->name) {
                 $componentIds = $facility->packageComponents()->pluck('component_facility_id')->toArray();
                 $ids = array_merge($ids, $componentIds);
             } else {

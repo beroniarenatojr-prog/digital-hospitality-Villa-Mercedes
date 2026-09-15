@@ -6,7 +6,7 @@
                 <p class="text-text-muted">Stay updated on your reservations and account activity.</p>
             </div>
             
-            @if(auth()->user()->unreadNotifications->isNotEmpty())
+            @if($hasUnreadNotifications)
                 <form action="{{ route('customer.notifications.mark-all-as-read') }}" method="POST">
                     @csrf
                     <x-primary-button type="submit" class="whitespace-nowrap">
@@ -15,12 +15,6 @@
                 </form>
             @endif
         </div>
-
-        @if(session('success'))
-            <x-alert type="success" class="mb-6">
-                {{ session('success') }}
-            </x-alert>
-        @endif
 
         @if($notifications->isEmpty())
             <x-empty-state 
@@ -34,7 +28,7 @@
                         <div class="flex items-start justify-between gap-4">
                             <div class="flex items-start gap-4">
                                 <div class="mt-1 flex-shrink-0">
-                                    <div class="w-10 h-10 rounded-full flex items-center justify-center {{ $notification->read_at ? 'bg-gray-100 text-gray-500' : 'bg-primary/20 text-primary' }}">
+                                    <div class="relative w-10 h-10 rounded-full flex items-center justify-center {{ $notification->read_at ? 'bg-muted text-text-muted' : 'bg-primary/20 text-primary' }}">
                                         @if($notification->read_at)
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
@@ -43,20 +37,22 @@
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                                             </svg>
-                                            <span class="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>
+                                            <span class="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-danger ring-2 ring-surface"></span>
                                         @endif
                                     </div>
                                 </div>
                                 <div>
-                                    <p class="text-sm font-medium text-text {{ $notification->read_at ? '' : 'font-semibold' }}">
-                                        {{ $notification->data['message'] ?? 'You have a new notification.' }}
-                                    </p>
-                                    <p class="text-sm text-text-muted mt-1">
-                                        {{ $notification->created_at->diffForHumans() }}
-                                    </p>
+                                    <a href="{{ route('customer.notifications.open', $notification->id) }}" class="block">
+                                        <p class="text-sm font-medium text-text {{ $notification->read_at ? '' : 'font-semibold' }}">
+                                            {{ $notification->data['message'] ?? 'You have a new notification.' }}
+                                        </p>
+                                        <p class="text-sm text-text-muted mt-1">
+                                            {{ $notification->created_at->diffForHumans() }}
+                                        </p>
+                                    </a>
                                     @if(isset($notification->data['reservation_id']))
                                         <div class="mt-2">
-                                            <a href="{{ route('customer.reservations.show', $notification->data['reservation_id']) }}" class="text-xs font-medium text-primary hover:text-primary-dark">
+                                            <a href="{{ route('customer.notifications.open', $notification->id) }}" class="text-xs font-medium text-primary hover:text-primary-dark">
                                                 View Reservation &rarr;
                                             </a>
                                         </div>

@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Enums\FacilityType as FacilityTypeEnum;
 use App\Models\FacilityType;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Str;
 
 class FacilityTypeSeeder extends Seeder
 {
@@ -26,6 +25,11 @@ class FacilityTypeSeeder extends Seeder
                 'name' => FacilityTypeEnum::ResortPackage->label(),
                 'slug' => FacilityTypeEnum::ResortPackage->value,
                 'description' => 'Bundled services and accommodations.',
+            ],
+            [
+                'name' => FacilityTypeEnum::Cottage->label(),
+                'slug' => FacilityTypeEnum::Cottage->value,
+                'description' => 'Poolside cottages reserved by swimming session.',
             ],
         ];
 

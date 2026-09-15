@@ -10,7 +10,7 @@
         <span class="text-gray-900">{{ $reservation->reservation_code }}</span>
     </nav>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <!-- Main Content -->
         <div class="lg:col-span-2 space-y-6">
             
@@ -25,14 +25,46 @@
 
             <!-- Customer Details -->
             <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Guest Information</h3>
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Guest Information Sheet</h3>
                 <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Date</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->reservation_date?->format('F j, Y') ?? $reservation->created_at->format('F j, Y') }}</dd>
+                    </div>
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Name</dt>
                         <dd class="mt-1 text-sm font-semibold text-gray-900">{{ $reservation->guestName() }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Email Address</dt>
+                        <dt class="text-sm font-medium text-gray-500">Address</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guest_place_of_origin ?: 'Not provided' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Nationality</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guest_nationality ?: 'Not provided' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Company Name/Agency</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guest_company ?: '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Room #</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->facility->name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Valid ID type</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guest_valid_id?->label() ?? 'Not provided' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Gender</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guest_gender?->label() ?? 'Not provided' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Contact #</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guestPhone() ?? 'Not provided' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Email Add</dt>
                         <dd class="mt-1 text-sm text-gray-900">
                             @if($reservation->guestEmail())
                                 <a href="mailto:{{ $reservation->guestEmail() }}" class="text-primary hover:underline">{{ $reservation->guestEmail() }}</a>
@@ -41,9 +73,19 @@
                             @endif
                         </dd>
                     </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Phone</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->guestPhone() ?? 'Not provided' }}</dd>
+                    <div class="sm:col-span-2">
+                        <dt class="text-sm font-medium text-gray-500">Other Guest Names</dt>
+                        <dd class="mt-1 text-sm text-gray-900">
+                            @if(count($reservation->otherGuestNames()) > 0)
+                                <ol class="list-decimal list-inside space-y-1">
+                                    @foreach($reservation->otherGuestNames() as $companion)
+                                        <li>{{ $companion }}</li>
+                                    @endforeach
+                                </ol>
+                            @else
+                                <span class="text-gray-500">None listed</span>
+                            @endif
+                        </dd>
                     </div>
                     @if($reservation->guest_name)
                         <div>
@@ -61,7 +103,11 @@
                     <div class="sm:col-span-2">
                         <dt class="text-sm font-medium text-gray-500">Facility</dt>
                         <dd class="mt-1 text-sm text-gray-900 font-medium">
-                            <a href="{{ route('admin.facilities.show', $reservation->facility) }}" class="text-primary hover:underline">{{ $reservation->facility->name }}</a>
+                            @if ($reservation->facility->trashed())
+                                <span>{{ $reservation->facility->name }} (archived)</span>
+                            @else
+                                <a href="{{ route('admin.facilities.show', $reservation->facility) }}" class="text-primary hover:underline">{{ $reservation->facility->name }}</a>
+                            @endif
                             <span class="text-gray-500">({{ $reservation->facility->facilityType->name }})</span>
                         </dd>
                     </div>
@@ -92,7 +138,13 @@
                     @if($reservation->special_requests)
                     <div class="sm:col-span-2">
                         <dt class="text-sm font-medium text-gray-500">Special Requests</dt>
-                        <dd class="mt-1 text-sm text-gray-900 bg-gray-50 p-3 rounded-md">{{ $reservation->special_requests }}</dd>
+                        <dd class="mt-1 text-sm text-gray-900 bg-gray-50 p-3 rounded-md whitespace-pre-line">{{ $reservation->special_requests }}</dd>
+                    </div>
+                    @endif
+                    @if($reservation->policies_accepted_at)
+                    <div class="sm:col-span-2">
+                        <dt class="text-sm font-medium text-gray-500">Policies acknowledged</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $reservation->policies_accepted_at->format('M d, Y g:i A') }}</dd>
                     </div>
                     @endif
                 </dl>
@@ -102,21 +154,21 @@
                 <!-- Decision Impact -->
                 <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
                     <div class="flex flex-wrap items-center justify-between gap-2 mb-4 border-b pb-2">
-                        <h3 class="text-lg font-semibold text-gray-900">What this booking costs the business</h3>
+                        <h3 class="text-lg font-semibold text-gray-900">Should you keep this booking?</h3>
                         <a href="{{ route('admin.decision-board') }}" class="text-sm font-medium text-primary hover:underline">Open Decision Board</a>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                         <div class="rounded-md border border-gray-200 p-3">
-                            <p class="text-xs uppercase tracking-wider text-gray-500">Booking value</p>
+                            <p class="text-xs uppercase tracking-wider text-gray-500">This booking earns</p>
                             <p class="mt-1 text-lg font-bold text-gray-900">₱{{ number_format($impact->reservationValue, 2) }}</p>
                         </div>
                         <div class="rounded-md border border-gray-200 p-3">
-                            <p class="text-xs uppercase tracking-wider text-gray-500">Space frozen (list value)</p>
+                            <p class="text-xs uppercase tracking-wider text-gray-500">Other space it blocks</p>
                             <p class="mt-1 text-lg font-bold text-gray-900">₱{{ number_format($impact->opportunityCost, 2) }}</p>
                         </div>
                         <div class="rounded-md border border-gray-200 p-3">
-                            <p class="text-xs uppercase tracking-wider text-gray-500">Net effect</p>
+                            <p class="text-xs uppercase tracking-wider text-gray-500">Net if approved</p>
                             <p class="mt-1 text-lg font-bold {{ $impact->isNetNegative() ? 'text-danger' : 'text-success' }}">
                                 {{ $impact->isNetNegative() ? '-' : '+' }}₱{{ number_format(abs($impact->netValue()), 2) }}
                             </p>
@@ -134,7 +186,7 @@
 
                     @if($impact->frozenResources !== [])
                         <div class="mt-4 rounded-md bg-gray-50 border border-gray-200 p-3">
-                            <p class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Linked resources held</p>
+                            <p class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Also blocked if you keep this</p>
                             <ul class="space-y-1 text-sm text-gray-700">
                                 @foreach($impact->frozenResources as $frozen)
                                     <li class="flex justify-between gap-4">
@@ -153,18 +205,18 @@
                 <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
                     <h3 class="text-lg font-semibold text-gray-900 mb-1 border-b pb-2">Can they stay longer?</h3>
                     <p class="text-sm text-gray-500 mt-2 mb-4">
-                        Late check-out charged at
+                        Late check-out is charged at
                         @if($extraHours['hourly_rate'] !== null)
                             ₱{{ number_format($extraHours['hourly_rate'], 2) }} per hour.
                         @else
-                            no configured hourly rate — add a "Late Check-out" rate for this facility to quote extra hours.
+                            — there is no late check-out rate set yet. Add a "Late Check-out" rate to quote extra hours.
                         @endif
                         @if($extraHours['next_claim'])
-                            The next claim is <span class="font-medium text-gray-900">{{ $extraHours['next_claim']->label }}</span>
-                            on {{ $extraHours['next_claim']->facilityName }}, starting
+                            The next booking on this space is <span class="font-medium text-gray-900">{{ $extraHours['next_claim']->label }}</span>
+                            ({{ $extraHours['next_claim']->facilityName }}), starting
                             {{ $extraHours['next_claim']->from->format('M j, g:i A') }}.
                         @else
-                            Nothing else is booked on this space afterwards.
+                            Nothing else is booked after this stay.
                         @endif
                     </p>
 
@@ -219,6 +271,7 @@
                 </div>
             </div>
 
+            @include('admin.payments.onsite')
             <!-- Payment Summary -->
             <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
                 <div class="flex items-center justify-between mb-4 border-b pb-2">
@@ -245,6 +298,8 @@
                 </div>
             </div>
 
+            <x-payment-overpayment :reservation="$reservation" :staff="true" />
+
             <!-- Activity Logs (Simplified) -->
             @if($reservation->activities && $reservation->activities->count() > 0)
                 <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
@@ -269,17 +324,36 @@
         </div>
 
         <!-- Sidebar Actions -->
-        <div class="space-y-6" x-data="{ action: null }">
+        <div class="space-y-6 sticky top-4 self-start" x-data="{ action: null }">
             
             @if($reservation->status === \App\Enums\ReservationStatus::Pending)
                 <!-- Pending Actions -->
                 <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6 space-y-3">
                     <h3 class="text-lg font-semibold text-gray-900 mb-2 border-b pb-2">Status Actions</h3>
-                    <p class="text-sm text-gray-600 mb-4">This reservation is pending approval.</p>
+                    <p class="text-sm text-gray-600 mb-4">{{ $reservation->deposit_required !== null ? 'Verify the required QR deposit in Payment review to confirm this reservation.' : 'This request requires staff quotation and approval.' }}</p>
+
+                    @if($reservation->cancellation_requested_at)
+                        <div class="rounded-md border border-warning bg-warning-light p-3 text-sm text-text">
+                            <p class="font-semibold">Guest requested withdrawal</p>
+                            <p class="mt-1">{{ $reservation->cancellation_requested_at->format('M d, Y g:i A') }}</p>
+                            @if($reservation->cancellation_request_reason)
+                                <p class="mt-1">{{ $reservation->cancellation_request_reason }}</p>
+                            @endif
+                        </div>
+                        <form method="POST" action="{{ route('admin.reservations.confirm-withdrawal', $reservation) }}">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="w-full px-4 py-2 bg-danger text-white rounded-md text-sm font-semibold hover:opacity-90 transition">
+                                Confirm withdrawal
+                            </button>
+                        </form>
+                    @endif
                     
+                    @if($reservation->deposit_required === null)
                     <button @click="action = 'approve'" class="w-full px-4 py-2 bg-success text-white rounded-md text-sm font-semibold hover:bg-green-700 transition">
                         Approve Reservation
                     </button>
+                    @endif
                     
                     <button @click="action = 'reject'" class="w-full px-4 py-2 border border-danger text-danger bg-white rounded-md text-sm font-semibold hover:bg-danger hover:text-white transition">
                         Reject Reservation
@@ -292,14 +366,20 @@
                 <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6 space-y-3">
                     <h3 class="text-lg font-semibold text-gray-900 mb-2 border-b pb-2">Modify Reservation</h3>
                     
+                    @if($reservation->deposit_required !== null && ($reservation->getVerifiedTotalPaid() > 0 || $reservation->getPendingVerificationTotal() > 0 || $reservation->deposit_due_at?->isPast()))
+                        <p class="text-sm text-gray-600">Reconcile the deposit or expired hold before arranging a changed booking.</p>
+                    @else
                     <button @click="action = 'reschedule'" class="w-full px-4 py-2 border border-primary text-primary bg-white rounded-md text-sm font-semibold hover:bg-primary-50 transition">
                         Reschedule
                     </button>
+                    @endif
                     
                     @if($reservation->status === \App\Enums\ReservationStatus::Approved)
+                        @unless(config('payments.deposit_workflow'))
                         <button @click="action = 'complete'" class="w-full px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-hover transition mt-2">
                             Mark as Completed
                         </button>
+                        @endunless
 
                         <button @click="action = 'cancel'" class="w-full px-4 py-2 border border-danger text-danger bg-white rounded-md text-sm font-semibold hover:bg-danger hover:text-white transition mt-2">
                             Cancel Reservation
@@ -445,10 +525,14 @@
                     loading: false,
                     error: null,
                     previewData: null,
+                    cottageIds: @js($facilities->filter(fn ($facility) => $facility->isCottage())->pluck('id')->values()),
+                    get isCottage() { return this.cottageIds.includes(Number(this.form.facility_id)); },
                     form: {
                         facility_id: '{{ $reservation->facility_id }}',
-                        check_in: '{{ $reservation->check_in->format('Y-m-d') }}',
-                        check_out: '{{ $reservation->check_out->format('Y-m-d') }}',
+                        check_in: '{{ $reservation->check_in->format('Y-m-d\TH:i') }}',
+                        check_out: '{{ $reservation->check_out->format('Y-m-d\TH:i') }}',
+                        visit_date: '{{ $reservation->check_in->format('Y-m-d') }}',
+                        swimming_session_id: '{{ $reservation->swimming_session_id }}',
                         guestCount: {{ $reservation->guest_count }},
                         early_check_in_hours: {{ $reservation->early_check_in_hours }},
                         late_check_out_hours: {{ $reservation->late_check_out_hours }}
@@ -495,21 +579,37 @@
                                         @endforeach
                                     </select>
                                 </div>
-                                <div class="grid grid-cols-2 gap-4">
+                                <div x-show="isCottage" class="space-y-4">
+                                    <div>
+                                        <label for="reschedule_visit_date" class="block text-sm font-medium text-gray-700">Visit date</label>
+                                        <input id="reschedule_visit_date" type="date" x-model="form.visit_date" class="mt-1 block w-full rounded-md border-gray-300 text-sm">
+                                    </div>
+                                    <div>
+                                        <label for="reschedule_session" class="block text-sm font-medium text-gray-700">Swimming session</label>
+                                        <select id="reschedule_session" x-model="form.swimming_session_id" class="mt-1 block w-full rounded-md border-gray-300 text-sm">
+                                            <option value="">Choose a session</option>
+                                            @foreach ($swimmingSessions as $session)
+                                                <option value="{{ $session->id }}">{{ $session->name }} · {{ \Carbon\Carbon::parse($session->starts_at)->format('g:i A').' – '.\Carbon\Carbon::parse($session->ends_at)->format('g:i A') }} · ₱{{ number_format($session->cottage_fee, 2) }}</option>
+                                            @endforeach
+                                        </select>
+                                        <p class="mt-1 text-xs text-gray-500">The selected session sets the cottage hours and fee.</p>
+                                    </div>
+                                </div>
+                                <div x-show="!isCottage" class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700">Check-in</label>
-                                        <input type="date" x-model="form.check_in" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                                        <input type="datetime-local" x-model="form.check_in" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700">Check-out</label>
-                                        <input type="date" x-model="form.check_out" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                                        <input type="datetime-local" x-model="form.check_out" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                                     </div>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700">Guests (Pax)</label>
                                     <input type="number" x-model="form.guestCount" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
                                 </div>
-                                <div class="grid grid-cols-2 gap-4">
+                                <div x-show="!isCottage" class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700">Early check-in (hours)</label>
                                         <input type="number" x-model.number="form.early_check_in_hours" min="0" max="12" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
@@ -552,6 +652,8 @@
                                 @csrf
                                 @method('PATCH')
                                 <input type="hidden" name="facility_id" :value="form.facility_id">
+                                <input type="hidden" name="visit_date" :value="isCottage ? form.visit_date : ''">
+                                <input type="hidden" name="swimming_session_id" :value="isCottage ? form.swimming_session_id : ''">
                                 <input type="hidden" name="check_in" :value="form.check_in">
                                 <input type="hidden" name="check_out" :value="form.check_out">
                                 <input type="hidden" name="guestCount" :value="form.guestCount">

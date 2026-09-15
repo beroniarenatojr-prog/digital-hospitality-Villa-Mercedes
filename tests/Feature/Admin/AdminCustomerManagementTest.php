@@ -2,15 +2,14 @@
 
 namespace Tests\Feature\Admin;
 
-use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Enums\ReservationStatus;
 use App\Enums\Role;
-use App\Models\Facility;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Tests\TestCase;
 
 class AdminCustomerManagementTest extends TestCase
@@ -18,6 +17,7 @@ class AdminCustomerManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
 
     protected function setUp(): void
@@ -37,13 +37,13 @@ class AdminCustomerManagementTest extends TestCase
     public function test_unauthenticated_user_cannot_access_customer_management(): void
     {
         $response = $this->get(route('admin.customers.index'));
-        $response->assertRedirect(route('login'));
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_cannot_access_customer_management(): void
     {
         $response = $this->actingAs($this->customer)->get(route('admin.customers.index'));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_admin_can_access_customer_listing(): void
@@ -67,7 +67,7 @@ class AdminCustomerManagementTest extends TestCase
     {
         $response = $this->actingAs($this->admin)->get(route('admin.customers.index'));
         $customers = $response->viewData('customers');
-        $this->assertInstanceOf(\Illuminate\Pagination\LengthAwarePaginator::class, $customers);
+        $this->assertInstanceOf(LengthAwarePaginator::class, $customers);
     }
 
     public function test_search_works(): void
@@ -258,6 +258,6 @@ class AdminCustomerManagementTest extends TestCase
     public function test_customer_cannot_view_admin_customer_detail(): void
     {
         $response = $this->actingAs($this->customer)->get(route('admin.customers.show', $this->customer->id));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 }

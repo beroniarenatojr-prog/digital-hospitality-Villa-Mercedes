@@ -8,6 +8,7 @@ use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Admin\CustomerManagementService;
+use App\Support\LiveFilter;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -25,11 +26,11 @@ class AdminCustomerController extends Controller
 
         // Search
         if ($request->filled('search')) {
-            $search = '%' . $request->input('search') . '%';
+            $search = '%'.$request->input('search').'%';
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', $search)
-                  ->orWhere('email', 'like', $search)
-                  ->orWhere('phone', 'like', $search);
+                    ->orWhere('email', 'like', $search)
+                    ->orWhere('phone', 'like', $search);
             });
         }
 
@@ -47,10 +48,14 @@ class AdminCustomerController extends Controller
             $query->where('created_at', '>=', $request->input('registered_from'));
         }
         if ($request->filled('registered_until')) {
-            $query->where('created_at', '<=', $request->input('registered_until') . ' 23:59:59');
+            $query->where('created_at', '<=', $request->input('registered_until').' 23:59:59');
         }
 
-        $customers = $query->orderBy('created_at', 'desc')->paginate(20);
+        $customers = $query->orderByDesc('created_at')->orderByDesc('id')->paginate(20);
+
+        if (LiveFilter::wantsPartial($request)) {
+            return view('admin.customers.partials.results', compact('customers'));
+        }
 
         return view('admin.customers.index', compact('customers'));
     }

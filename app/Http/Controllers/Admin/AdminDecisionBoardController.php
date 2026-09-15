@@ -29,7 +29,7 @@ class AdminDecisionBoardController extends Controller
 
         $to = isset($validated['to'])
             ? Carbon::parse($validated['to'])->endOfDay()
-            : $from->copy()->addDays(6)->endOfDay();
+            : $from->copy()->addDays(13)->endOfDay();
 
         // A very wide window makes the timeline bars unreadable and the queries
         // heavy for no operational benefit.

@@ -16,6 +16,7 @@ class AdminRateManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
 
     protected function setUp(): void
@@ -35,13 +36,13 @@ class AdminRateManagementTest extends TestCase
     public function test_unauthenticated_user_cannot_access_rate_management(): void
     {
         $response = $this->get(route('admin.rates.index'));
-        $response->assertRedirect(route('login'));
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_cannot_access_rate_management(): void
     {
         $response = $this->actingAs($this->customer)->get(route('admin.rates.index'));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_admin_can_access_rate_listing(): void
@@ -329,7 +330,7 @@ class AdminRateManagementTest extends TestCase
             'unit' => 'per_night',
         ]);
 
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_cannot_modify_rate(): void
@@ -343,6 +344,6 @@ class AdminRateManagementTest extends TestCase
             'unit' => 'per_night',
         ]);
 
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
     }
 }

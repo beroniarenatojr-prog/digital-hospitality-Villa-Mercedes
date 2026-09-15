@@ -4,10 +4,12 @@ namespace Tests\Feature\Http;
 
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
+use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -32,6 +34,7 @@ class FileSecurityTest extends TestCase
         $reservation = Reservation::factory()->create([
             'user_id' => $customer->id,
             'total_price' => 5000,
+            'status' => ReservationStatus::Approved->value,
         ]);
 
         $file = UploadedFile::fake()->image('proof.jpg');
@@ -44,11 +47,13 @@ class FileSecurityTest extends TestCase
 
         $response->assertRedirect(route('customer.reservations.show', $reservation));
 
-        $payment = Payment::first();
+        $payment = Payment::query()->where('reservation_id', $reservation->id)->first();
         $this->assertNotNull($payment);
         $this->assertNotNull($payment->proof_path);
 
-        Storage::disk('uploads')->assertExists($payment->proof_path);
+        /** @var FilesystemAdapter $disk */
+        $disk = Storage::disk('uploads');
+        $disk->assertExists($payment->proof_path);
 
         // Download proof
         $downloadResponse = $this->actingAs($customer)->get(route('customer.payments.download', $payment));
@@ -77,6 +82,8 @@ class FileSecurityTest extends TestCase
 
         $response = $this->actingAs($customer2)->get(route('customer.payments.download', $payment));
         $response->assertStatus(403);
+
+        $this->actingAs($customer2)->get(route('customer.payments.view', $payment))->assertStatus(403);
     }
 
     public function test_admin_can_download_any_proof()
@@ -101,6 +108,8 @@ class FileSecurityTest extends TestCase
 
         $response = $this->actingAs($admin)->get(route('admin.payments.download', $payment));
         $response->assertStatus(200);
+
+        $this->actingAs($admin)->get(route('admin.payments.view', $payment))->assertStatus(200);
     }
 
     public function test_invalid_mime_type_is_rejected()
@@ -121,7 +130,7 @@ class FileSecurityTest extends TestCase
         ]);
 
         $response->assertSessionHasErrors('proof');
-        $this->assertEquals(0, Payment::count());
+        $this->assertSame(0, Payment::query()->where('reservation_id', $reservation->id)->count());
     }
 
     public function test_oversized_file_is_rejected()
@@ -143,6 +152,94 @@ class FileSecurityTest extends TestCase
         ]);
 
         $response->assertSessionHasErrors('proof');
-        $this->assertEquals(0, Payment::count());
+        $this->assertSame(0, Payment::query()->where('reservation_id', $reservation->id)->count());
+    }
+
+    public function test_customer_cannot_download_proof_using_path_traversal(): void
+    {
+        $customer = User::factory()->create();
+        $customer->assignRole(Role::Customer->value);
+
+        $reservation = Reservation::factory()->create([
+            'user_id' => $customer->id,
+        ]);
+
+        $secret = 'TOP_SECRET_PAYMENT_PROOF';
+        Storage::disk('uploads')->put('safe.txt', $secret);
+
+        $paths = [
+            '../../other-file',
+            '../../../etc/passwd',
+            '..\\..\\other-file',
+            '%2e%2e/%2e%2e/other-file',
+            'uploads/../safe.txt',
+        ];
+
+        foreach ($paths as $path) {
+            $payment = Payment::factory()->create([
+                'reservation_id' => $reservation->id,
+                'amount' => 1000,
+                'status' => PaymentStatus::Pending->value,
+                'proof_path' => $path,
+            ]);
+
+            $response = $this->actingAs($customer)->get(route('customer.payments.download', $payment));
+
+            $this->assertContains($response->status(), [403, 404], "Traversal path [{$path}] must not succeed.");
+            $this->assertStringNotContainsString($secret, $response->getContent());
+
+            $view = $this->actingAs($customer)->get(route('customer.payments.view', $payment));
+            $this->assertContains($view->status(), [403, 404], "View traversal path [{$path}] must not succeed.");
+            $this->assertStringNotContainsString($secret, $view->getContent());
+        }
+    }
+
+    public function test_admin_cannot_download_proof_using_path_traversal(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole(Role::Administrator->value);
+
+        $reservation = Reservation::factory()->create();
+        $secret = 'ADMIN_TRAVERSAL_SECRET';
+        Storage::disk('uploads')->put('safe-admin.txt', $secret);
+
+        $payment = Payment::factory()->create([
+            'reservation_id' => $reservation->id,
+            'amount' => 1000,
+            'status' => PaymentStatus::Pending->value,
+            'proof_path' => '../../safe-admin.txt',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('admin.payments.download', $payment));
+
+        $this->assertContains($response->status(), [403, 404]);
+        $this->assertStringNotContainsString($secret, $response->getContent());
+    }
+
+    public function test_uploaded_proof_filename_cannot_escape_the_uploads_directory(): void
+    {
+        $customer = User::factory()->create();
+        $customer->assignRole(Role::Customer->value);
+
+        $reservation = Reservation::factory()->create([
+            'user_id' => $customer->id,
+            'total_price' => 5000,
+            'status' => ReservationStatus::Approved->value,
+        ]);
+
+        $file = UploadedFile::fake()->image('../../evil.jpg');
+
+        $this->actingAs($customer)->post(route('customer.payments.store', $reservation), [
+            'amount' => 2500,
+            'payment_method' => PaymentMethod::GCash->value,
+            'proof' => $file,
+        ])->assertRedirect(route('customer.reservations.show', $reservation));
+
+        $payment = Payment::query()->where('reservation_id', $reservation->id)->first();
+        $this->assertNotNull($payment);
+        $this->assertStringNotContainsString('..', $payment->proof_path);
+        /** @var FilesystemAdapter $disk */
+        $disk = Storage::disk('uploads');
+        $disk->assertExists($payment->proof_path);
     }
 }

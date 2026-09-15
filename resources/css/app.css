@@ -1,16 +1,345 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=Outfit:wght@100..900&display=swap');
-@import 'flatpickr/dist/flatpickr.min.css';
-@import 'toastify-js/src/toastify.css';
-@import 'swiper/css';
-@import 'swiper/css/navigation';
-@import 'swiper/css/pagination';
+@import '@fontsource-variable/figtree';
+@import '@fontsource-variable/outfit';
+@import '@fontsource/cormorant-garamond/latin-400.css';
+@import '@fontsource/cormorant-garamond/latin-500.css';
+@import '@fontsource/cormorant-garamond/latin-600.css';
+@import '@fontsource/cormorant-garamond/latin-700.css';
+@import '@fontsource/great-vibes/latin-400.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+[x-cloak] {
+    display: none !important;
+}
+
+/* The chat panel and launcher swap visibility at runtime. Keep the native
+   hidden state authoritative even when an element also has a display utility. */
+[hidden] {
+    display: none !important;
+}
+
 @layer utilities {
     .glass {
         @apply bg-surface/70 backdrop-blur-md border border-white/20 shadow-glass;
     }
+
+    .hero-photo {
+        @apply absolute inset-0 h-full w-full animate-kenburns object-cover object-center;
+        will-change: transform;
+    }
+
+    .hero-photo-aerial {
+        object-position: center 48%;
+    }
+
+    .hero-photo-bg {
+        @apply absolute inset-0 h-full w-full animate-kenburns bg-cover bg-center;
+        will-change: transform;
+    }
+
+    .js-reveal {
+        opacity: 0;
+        transform: translateY(1.5rem);
+        transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+        transition-delay: var(--reveal-delay, 0ms);
+    }
+
+    .js-reveal.is-revealed {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-photo,
+    .hero-photo-bg,
+    .animate-kenburns,
+    .animate-hero-copy,
+    .animate-hero-desk {
+        animation: none !important;
+    }
+
+    .js-reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+}
+
+@layer components {
+    .listing-hero {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-height: 16rem;
+        height: 48vh;
+        max-height: 52vh;
+        overflow: hidden;
+        background-color: #432910;
+        background-size: cover;
+        background-position: 62% center;
+        background-repeat: no-repeat;
+    }
+
+    @media (min-width: 1024px) {
+        .listing-hero {
+            height: 62vh;
+            max-height: 68vh;
+            min-height: 24rem;
+        }
+    }
+
+    .listing-hero-shade {
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(90deg, rgba(31, 20, 12, 0.78) 0%, rgba(31, 20, 12, 0.48) 36%, rgba(31, 20, 12, 0.18) 64%, rgba(31, 20, 12, 0.12) 100%),
+            linear-gradient(180deg, rgba(31, 20, 12, 0.28) 0%, rgba(31, 20, 12, 0.08) 28%, rgba(31, 20, 12, 0.2) 100%);
+    }
+
+    .listing-toolbar {
+        @apply bg-background border-b border-border;
+    }
+
+    .listing-toolbar-select {
+        @apply rounded-full border-border bg-surface text-sm text-text shadow-sm focus:border-primary focus:ring-primary;
+    }
+
+    .listing-tab {
+        @apply inline-flex items-center justify-center min-h-[40px] rounded-full px-5 py-2 text-sm font-semibold text-text-muted bg-accent-light transition hover:bg-primary-light hover:text-primary;
+    }
+
+    .listing-tab[aria-current='page'] {
+        @apply bg-text text-white hover:bg-text hover:text-white;
+    }
+
+    .password-meter-bar {
+        @apply h-1.5 flex-1 rounded-full bg-border;
+    }
+
+    .password-meter-bar.is-on {
+        @apply bg-primary;
+    }
+
+    .chart-col {
+        @apply flex min-h-0 min-w-0 flex-1 flex-col items-center gap-1.5 self-stretch;
+    }
+
+    .chart-col-track {
+        @apply relative w-full min-h-0 flex-1;
+    }
+
+    .chart-col-value {
+        @apply absolute left-1/2 z-10 max-w-full -translate-x-1/2 truncate text-[10px] font-semibold tabular-nums leading-none text-primary;
+        bottom: calc(var(--chart-h, 0%) + 0.35rem);
+        opacity: 0;
+        transform: translate(-50%, 4px);
+        transition: opacity 280ms ease-out, transform 280ms ease-out;
+        transition-delay: var(--chart-delay, 0ms);
+    }
+
+    .chart-col-value.is-drawn {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+
+    .chart-col-fill {
+        @apply absolute inset-x-0 bottom-0 rounded-sm bg-primary;
+        height: var(--chart-h, 0%);
+        transform: scaleY(0);
+        transform-origin: bottom center;
+        transition: transform 650ms cubic-bezier(0.22, 1, 0.36, 1);
+        transition-delay: var(--chart-delay, 0ms);
+    }
+
+    .chart-col-fill.is-drawn {
+        transform: scaleY(1);
+    }
+
+    .admin-vchart {
+        @apply grid items-stretch gap-x-3;
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .admin-vchart-y {
+        @apply flex flex-col justify-between items-end pb-7 pt-1 text-[10px] font-medium tabular-nums text-gray-400;
+    }
+
+    .admin-vchart-plot {
+        @apply relative min-w-0 overflow-visible border-b border-l border-gray-200 bg-gray-50/50;
+        min-height: 14.5rem;
+        padding-bottom: 1.75rem;
+    }
+
+    .admin-vchart-grid {
+        @apply pointer-events-none absolute inset-x-0 top-0 bottom-7;
+    }
+
+    .admin-vchart-gridline {
+        @apply absolute inset-x-0 border-t border-dashed border-gray-200/90;
+    }
+
+    .admin-vchart-bars {
+        @apply absolute inset-x-0 top-0 bottom-7 flex items-end justify-around gap-1 px-2 pt-5;
+    }
+
+    .admin-vchart-col {
+        @apply relative flex h-full min-h-0 min-w-0 flex-col items-center;
+        flex: 1 1 0;
+        max-width: 2.75rem;
+    }
+
+    .admin-vchart-track {
+        @apply relative w-full min-h-0 flex-1;
+    }
+
+    .admin-vchart-value {
+        @apply absolute left-1/2 z-10 max-w-[4rem] -translate-x-1/2 truncate text-[10px] font-semibold tabular-nums leading-none text-primary;
+        bottom: calc(var(--chart-h, 0%) + 0.3rem);
+        opacity: 0;
+        transform: translate(-50%, 4px);
+        animation: admin-vchart-value-in 280ms ease-out forwards;
+        animation-delay: var(--chart-delay, 0ms);
+    }
+
+    .admin-vchart-fill {
+        @apply absolute bottom-0 left-1/2 -translate-x-1/2 rounded-sm bg-primary;
+        width: min(70%, 1.75rem);
+        height: var(--chart-h, 0%);
+        transform: translateX(-50%) scaleY(0);
+        transform-origin: bottom center;
+        animation: admin-vchart-grow 650ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation-delay: var(--chart-delay, 0ms);
+    }
+
+    .admin-vchart-label {
+        @apply absolute left-1/2 max-w-[3.5rem] -translate-x-1/2 truncate text-center text-[10px] font-medium text-gray-500 sm:text-xs;
+        top: calc(100% + 0.4rem);
+    }
+
+    @keyframes admin-vchart-grow {
+        to { transform: translateX(-50%) scaleY(1); }
+    }
+
+    @keyframes admin-vchart-value-in {
+        to {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .chart-col-value,
+        .chart-col-fill {
+            transition: none !important;
+        }
+
+        .chart-col-value {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+
+        .chart-col-fill {
+            transform: scaleY(1);
+        }
+
+        .admin-vchart-value,
+        .admin-vchart-fill {
+            animation: none !important;
+        }
+
+        .admin-vchart-value {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+
+        .admin-vchart-fill {
+            transform: translateX(-50%) scaleY(1);
+        }
+    }
+
+    .admin-shell {
+        @apply flex h-full;
+    }
+
+    .admin-sidebar {
+        position: relative;
+        z-index: 20;
+        display: flex;
+        width: 16rem;
+        flex-shrink: 0;
+        flex-direction: column;
+        overflow: hidden;
+        border-right: 1px solid #e5e7eb;
+        background: #fff;
+        transition: width 300ms ease-in-out;
+    }
+
+    .admin-sidebar.is-collapsed {
+        width: 0;
+        border-right-width: 0;
+    }
+
+    .admin-sidebar-inner {
+        display: flex;
+        height: 100%;
+        width: 16rem;
+        flex-shrink: 0;
+        flex-direction: column;
+    }
+
+    .admin-main {
+        position: relative;
+        z-index: 0;
+        display: flex;
+        min-width: 0;
+        flex: 1 1 0%;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .admin-live-filter-loading {
+        @apply absolute inset-0 z-10 flex min-h-[12rem] items-center justify-center rounded-lg bg-white/80;
+    }
+
+    .admin-dialog-frame {
+        display: flex;
+        min-height: 100%;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        transition: padding-left 300ms ease-in-out;
+    }
+}
+
+@media (max-width: 767px) {
+    .admin-sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        height: 100%;
+        width: 16rem;
+        border-right-width: 1px;
+        transform: translateX(0);
+        transition: transform 300ms ease-in-out;
+    }
+
+    .admin-sidebar.is-collapsed {
+        width: 16rem;
+        transform: translateX(-100%);
+    }
+}
+
+@media (min-width: 768px) {
+    .admin-shell:has(.admin-sidebar:not(.is-collapsed)) .admin-dialog-frame {
+        padding-left: calc(16rem + 1rem);
+    }
+}
+
+/* Keyboard users need to see where they are. */
+:focus-visible {
+    outline: 2px solid #623f1f;
+    outline-offset: 2px;
 }

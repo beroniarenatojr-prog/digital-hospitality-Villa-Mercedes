@@ -5,43 +5,40 @@ namespace App\Services\Admin;
 use App\Enums\InquiryStatus;
 use App\Models\Inquiry;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class InquiryManagementService
 {
     /**
      * Retrieve inquiries, optionally filtered by status and search text.
-     *
-     * @param array $filters
-     * @return \Illuminate\Pagination\LengthAwarePaginator
      */
-    public function getInquiries(array $filters = []): \Illuminate\Pagination\LengthAwarePaginator
+    public function getInquiries(array $filters = []): LengthAwarePaginator
     {
         $query = Inquiry::with(['user', 'responder'])
             ->orderByRaw("CASE WHEN status = 'pending' THEN 0 WHEN status = 'open' THEN 1 ELSE 2 END")
             ->orderBy('created_at', 'desc');
 
-        if (isset($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
-        if (isset($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('created_at', '>=', $filters['date_from']);
         }
 
-        if (isset($filters['date_until'])) {
+        if (! empty($filters['date_until'])) {
             $query->whereDate('created_at', '<=', $filters['date_until']);
         }
 
-        if (isset($filters['search'])) {
-            $search = '%' . $filters['search'] . '%';
+        if (! empty($filters['search'])) {
+            $search = '%'.$filters['search'].'%';
             $query->where(function ($q) use ($search) {
                 $q->where('subject', 'like', $search)
-                  ->orWhere('message', 'like', $search)
-                  ->orWhereHas('user', function ($uq) use ($search) {
-                      $uq->where('name', 'like', $search)
-                         ->orWhere('email', 'like', $search);
-                  });
+                    ->orWhere('message', 'like', $search)
+                    ->orWhereHas('user', function ($uq) use ($search) {
+                        $uq->where('name', 'like', $search)
+                            ->orWhere('email', 'like', $search);
+                    });
             });
         }
 

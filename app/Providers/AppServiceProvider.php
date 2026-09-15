@@ -3,10 +3,16 @@
 namespace App\Providers;
 
 use App\Enums\Role;
+use App\Models\Facility;
+use App\Models\FacilityType;
+use App\Models\GalleryImage;
+use App\Models\PagePhoto;
 use App\Models\Payment;
+use App\Models\Rate;
 use App\Models\Reservation;
 use App\Models\User;
 use App\Observers\PaymentObserver;
+use App\Observers\PublicHomeCacheObserver;
 use App\Observers\ReservationObserver;
 use App\Policies\UserPolicy;
 use App\Repositories\Contracts\UserRepositoryInterface;
@@ -14,8 +20,10 @@ use App\Repositories\UserRepository;
 use App\Services\Payments\ManualPaymentGateway;
 use App\Services\Payments\PaymentGateway;
 use App\Services\Payments\PayMongoGateway;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -45,6 +53,11 @@ class AppServiceProvider extends ServiceProvider
     {
         Reservation::observe(ReservationObserver::class);
         Payment::observe(PaymentObserver::class);
+        Facility::observe(PublicHomeCacheObserver::class);
+        FacilityType::observe(PublicHomeCacheObserver::class);
+        GalleryImage::observe(PublicHomeCacheObserver::class);
+        PagePhoto::observe(PublicHomeCacheObserver::class);
+        Rate::observe(PublicHomeCacheObserver::class);
 
         Gate::policy(User::class, UserPolicy::class);
 
@@ -57,9 +70,25 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->user()?->id ?: $request->ip());
         });
 
-        RateLimiter::for('login', function (Request $request) {
-            return Limit::perMinute((int) env('RATE_LIMIT_LOGIN', 5))
-                ->by($request->input('email').'|'.$request->ip());
+        RateLimiter::for('register', function (Request $request) {
+            return Limit::perMinute(10)->by(
+                strtolower((string) $request->input('email')).'|'.$request->ip()
+            );
+        });
+
+        RateLimiter::for('password-email', function (Request $request) {
+            return Limit::perMinute(5)->by(
+                strtolower((string) $request->input('email')).'|'.$request->ip()
+            );
+        });
+
+        Event::listen(Login::class, function (Login $event): void {
+            if (! $event->remember) {
+                return;
+            }
+
+            session(['auth.keep' => true]);
+            config(['session.lifetime' => (int) config('auth.remember_session_lifetime')]);
         });
     }
 }

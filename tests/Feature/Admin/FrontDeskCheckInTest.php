@@ -7,6 +7,7 @@ use App\Enums\Role;
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Models\User;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -21,7 +22,7 @@ class FrontDeskCheckInTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed(\Database\Seeders\RoleSeeder::class);
+        $this->seed(RoleSeeder::class);
 
         $this->admin = User::factory()->create();
         $this->admin->assignRole(Role::Administrator->value);
@@ -101,6 +102,6 @@ class FrontDeskCheckInTest extends TestCase
 
         $this->actingAs($customer)
             ->patch(route('admin.reservations.check-in', $this->reservation))
-            ->assertForbidden();
+            ->assertRedirect(route('admin.login'));
     }
 }

@@ -5,6 +5,7 @@ namespace App\Enums;
 enum FacilityType: string
 {
     case Room = 'room';
+    case Cottage = 'cottage';
     case FunctionHall = 'function_hall';
     case ResortPackage = 'resort_package';
 
@@ -12,6 +13,7 @@ enum FacilityType: string
     {
         return match ($this) {
             self::Room => 'Room',
+            self::Cottage => 'Cottage',
             self::FunctionHall => 'Function Hall',
             self::ResortPackage => 'Resort Package',
         };

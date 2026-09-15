@@ -214,7 +214,7 @@
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                         @foreach($facility->galleryImages as $image)
                             <div class="relative aspect-video bg-gray-100 rounded-lg overflow-hidden">
-                                <img src="{{ asset('storage/' . $image->image_path) }}" alt="{{ $image->caption ?? $facility->name }}" class="object-cover w-full h-full">
+                                <img src="{{ $image->url() }}" alt="{{ $image->caption ?? $facility->name }}" class="object-cover w-full h-full">
                                 @if($image->caption)
                                     <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
                                         <p class="text-white text-xs">{{ $image->caption }}</p>

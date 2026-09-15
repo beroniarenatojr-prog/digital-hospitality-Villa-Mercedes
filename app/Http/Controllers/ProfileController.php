@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redirect;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ProfileController extends Controller
@@ -32,6 +35,10 @@ class ProfileController extends Controller
             $request->user()->email_verified_at = null;
         }
 
+        if (filled($request->user()->phone) && filled($request->user()->name)) {
+            $request->user()->profile_completed_at ??= now();
+        }
+
         $request->user()->save();
 
         return Redirect::route('profile.edit')->with('status', 'profile-updated');
@@ -48,9 +55,19 @@ class ProfileController extends Controller
 
         $user = $request->user();
 
-        Auth::logout();
+        DB::transaction(function () use ($user): void {
+            $lockedUser = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
 
-        $user->delete();
+            if ($lockedUser->reservations()->exists() || $lockedUser->inquiries()->exists()) {
+                throw ValidationException::withMessages([
+                    'account' => 'This account has reservation or inquiry history and cannot be deleted here. Please contact the resort for help with your account.',
+                ])->errorBag('userDeletion');
+            }
+
+            $lockedUser->delete();
+        }, 5);
+
+        Auth::logout();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();

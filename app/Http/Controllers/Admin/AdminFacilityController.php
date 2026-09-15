@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\FacilityStatus;
 use App\Enums\FacilityType;
+use App\Exceptions\Admin\PhotoLimitExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreFacilityRequest;
 use App\Http\Requests\Admin\UpdateFacilityRequest;
@@ -12,6 +13,7 @@ use App\Models\Facility;
 use App\Models\FacilityType as FacilityTypeModel;
 use App\Models\GalleryImage;
 use App\Services\Admin\FacilityManagementService;
+use App\Support\LiveFilter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -41,16 +43,30 @@ class AdminFacilityController extends Controller
         }
 
         // Server-side active filter
-        if ($request->has('active')) {
+        if ($request->filled('active')) {
             $query->where('is_active', $request->boolean('active'));
         }
 
-        // Search
+        // Search by name, slug, or facility type
         if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->input('search') . '%');
+            $like = '%'.trim((string) $request->input('search')).'%';
+            $query->where(function ($searchQuery) use ($like) {
+                $searchQuery->where('name', 'like', $like)
+                    ->orWhere('slug', 'like', $like)
+                    ->orWhere('description', 'like', $like)
+                    ->orWhereHas('facilityType', function ($typeQuery) use ($like) {
+                        $typeQuery->where('name', 'like', $like)
+                            ->orWhere('slug', 'like', $like);
+                    });
+            });
         }
 
         $facilities = $query->orderBy('sort_order')->orderBy('name')->paginate(20);
+
+        if (LiveFilter::wantsPartial($request)) {
+            return view('admin.facilities.partials.results', compact('facilities'));
+        }
+
         $facilityTypes = FacilityTypeModel::where('is_active', true)->get();
 
         return view('admin.facilities.index', compact('facilities', 'facilityTypes'));
@@ -77,6 +93,7 @@ class AdminFacilityController extends Controller
         if ($isPackage) {
             $existingComponentIds = $facility->packageComponents->pluck('component_facility_id')->toArray();
             $availableComponents = Facility::where('id', '!=', $facility->id)
+                ->where('facility_type_id', '!=', $packageType->id)
                 ->where('is_active', true)
                 ->whereNotIn('id', $existingComponentIds)
                 ->orderBy('name')
@@ -90,6 +107,7 @@ class AdminFacilityController extends Controller
 
     public function edit(Facility $facility): View
     {
+        $facility->load(['galleryImages', 'facilityType']);
         $facilityTypes = FacilityTypeModel::where('is_active', true)->get();
 
         return view('admin.facilities.edit', compact('facility', 'facilityTypes'));
@@ -97,7 +115,11 @@ class AdminFacilityController extends Controller
 
     public function store(StoreFacilityRequest $request): RedirectResponse
     {
-        $facility = $this->service->createFacility($request->user(), $request->validated());
+        try {
+            $facility = $this->service->createFacility($request->user(), $request->validated());
+        } catch (PhotoLimitExceededException $e) {
+            return redirect()->back()->withInput()->withErrors(['images' => $e->getMessage()]);
+        }
 
         return redirect()->route('admin.facilities.show', $facility)
             ->with('success', 'Facility created successfully.');
@@ -105,16 +127,28 @@ class AdminFacilityController extends Controller
 
     public function update(UpdateFacilityRequest $request, Facility $facility): RedirectResponse
     {
-        $this->service->updateFacility($request->user(), $facility, $request->validated());
+        try {
+            $this->service->updateFacility($request->user(), $facility, $request->validated());
+        } catch (PhotoLimitExceededException $e) {
+            return redirect()->back()->withInput()->withErrors(['images' => $e->getMessage()]);
+        }
+
+        $photoCount = $facility->fresh()->galleryImages()->count();
+        $message = 'Facility updated successfully.';
+
+        if ($photoCount < GalleryImage::RECOMMENDED_COUNT) {
+            $needed = GalleryImage::RECOMMENDED_COUNT - $photoCount;
+            $message .= " Add {$needed} more photo(s) so guests can see different angles of this space.";
+        }
 
         return redirect()->route('admin.facilities.show', $facility)
-            ->with('success', 'Facility updated successfully.');
+            ->with('success', $message);
     }
 
     public function changeStatus(Request $request, Facility $facility): RedirectResponse
     {
         $request->validate([
-            'status' => ['required', 'string', 'in:' . implode(',', FacilityStatus::values())],
+            'status' => ['required', 'string', 'in:'.implode(',', FacilityStatus::values())],
         ]);
 
         $status = FacilityStatus::from($request->input('status'));

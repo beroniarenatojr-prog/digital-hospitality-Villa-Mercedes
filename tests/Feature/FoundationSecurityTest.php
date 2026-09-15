@@ -5,11 +5,13 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\User;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
-use Spatie\Permission\Models\Role as SpatieRole;
 use Tests\TestCase;
 
 class FoundationSecurityTest extends TestCase
@@ -25,12 +27,11 @@ class FoundationSecurityTest extends TestCase
 
     public function test_user_can_register_and_receives_customer_role(): void
     {
-        $response = $this->post('/register', [
+        $this->verifyRegistrationEmail('jane@example.com');
+
+        $response = $this->post('/register', $this->registrationPayload('jane@example.com', [
             'name' => 'Jane Customer',
-            'email' => 'jane@example.com',
-            'password' => 'Password123!',
-            'password_confirmation' => 'Password123!',
-        ]);
+        ]));
 
         $response->assertRedirect(route('customer.reservations.index'));
 
@@ -55,6 +56,11 @@ class FoundationSecurityTest extends TestCase
 
         $response->assertRedirect(route('customer.reservations.index'));
         $this->assertAuthenticatedAs($user);
+        $response->assertCookie($this->recallerCookieName());
+        $this->assertTrue(session('auth.keep'));
+
+        $user->refresh();
+        $this->assertNotEmpty($user->remember_token);
     }
 
     public function test_admin_route_is_protected_by_role_middleware(): void
@@ -64,7 +70,7 @@ class FoundationSecurityTest extends TestCase
 
         $this->actingAs($customer)
             ->get('/admin/dashboard')
-            ->assertForbidden();
+            ->assertRedirect(route('admin.login'));
 
         $admin = User::factory()->create();
         $admin->assignRole(Role::Administrator->value);
@@ -91,24 +97,30 @@ class FoundationSecurityTest extends TestCase
 
         $file = UploadedFile::fake()->image('photo.jpg');
 
-        \Illuminate\Support\Facades\Route::post('/uploads', function (\Illuminate\Http\Request $request) { $request->file('file')->store('uploads', 'uploads'); return response()->json(['success' => true]); });
+        Route::post('/uploads', function (Request $request) {
+            $request->file('file')->store('uploads', 'uploads');
+
+            return response()->json(['success' => true]);
+        });
 
         $response = $this->actingAs($user)->post('/uploads', [
             'file' => $file,
         ]);
 
         $response->assertOk();
-        Storage::disk('uploads')->assertExists('uploads/'.pathinfo($file->hashName(), PATHINFO_BASENAME));
+
+        $disk = Storage::disk('uploads');
+        $this->assertInstanceOf(FilesystemAdapter::class, $disk);
+        $disk->assertExists('uploads/'.pathinfo($file->hashName(), PATHINFO_BASENAME));
     }
 
     public function test_activity_log_records_user_registration(): void
     {
-        $this->post('/register', [
+        $this->verifyRegistrationEmail('logtest@example.com');
+
+        $this->post('/register', $this->registrationPayload('logtest@example.com', [
             'name' => 'Log Test User',
-            'email' => 'logtest@example.com',
-            'password' => 'Password123!',
-            'password_confirmation' => 'Password123!',
-        ]);
+        ]));
 
         $this->assertDatabaseHas('activity_log', [
             'description' => 'user_registered',
@@ -121,6 +133,3 @@ class FoundationSecurityTest extends TestCase
         $this->assertDatabaseHas('roles', ['name' => Role::Customer->value]);
     }
 }
-
-
-

@@ -10,16 +10,18 @@ enum ReservationStatus: string
     case Cancelled = 'cancelled';
     case Rescheduled = 'rescheduled';
     case Completed = 'completed';
+    case Expired = 'expired';
 
     public function label(): string
     {
         return match ($this) {
             self::Pending => 'Pending',
-            self::Approved => 'Approved',
+            self::Approved => 'Confirmed',
             self::Rejected => 'Rejected',
             self::Cancelled => 'Cancelled',
             self::Rescheduled => 'Rescheduled',
             self::Completed => 'Completed',
+            self::Expired => 'Expired',
         };
     }
 

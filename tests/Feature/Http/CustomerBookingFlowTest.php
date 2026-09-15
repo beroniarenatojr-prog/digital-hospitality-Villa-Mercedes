@@ -3,9 +3,15 @@
 namespace Tests\Feature\Http;
 
 use App\Enums\FacilityType as FacilityTypeEnum;
+use App\Enums\GuestGender;
+use App\Enums\GuestIdType;
+use App\Enums\RateType;
 use App\Models\Facility;
 use App\Models\FacilityType;
+use App\Models\Rate;
+use App\Models\Reservation;
 use App\Models\User;
+use App\Services\PricingService;
 use Database\Seeders\FacilityTypeSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -23,43 +29,43 @@ class CustomerBookingFlowTest extends TestCase
     private function createFacility(string $typeSlug, bool $isActive = true, int $capacity = 2, int $maxCapacity = 4): Facility
     {
         $type = FacilityType::where('slug', $typeSlug)->first();
-        
+
         $facility = Facility::factory()->create([
             'facility_type_id' => $type->id,
             'is_active' => $isActive,
             'status' => 'available',
             'capacity' => $capacity,
             'max_capacity' => $maxCapacity,
-            'sort_order' => 1
+            'sort_order' => 1,
         ]);
 
-        \App\Models\Rate::factory()->create([
+        Rate::factory()->create([
             'facility_id' => $facility->id,
-            'type' => \App\Enums\RateType::Base->value,
+            'type' => RateType::Base->value,
             'amount' => 5000, // 50.00
             'is_active' => true,
         ]);
 
-        \App\Models\Rate::factory()->create([
+        Rate::factory()->create([
             'facility_id' => $facility->id,
-            'type' => \App\Enums\RateType::ExtraPerson->value,
+            'type' => RateType::ExtraPerson->value,
             'amount' => 500, // 5.00
             'is_active' => true,
         ]);
 
-        \App\Models\Rate::factory()->create([
+        Rate::factory()->create([
             'facility_id' => $facility->id,
-            'name' => \App\Services\PricingService::EARLY_CHECK_IN_RATE_NAME,
-            'type' => \App\Enums\RateType::AdditionalCharge->value,
+            'name' => PricingService::EARLY_CHECK_IN_RATE_NAME,
+            'type' => RateType::AdditionalCharge->value,
             'amount' => 200,
             'unit' => 'per hour',
             'is_active' => true,
         ]);
 
-        \App\Models\Rate::factory()->create([
+        Rate::factory()->create([
             'facility_id' => $facility->id,
-            'name' => \App\Services\PricingService::LATE_CHECK_OUT_RATE_NAME,
-            'type' => \App\Enums\RateType::AdditionalCharge->value,
+            'name' => PricingService::LATE_CHECK_OUT_RATE_NAME,
+            'type' => RateType::AdditionalCharge->value,
             'amount' => 300,
             'unit' => 'per hour',
             'is_active' => true,
@@ -68,14 +74,26 @@ class CustomerBookingFlowTest extends TestCase
         return $facility;
     }
 
-    public function test_unauthenticated_user_can_access_booking_wizard()
+    public function test_unauthenticated_user_is_redirected_to_login_before_booking()
     {
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
 
         $response = $this->get(route('customer.booking.create', $room));
 
-        $response->assertStatus(200);
-        $response->assertViewIs('customer.booking.create');
+        $response->assertRedirect(route('login'));
+        $response->assertSessionHas('url.intended', route('customer.booking.create', $room));
+    }
+
+    public function test_hall_booking_wizard_uses_attendee_and_event_labels(): void
+    {
+        $hall = $this->createFacility(FacilityTypeEnum::FunctionHall->value, true, 50, 80);
+
+        $this->actingAs(User::factory()->create())->get(route('customer.booking.create', $hall))
+            ->assertOk()
+            ->assertSee('How many attendees?')
+            ->assertSee('Event start')
+            ->assertSee('Event end')
+            ->assertSee('Optional extra hours.');
     }
 
     public function test_authenticated_customer_can_access_booking_wizard()
@@ -85,9 +103,79 @@ class CustomerBookingFlowTest extends TestCase
 
         $response = $this->actingAs($customer)->get(route('customer.booking.create', $room));
 
-        $response->assertStatus(200);
-        $response->assertViewIs('customer.booking.create');
-        $response->assertSee($room->name);
+        $this->assertStringContainsString('refreshQuote', $response->getContent());
+        $this->assertStringContainsString('displayPrice.total_amount', $response->getContent());
+    }
+
+    public function test_booking_wizard_shows_gender_from_registered_profile(): void
+    {
+        $customer = User::factory()->create([
+            'gender' => GuestGender::Male,
+            'valid_id_type' => GuestIdType::PhilSys,
+        ]);
+        $room = $this->createFacility(FacilityTypeEnum::Room->value);
+
+        $this->actingAs($customer)
+            ->get(route('customer.booking.create', $room))
+            ->assertOk()
+            ->assertSee('id="guest_gender"', false)
+            ->assertSee('value="Male"', false)
+            ->assertSee('readonly', false)
+            ->assertDontSee('Taken from your account');
+    }
+
+    public function test_online_booking_uses_account_gender_instead_of_submitted_value(): void
+    {
+        $customer = User::factory()->create([
+            'gender' => GuestGender::Male,
+            'name' => 'Juan Dela Cruz',
+            'phone' => '09171234567',
+            'email' => 'juan@example.com',
+            'address' => 'Ilagan, Isabela',
+            'nationality' => 'Filipino',
+            'valid_id_type' => GuestIdType::PhilSys,
+        ]);
+        $room = $this->createFacility(FacilityTypeEnum::Room->value);
+
+        $this->actingAs($customer)
+            ->post(route('customer.reservations.store'), [
+                'facility_id' => $room->id,
+                'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
+                'guestCount' => 1,
+            ] + $this->guestInformationPayload([
+                'guest_name' => 'Juan Dela Cruz',
+                'guest_gender' => GuestGender::Female->value,
+                'guest_phone' => '09171234567',
+                'guest_email' => 'juan@example.com',
+                'guest_place_of_origin' => 'Ilagan, Isabela',
+                'guest_company' => null,
+            ]))
+            ->assertRedirect();
+
+        $reservation = Reservation::query()->first();
+        $this->assertNotNull($reservation);
+        $this->assertSame(GuestGender::Male, $reservation->guest_gender);
+    }
+
+    public function test_preview_total_increases_when_guest_count_exceeds_included_capacity(): void
+    {
+        $customer = User::factory()->create();
+        $room = $this->createFacility(FacilityTypeEnum::Room->value, true, 2, 4);
+
+        $dates = [
+            'check_in' => now()->addDays(5)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->startOfDay()->format('Y-m-d\TH:i'),
+        ];
+
+        $included = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $dates + ['guestCount' => 2]);
+        $extra = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $dates + ['guestCount' => 3]);
+
+        $included->assertOk();
+        $extra->assertOk();
+        $this->assertSame(500000, $included->json('data.total_amount'));
+        $this->assertSame(550000, $extra->json('data.total_amount'));
+        $this->assertSame(50000, $extra->json('data.extra_person_charge'));
     }
 
     public function test_preview_endpoint_returns_success_with_valid_dates()
@@ -98,7 +186,7 @@ class CustomerBookingFlowTest extends TestCase
         $payload = [
             'check_in' => now()->addDays(5)->startOfDay()->format('Y-m-d\TH:i'),
             'check_out' => now()->addDays(6)->startOfDay()->format('Y-m-d\TH:i'),
-            'guestCount' => 3
+            'guestCount' => 3,
         ];
 
         $response = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $payload);
@@ -112,7 +200,7 @@ class CustomerBookingFlowTest extends TestCase
                 'early_check_in_charge' => 0,
                 'late_check_out_charge' => 0,
                 'total_amount' => 550000,
-            ]
+            ],
         ]);
     }
 
@@ -146,6 +234,7 @@ class CustomerBookingFlowTest extends TestCase
 
     public function test_booking_wizard_shows_early_and_late_hour_fields(): void
     {
+        $this->actingAs(User::factory()->create());
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
 
         $response = $this->get(route('customer.booking.create', $room));
@@ -157,6 +246,46 @@ class CustomerBookingFlowTest extends TestCase
         $response->assertSee('id="late_check_out_hours"', false);
     }
 
+    public function test_booking_wizard_prefills_dates_and_guests_from_query(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $room = $this->createFacility(FacilityTypeEnum::Room->value);
+
+        $response = $this->get(route('customer.booking.create', [
+            'facility' => $room,
+            'check_in' => '2026-10-12',
+            'check_out' => '2026-10-13',
+            'guests' => 3,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('prefill', function (array $prefill) {
+            return $prefill['guest_count'] === 3
+                && $prefill['preset'] === 'overnight'
+                && $prefill['check_in'] === '2026-10-12 14:00'
+                && $prefill['check_out'] === '2026-10-13 12:00';
+        });
+    }
+
+    public function test_checked_public_availability_is_silently_revalidated_in_wizard(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $room = $this->createFacility(FacilityTypeEnum::Room->value);
+
+        $response = $this->get(route('customer.booking.create', [
+            'facility' => $room,
+            'arrival' => '2026-10-12 14:00',
+            'departure' => '2026-10-13 12:00',
+            'guests' => 3,
+            'availability_checked' => 1,
+        ]));
+
+        $response->assertOk()
+            ->assertViewHas('prefill', fn (array $prefill) => $prefill['availability_checked'] === true)
+            ->assertSee('"continueAfterAvailability":true', false)
+            ->assertSee('this.$nextTick(() => this.checkAvailability())', false);
+    }
+
     public function test_preview_endpoint_returns_error_for_over_capacity()
     {
         $customer = User::factory()->create();
@@ -165,7 +294,7 @@ class CustomerBookingFlowTest extends TestCase
         $payload = [
             'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
             'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
-            'guestCount' => 5 // Exceeds max_capacity of 4
+            'guestCount' => 5, // Exceeds max_capacity of 4
         ];
 
         $response = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $payload);
@@ -187,7 +316,7 @@ class CustomerBookingFlowTest extends TestCase
         $checkOut = now()->addDays(6)->startOfDay();
 
         // Create an existing reservation
-        \App\Models\Reservation::create([
+        Reservation::create([
             'user_id' => $otherCustomer->id,
             'facility_id' => $room->id,
             'reservation_code' => 'RES-12345',
@@ -198,13 +327,13 @@ class CustomerBookingFlowTest extends TestCase
             'base_price' => 50.00,
             'total_price' => 50.00,
             'status' => 'approved',
-            'reservation_source' => 'online'
+            'reservation_source' => 'online',
         ]);
 
         $payload = [
             'check_in' => $checkIn->format('Y-m-d\TH:i'),
             'check_out' => $checkOut->format('Y-m-d\TH:i'),
-            'guestCount' => 2
+            'guestCount' => 2,
         ];
 
         $response = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $payload);
@@ -213,13 +342,15 @@ class CustomerBookingFlowTest extends TestCase
         $response->assertJson([
             'success' => false,
         ]);
-        
+
         $this->assertStringContainsString('is already booked for the requested period', $response->json('message'));
     }
 
     public function test_final_submission_recalculates_price_ignoring_stale_preview()
     {
-        $customer = User::factory()->create();
+        $customer = User::factory()->create([
+            'gender' => GuestGender::Female,
+        ]);
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
 
         $payload = [
@@ -231,23 +362,50 @@ class CustomerBookingFlowTest extends TestCase
             'late_check_out_hours' => 2,
             // The frontend doesn't even send price/status, but if they tried to forge it:
             'total_price' => 1.00,
-            'status' => 'approved'
-        ];
+            'status' => 'approved',
+        ] + $this->guestInformationPayload();
 
         $response = $this->actingAs($customer)->post(route('customer.reservations.store'), $payload);
 
         $response->assertRedirect();
-        
+
         // Assert reservation created with SERVER price, not forged price
-        $reservation = \App\Models\Reservation::first();
-        
+        $reservation = Reservation::first();
+
         $this->assertNotNull($reservation);
         $this->assertEquals(1, $reservation->early_check_in_hours);
         $this->assertEquals(2, $reservation->late_check_out_hours);
         $this->assertEquals(5800, $reservation->total_price); // 5000 + 200 + 600
         $this->assertEquals('pending', $reservation->status->value); // Ignores forged status
         $this->assertEquals($customer->id, $reservation->user_id);
+        $this->assertEquals('Maria Santos', $reservation->guest_name);
+        $this->assertEquals('Ilagan, Isabela', $reservation->guest_place_of_origin);
+        $this->assertEquals('Filipino', $reservation->guest_nationality);
+        $this->assertEquals(\App\Enums\GuestIdType::PhilSys, $reservation->guest_valid_id);
+        $this->assertEquals('female', $reservation->guest_gender->value);
+    }
+
+    public function test_overlapping_store_redirects_with_error_instead_of_server_error(): void
+    {
+        $customer = User::factory()->create();
+        $other = User::factory()->create();
+        $room = $this->createFacility(FacilityTypeEnum::Room->value);
+
+        $payload = [
+            'facility_id' => $room->id,
+            'check_in' => now()->addDays(10)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(11)->startOfDay()->format('Y-m-d\TH:i'),
+            'guestCount' => 2,
+        ] + $this->guestInformationPayload();
+
+        $this->actingAs($customer)->post(route('customer.reservations.store'), $payload)->assertRedirect();
+        $this->assertDatabaseCount('reservations', 1);
+
+        $response = $this->actingAs($other)->from(route('customer.booking.create', $room))
+            ->post(route('customer.reservations.store'), $payload);
+
+        $response->assertRedirect(route('customer.booking.create', $room));
+        $response->assertSessionHas('error');
+        $this->assertDatabaseCount('reservations', 1);
     }
 }
-
-

@@ -16,9 +16,13 @@ class AdminFaqInquiryManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
+
     private FaqCategory $faqCategory;
+
     private Faq $faq;
+
     private Inquiry $inquiry;
 
     protected function setUp(): void
@@ -62,14 +66,14 @@ class AdminFaqInquiryManagementTest extends TestCase
 
     public function test_unauthenticated_blocked_from_faqs(): void
     {
-        $this->get(route('admin.faq-categories.index'))->assertRedirect(route('login'));
-        $this->get(route('admin.faqs.index'))->assertRedirect(route('login'));
+        $this->get(route('admin.faq-categories.index'))->assertRedirect(route('admin.login'));
+        $this->get(route('admin.faqs.index'))->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_blocked_from_faqs(): void
     {
-        $this->actingAs($this->customer)->get(route('admin.faq-categories.index'))->assertStatus(403);
-        $this->actingAs($this->customer)->get(route('admin.faqs.index'))->assertStatus(403);
+        $this->actingAs($this->customer)->get(route('admin.faq-categories.index'))->assertRedirect(route('admin.login'));
+        $this->actingAs($this->customer)->get(route('admin.faqs.index'))->assertRedirect(route('admin.login'));
     }
 
     public function test_administrator_allowed_faq_listing(): void
@@ -77,7 +81,7 @@ class AdminFaqInquiryManagementTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.faqs.index'));
         $response->assertStatus(200);
         $response->assertSee($this->faq->question);
-        
+
         $response = $this->actingAs($this->admin)->get(route('admin.faq-categories.index'));
         $response->assertStatus(200);
         $response->assertSee($this->faqCategory->name);
@@ -113,7 +117,7 @@ class AdminFaqInquiryManagementTest extends TestCase
 
         $response = $this->actingAs($this->admin)->patch(route('admin.faq-categories.status', $this->faqCategory));
         $response->assertRedirect();
-        
+
         $this->faqCategory->refresh();
         $this->assertFalse($this->faqCategory->is_active);
     }
@@ -150,7 +154,7 @@ class AdminFaqInquiryManagementTest extends TestCase
 
         $response = $this->actingAs($this->admin)->patch(route('admin.faqs.status', $this->faq));
         $response->assertRedirect();
-        
+
         $this->faq->refresh();
         $this->assertFalse($this->faq->is_active);
     }
@@ -170,16 +174,16 @@ class AdminFaqInquiryManagementTest extends TestCase
 
     public function test_unauthenticated_blocked_from_inquiries(): void
     {
-        $this->get(route('admin.inquiries.index'))->assertRedirect(route('login'));
-        $this->get(route('admin.inquiries.show', $this->inquiry))->assertRedirect(route('login'));
+        $this->get(route('admin.inquiries.index'))->assertRedirect(route('admin.login'));
+        $this->get(route('admin.inquiries.show', $this->inquiry))->assertRedirect(route('admin.login'));
     }
 
     public function test_customer_cannot_access_admin_inquiry_routes(): void
     {
-        $this->actingAs($this->customer)->get(route('admin.inquiries.index'))->assertStatus(403);
-        $this->actingAs($this->customer)->get(route('admin.inquiries.show', $this->inquiry))->assertStatus(403);
-        $this->actingAs($this->customer)->post(route('admin.inquiries.respond', $this->inquiry), ['response' => 'test'])->assertStatus(403);
-        $this->actingAs($this->customer)->patch(route('admin.inquiries.status', $this->inquiry), ['status' => 'closed'])->assertStatus(403);
+        $this->actingAs($this->customer)->get(route('admin.inquiries.index'))->assertRedirect(route('admin.login'));
+        $this->actingAs($this->customer)->get(route('admin.inquiries.show', $this->inquiry))->assertRedirect(route('admin.login'));
+        $this->actingAs($this->customer)->post(route('admin.inquiries.respond', $this->inquiry), ['response' => 'test'])->assertRedirect(route('admin.login'));
+        $this->actingAs($this->customer)->patch(route('admin.inquiries.status', $this->inquiry), ['status' => 'closed'])->assertRedirect(route('admin.login'));
     }
 
     public function test_admin_can_view_inquiry_queue(): void
@@ -236,7 +240,7 @@ class AdminFaqInquiryManagementTest extends TestCase
         ]);
 
         $response->assertRedirect();
-        
+
         $this->inquiry->refresh();
         $this->assertEquals('This is an official admin response.', $this->inquiry->admin_response);
         $this->assertEquals($this->admin->id, $this->inquiry->responded_by);
@@ -250,7 +254,7 @@ class AdminFaqInquiryManagementTest extends TestCase
         ]);
 
         $response->assertRedirect();
-        
+
         $this->inquiry->refresh();
         $this->assertEquals(InquiryStatus::Closed, $this->inquiry->status);
     }

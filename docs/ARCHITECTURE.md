@@ -1,0 +1,196 @@
+# Architecture — ARCHITECTURE.md
+
+**Stack:** Laravel 12 (PHP 8.2+) · MySQL 8 · Blade · Vite 6 · Tailwind 3 · Alpine.js · Spatie Permission + Activitylog
+
+---
+
+## Top-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Browser (Blade + Alpine + Vite assets)                         │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ HTTP
+┌────────────────────────────▼────────────────────────────────────┐
+│  routes/web.php + routes/auth.php                               │
+│  Middleware: web · PersistRememberedSession · auth ·            │
+│              administrator · throttle · signed                  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────────┐
+│  FormRequest → thin Controller → Service → Eloquent / DB        │
+│  DTOs (Availability, Price, Occupancy, DecisionImpact)          │
+│  Enums for statuses, types, units                               │
+└───────┬───────────────────────────────┬─────────────────────────┘
+        │                               │
+        ▼                               ▼
+┌───────────────────┐         ┌─────────────────────────┐
+│  Observers /      │         │  Notifications (queue)  │
+│  Activity log     │         │  Scheduler (OTP prune,  │
+│  Cache bust       │         │  unpaid expiry)         │
+└───────────────────┘         └─────────────────────────┘
+```
+
+### Runtime defaults
+
+| Concern | Default |
+|---------|---------|
+| Session | `file` |
+| Cache | `file` |
+| Queue | `database` |
+| Mail | Queued (`ShouldQueue`); gated by `OutboundMail` |
+| Uploads | Private `uploads` disk for payment proofs |
+
+**Key rule:** Controllers do not own business logic. Availability, pricing, transitions, and locking live in services so the guest portal, admin back office, and Decision Board share one rule set.
+
+---
+
+## System Designs (business logic & workflows)
+
+### A. Guest: availability → booking → payment
+
+1. Public search (`AvailabilitySearchController` → `AvailabilitySearchService`) primes overlaps via `AvailabilityService` and quotes via `PricingService` / cottage path.
+2. Authenticated booking form (`CustomerBookingController`) with live calculate endpoint.
+3. `StoreReservationRequest` → `CustomerReservationService` → `ReservationService::createReservation` with source **Online** → status **Pending** (holds inventory).
+4. If deposit workflow is enabled: guest pays via active `PaymentDestination` + proof upload (`CustomerPaymentService` / `PaymentService`).
+5. Admin verifies payment; observers notify; unpaid holds expire via `reservations:expire-unpaid`.
+
+### B. Admin: approve / reject / reschedule / lifecycle
+
+1. Reservation show may load `DecisionSupportService::analyze` for opportunity-cost context.
+2. Status transitions through `ReservationService::changeStatus` (reject requires reason).
+3. Reschedule re-locks the facility graph, re-checks availability (excluding self), re-prices, persists snapshot.
+4. Check-in / check-out / complete update in-house tracking; review invitations can follow completion.
+
+### C. Walk-in encoding
+
+1. Admin-only `StoreWalkInReservationRequest` → `ReservationService` with source **WalkIn**.
+2. Status **Approved** immediately; no online deposit hold.
+3. Guest name / phone / email stored on the reservation separately from the staff user account.
+
+### D. Package ↔ component conflict locking
+
+1. On create/reschedule, `lockFacilityGraph` locks the facility plus package components **or** parent packages, IDs sorted, `lockForUpdate`.
+2. Booking a **package** requires each component free for the occupancy window.
+3. Booking a **room / hall / cottage** requires parent packages free for the same window.
+4. Blocking statuses: **Pending** and **Approved**.
+5. Occupancy window includes early check-in / late check-out hours (bounded by `resort.stay.max_additional_hours`).
+
+### E. Registration OTP
+
+1. Send OTP → hashed row in `email_otp_verifications` (`RegistrationOtpService`); no code if email already registered.
+2. Verify → session gate for registration.
+3. Register → `AuthService` creates customer user + role; OTP consumed.
+4. Limits and TTL from `config/otp.php`.
+
+### F. Decision Board (opportunity cost)
+
+1. Timeline + pending queue for the owner.
+2. For a candidate reservation: list-value of **contending** facilities over the occupancy window = opportunity cost; net ≈ booking value − opportunity cost.
+3. Explanations are rate-derived and plain-language — not ML forecasts.
+
+---
+
+## Data Flow
+
+```
+HTTP Request
+  → FormRequest (validation; Concerns: cottage / guest prepare)
+  → Controller (auth redirects, flash, view / JSON only)
+  → Service (DB transactions, locks, domain invariants)
+  → Model / MySQL
+  → Observers (afterCommit) and/or queued Notifications
+  → Spatie activity() for auditable staff/guest-facing events
+```
+
+**Money flow:** Live quote (`PriceBreakdown` in cents) → persisted reservation snapshot (`base_price`, `additional_charges`, `total_price`) → payment rows with optional `destination_snapshot`.
+
+**AuthZ flow:** Spatie roles + `access-admin` / `access-customer` gates + `EnsureAdministrator` + service ownership checks (`user_id` for customers; `authorizeAdmin()` for admin services). There is no database RLS (see SCHEMA.md).
+
+---
+
+## Folder Structure
+
+```
+app/
+  Console/Commands/       otp:prune, reservations:expire-unpaid, image optimize
+  DTOs/                   AvailabilityResult, PriceBreakdown, OccupancyClaim, DecisionImpact
+  Enums/                  domain statuses, types, units, roles helpers
+  Exceptions/             Availability, Pricing, Reservation, Payment, Admin, Customer
+  Http/
+    Controllers/          Admin/, Auth/, Customer/, public pages
+    Middleware/           EnsureAdministrator, PersistRememberedSession
+    Requests/             Admin/, Auth/, Customer/, Concerns/
+  Models/                 Eloquent domain models
+  Notifications/          Auth, Payment, Reservation
+  Observers/              Reservation, Payment, PublicHomeCache
+  Policies/               UserPolicy
+  Services/               core + Admin/ + Customer/ + Payments/
+  Support/                StayPeriod, DepositDeadline, caches, nav, mail helpers
+  View/Components/        layout view components
+
+resources/
+  css/app.css             Tailwind entry + motion utilities
+  js/                     Alpine app, booking, chat, filters
+  views/                  pages/, customer/, admin/, auth/, layouts/, components/, mail/
+
+routes/
+  web.php                 public + customer + admin
+  auth.php                register/OTP/login/password/admin login
+  console.php             schedule
+
+config/
+  resort.php              brand + cancel/reschedule + stay windows
+  payments.php            deposit workflow, gateway flags
+  otp.php                 registration OTP policy
+  activitylog.php         audit retention / custom model
+
+database/
+  migrations/             schema evolution
+  seeders/                facilities, rates, demo users, photos
+  factories/              test factories
+
+docs/                     PRD, DESIGN, ARCHITECTURE, SCHEMA, RULES
+```
+
+---
+
+## Design Methodologies
+
+| Methodology | Application |
+|-------------|-------------|
+| **Domain-driven service layer** | Booking invariants centralized; reusable across surfaces |
+| **Config as published policy** | FAQ and enforcement share `resort.policy.*` |
+| **Snapshot pricing** | Historical reservations immune to later rate edits |
+| **Occupancy-first inventory** | Conflict math uses windows, not only calendar nights |
+| **Explainable decision support** | Rule-based opportunity cost for owner trust |
+| **Thin controllers** | HTTP mapping only |
+| **Progressive enhancement** | Blade first; Alpine for reveal, modals, booking UX |
+| **Async side effects** | Mail/notifications on queue; HTTP stays responsive |
+
+---
+
+## Patterns
+
+| Pattern | Where |
+|---------|--------|
+| Service layer | `app/Services/**` |
+| DTO | Pricing / availability / occupancy / decision impact |
+| Enum-backed attributes | Reservation status, payment method/status, facility types, rate units |
+| Form Request | All mutating endpoints |
+| Observer | Notify, cache invalidation, review invite side effects |
+| Strategy / gateway | `PaymentGateway` (PayMongo / manual) bound in `AppServiceProvider` |
+| Middleware authorization | `administrator`, Spatie role/permission aliases |
+| Soft deletes | Facilities, reservations, payments |
+| Row-level locking | Facility graph on create/reschedule |
+| Immutable audit | `ActivityLog` blocks update/delete in app |
+| Support helpers | Stay/deposit/mail/cache/nav — no business orchestration |
+| Repository (limited) | Users only; not the primary pattern |
+
+### Anti-patterns to avoid
+
+- Pricing or availability checks duplicated in Blade or controllers
+- Ad-hoc status strings instead of enums
+- Skipping facility-graph locks on any path that can create overlapping claims
+- Repricing stored reservations when rates change
+- Putting secrets or mail passwords in the repo

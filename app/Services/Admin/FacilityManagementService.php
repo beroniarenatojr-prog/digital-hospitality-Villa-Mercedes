@@ -3,15 +3,17 @@
 namespace App\Services\Admin;
 
 use App\Enums\FacilityStatus;
-use App\Enums\Role;
-use App\Exceptions\Admin\UnauthorizedAdminActionException;
 use App\Enums\FacilityType;
+use App\Enums\Role;
+use App\Exceptions\Admin\PhotoLimitExceededException;
+use App\Exceptions\Admin\UnauthorizedAdminActionException;
 use App\Models\Amenity;
 use App\Models\Facility;
 use App\Models\FacilityType as FacilityTypeModel;
 use App\Models\GalleryImage;
 use App\Models\PackageComponent;
 use App\Models\User;
+use App\Services\PublicImageOptimizer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -19,12 +21,16 @@ use InvalidArgumentException;
 
 class FacilityManagementService
 {
+    public function __construct(
+        private readonly PublicImageOptimizer $imageOptimizer
+    ) {}
+
     /**
      * Ensure the actor is an Administrator.
      */
     private function authorizeAdmin(User $actor): void
     {
-        if (!$actor->hasRole(Role::Administrator->value)) {
+        if (! $actor->hasRole(Role::Administrator->value)) {
             throw new UnauthorizedAdminActionException('Only administrators can manage facilities.');
         }
     }
@@ -37,24 +43,24 @@ class FacilityManagementService
         $this->authorizeAdmin($actor);
 
         return DB::transaction(function () use ($actor, $data) {
-            $facility = new Facility();
-            
+            $facility = new Facility;
+
             $facility->facility_type_id = $data['facility_type_id'];
             $facility->name = $data['name'];
             $facility->slug = $data['slug'] ?? Str::slug($data['name']);
             $facility->description = $data['description'] ?? null;
-            $facility->capacity = $data['capacity'] ?? $data['base_capacity'] ?? 1;
-            $facility->max_capacity = $data['max_capacity'] ?? $facility->capacity;
-            
+            $facility->capacity = $data['capacity'] ?? $data['base_capacity'] ?? null;
+            $facility->max_capacity = array_key_exists('max_capacity', $data) ? $data['max_capacity'] : $facility->capacity;
+
             if (isset($data['status']) && $data['status'] instanceof FacilityStatus) {
                 $facility->status = $data['status'];
             } else {
                 $facility->status = FacilityStatus::Available;
             }
-            
+
             $facility->is_active = $data['is_active'] ?? true;
             $facility->sort_order = $data['sort_order'] ?? 0;
-            
+
             $facility->save();
 
             activity()
@@ -63,7 +69,7 @@ class FacilityManagementService
                 ->event('facility_created')
                 ->log("Facility '{$facility->name}' was created.");
 
-            if (!empty($data['images'])) {
+            if (! empty($data['images'])) {
                 $this->uploadImages($actor, $facility, $data['images']);
             }
 
@@ -118,7 +124,11 @@ class FacilityManagementService
                 ->event('facility_updated')
                 ->log("Facility '{$facility->name}' was updated.");
 
-            if (!empty($data['images'])) {
+            if (! empty($data['captions'])) {
+                $this->updateImageCaptions($facility, $data['captions']);
+            }
+
+            if (! empty($data['images'])) {
                 $this->uploadImages($actor, $facility, $data['images']);
             }
 
@@ -196,7 +206,7 @@ class FacilityManagementService
 
         // Ensure the facility is actually a package
         $packageType = FacilityTypeModel::where('slug', FacilityType::ResortPackage->value)->first();
-        if (!$packageType || $package->facility_type_id !== $packageType->id) {
+        if (! $packageType || $package->facility_type_id !== $packageType->id) {
             throw new InvalidArgumentException('Only resort packages can have bookable resource components.');
         }
 
@@ -207,9 +217,10 @@ class FacilityManagementService
         }
 
         // Verify all component facilities exist and are not packages themselves
-        $existingCount = Facility::whereIn('id', $componentFacilityIds)->count();
+        $existingCount = Facility::whereIn('id', $componentFacilityIds)
+            ->where('facility_type_id', '!=', $packageType->id)->count();
         if ($existingCount !== count($componentFacilityIds)) {
-            throw new InvalidArgumentException('One or more provided facility IDs do not exist.');
+            throw new InvalidArgumentException('Package components must be existing individual facilities, not other packages.');
         }
 
         DB::transaction(function () use ($actor, $package, $componentFacilityIds) {
@@ -238,10 +249,19 @@ class FacilityManagementService
     {
         $this->authorizeAdmin($actor);
 
+        $existing = $facility->galleryImages()->count();
+        $incoming = count($images);
+
+        if ($existing + $incoming > GalleryImage::MAX_COUNT) {
+            throw new PhotoLimitExceededException(
+                'Each facility can show at most '.GalleryImage::MAX_COUNT." photos. This one already has {$existing}."
+            );
+        }
+
         $maxSortOrder = $facility->galleryImages()->max('sort_order') ?? 0;
 
         foreach ($images as $image) {
-            $path = $image->store('facilities', 'public');
+            $path = $this->imageOptimizer->store($image, 'facilities');
 
             $facility->galleryImages()->create([
                 'image_path' => $path,
@@ -254,7 +274,7 @@ class FacilityManagementService
             ->causedBy($actor)
             ->performedOn($facility)
             ->event('facility_images_uploaded')
-            ->log(count($images) . " image(s) uploaded for facility '{$facility->name}'.");
+            ->log(count($images)." image(s) uploaded for facility '{$facility->name}'.");
     }
 
     /**
@@ -279,5 +299,23 @@ class FacilityManagementService
             ->performedOn($facility)
             ->event('facility_image_deleted')
             ->log("An image was deleted from facility '{$facility->name}'.");
+    }
+
+    /**
+     * @param  array<int|string, string|null>  $captions
+     */
+    public function updateImageCaptions(Facility $facility, array $captions): void
+    {
+        foreach ($captions as $imageId => $caption) {
+            $image = $facility->galleryImages()->whereKey((int) $imageId)->first();
+
+            if (! $image) {
+                continue;
+            }
+
+            $trimmed = is_string($caption) ? trim($caption) : '';
+            $image->caption = $trimmed === '' ? null : $trimmed;
+            $image->save();
+        }
     }
 }

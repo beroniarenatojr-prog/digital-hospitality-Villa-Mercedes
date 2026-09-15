@@ -15,10 +15,17 @@ class DatabaseSeeder extends Seeder
             FacilityTypeSeeder::class,
             AmenitySeeder::class,
             FacilitySeeder::class,
+            CottageSeeder::class,
             RateSeeder::class,
-            TrainingBatchSeeder::class,
+            ResortServicesSeeder::class,
+            BrochurePhotoSeeder::class,
             FaqCategorySeeder::class,
             FaqSeeder::class,
+            DemoGuestSeeder::class,
         ]);
+
+        if (config('resort.demo_content')) {
+            $this->call(GuestReviewSeeder::class);
+        }
     }
 }

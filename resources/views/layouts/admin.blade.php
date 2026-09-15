@@ -7,15 +7,11 @@
 
     <title>{{ config('app.name', 'Villa Mercedes') }} - Administrator</title>
 
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700&display=swap" rel="stylesheet" />
-
     <!-- Scripts -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="h-full overflow-hidden font-sans text-text antialiased">
-    <div x-data="{ sidebarOpen: false }" class="h-full flex">
+    <div x-data="{ sidebarOpen: window.matchMedia('(min-width: 768px)').matches }" class="admin-shell">
         
         <!-- Mobile sidebar backdrop -->
         <div x-show="sidebarOpen" class="fixed inset-0 z-10 bg-gray-600 bg-opacity-75 transition-opacity md:hidden" 
@@ -31,7 +27,7 @@
 
         <x-admin.sidebar />
 
-        <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative z-0">
+        <div class="admin-main">
             <x-admin.header :header="$header ?? null" />
 
             <main class="flex-1 relative overflow-y-auto focus:outline-none">
@@ -54,7 +50,7 @@
                         @endif
                         @if ($errors->any())
                             <div class="mb-4">
-                                <x-alert type="error">
+                                <x-alert type="error" title="Please check the highlighted fields">
                                     <ul class="list-disc list-inside">
                                         @foreach ($errors->all() as $error)
                                             <li>{{ $error }}</li>

@@ -4,6 +4,7 @@ namespace Tests\Feature\EndToEnd;
 
 use App\Enums\ReservationStatus;
 use App\Models\Facility;
+use App\Models\FacilityType;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,7 +17,7 @@ class AdministratorJourneyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seedReservationCatalog();
     }
 
     public function test_complete_administrator_journey()
@@ -33,10 +34,10 @@ class AdministratorJourneyTest extends TestCase
         ]);
 
         // 1. Admin Login
-        $admin = User::whereHas('roles', fn($q) => $q->where('name', 'Administrator'))->first();
+        $admin = User::whereHas('roles', fn ($q) => $q->where('name', 'Administrator'))->first();
         $this->assertNotNull($admin);
 
-        $response = $this->post('/login', [
+        $response = $this->post(route('admin.login.store'), [
             'email' => $admin->email,
             'password' => 'Password123!', // AdminUserSeeder password
         ]);
@@ -46,7 +47,7 @@ class AdministratorJourneyTest extends TestCase
         // 2. Admin Dashboard
         $response = $this->get(route('admin.dashboard'));
         $response->assertStatus(200);
-        $response->assertSee('Dashboard Overview');
+        $response->assertSee('Today’s operations');
 
         // 3. Review Pending Reservation
         $response = $this->get(route('admin.reservations.index'));
@@ -67,15 +68,15 @@ class AdministratorJourneyTest extends TestCase
         // Ensure customer was notified
         $this->assertDatabaseHas('notifications', [
             'notifiable_id' => $customer->id,
-            'type' => 'App\Notifications\Reservation\ReservationStatusChangedNotification'
+            'type' => 'App\Notifications\Reservation\ReservationStatusChangedNotification',
         ]);
 
         // 5. Test Facility Management
         $response = $this->get(route('admin.facilities.index'));
         $response->assertStatus(200);
 
-        $facilityType = \App\Models\FacilityType::first();
-        
+        $facilityType = FacilityType::first();
+
         $response = $this->post(route('admin.facilities.store'), [
             'facility_type_id' => $facilityType->id,
             'name' => 'New Test Hall E2E',
@@ -87,12 +88,12 @@ class AdministratorJourneyTest extends TestCase
         $response->assertRedirect();
 
         $this->assertDatabaseHas('facilities', [
-            'slug' => 'new-test-hall-e2e'
+            'slug' => 'new-test-hall-e2e',
         ]);
 
         // 6. Manage Rates
         $newFacility = Facility::where('slug', 'new-test-hall-e2e')->first();
-        
+
         $response = $this->get(route('admin.rates.index'));
         $response->assertStatus(200);
 
@@ -115,8 +116,8 @@ class AdministratorJourneyTest extends TestCase
         $response = $this->get(route('admin.reports.index'));
         $response->assertStatus(200);
         $response->assertSee('Reporting');
-        
+
         // Let's make sure the report has the new reservation
-        $response->assertSee($facility->name); 
+        $response->assertSee($facility->name);
     }
 }

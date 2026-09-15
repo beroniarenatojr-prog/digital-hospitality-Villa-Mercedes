@@ -23,7 +23,7 @@ class PricingServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->pricingService = new PricingService();
+        $this->pricingService = new PricingService;
         $this->artisan('db:seed');
     }
 
@@ -39,10 +39,10 @@ class PricingServiceTest extends TestCase
         $checkOut = $checkIn->copy()->addDays($nights)->startOfDay()->addHours(12); // 12 PM in $nights days
 
         $breakdown = $this->pricingService->calculate($facility, $checkIn, $checkOut);
-        
+
         return $breakdown->totalAmount;
     }
-    
+
     private function calculateHallPrice(string $hallName): int
     {
         $facility = $this->getFacilityBySlug($hallName);
@@ -50,33 +50,33 @@ class PricingServiceTest extends TestCase
         $checkOut = $checkIn->copy()->addHours(9); // 5 PM today
 
         $breakdown = $this->pricingService->calculate($facility, $checkIn, $checkOut);
-        
+
         return $breakdown->totalAmount;
     }
 
     public function test_deluxe_base_price(): void
     {
-        $this->assertEquals(250000, $this->calculateRoomPrice('Deluxe'));
+        $this->assertEquals(250000, $this->calculateRoomPrice('Deluxe (Room 26)'));
     }
 
     public function test_twin_deluxe_base_price(): void
     {
-        $this->assertEquals(350000, $this->calculateRoomPrice('Twin Deluxe'));
+        $this->assertEquals(350000, $this->calculateRoomPrice('Superior (Room 1)'));
     }
 
     public function test_superior_twin_base_price(): void
     {
-        $this->assertEquals(340000, $this->calculateRoomPrice('Superior Twin'));
+        $this->assertEquals(350000, $this->calculateRoomPrice('Standard Family (Room 21)'));
     }
 
     public function test_family_room_base_price(): void
     {
-        $this->assertEquals(550000, $this->calculateRoomPrice('Family Room'));
+        $this->assertEquals(550000, $this->calculateRoomPrice('Superior Barkada (Room 10)'));
     }
 
     public function test_dormitory_base_price(): void
     {
-        $this->assertEquals(1000000, $this->calculateRoomPrice('Dormitory'));
+        $this->assertEquals(1000000, $this->calculateRoomPrice('Dorm (A)'));
     }
 
     public function test_diamond_hall_base_price(): void
@@ -101,7 +101,7 @@ class PricingServiceTest extends TestCase
 
     public function test_early_check_in_for_one_hour(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now()->startOfDay()->addHours(14);
         $checkOut = $checkIn->copy()->addDays(1)->startOfDay()->addHours(12);
 
@@ -114,7 +114,7 @@ class PricingServiceTest extends TestCase
 
     public function test_early_check_in_for_multiple_hours(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now()->startOfDay()->addHours(14);
         $checkOut = $checkIn->copy()->addDays(1)->startOfDay()->addHours(12);
 
@@ -126,7 +126,7 @@ class PricingServiceTest extends TestCase
 
     public function test_late_check_out_for_one_hour(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now()->startOfDay()->addHours(14);
         $checkOut = $checkIn->copy()->addDays(1)->startOfDay()->addHours(12);
 
@@ -138,7 +138,7 @@ class PricingServiceTest extends TestCase
 
     public function test_late_check_out_for_multiple_hours(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now()->startOfDay()->addHours(14);
         $checkOut = $checkIn->copy()->addDays(1)->startOfDay()->addHours(12);
 
@@ -150,7 +150,7 @@ class PricingServiceTest extends TestCase
 
     public function test_combined_early_check_in_and_late_check_out(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now()->startOfDay()->addHours(14);
         $checkOut = $checkIn->copy()->addDays(1)->startOfDay()->addHours(12);
 
@@ -163,8 +163,8 @@ class PricingServiceTest extends TestCase
 
     public function test_applicable_seasonal_rate(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
-        
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
+
         // Add a seasonal rate
         Rate::create([
             'facility_id' => $facility->id,
@@ -188,8 +188,8 @@ class PricingServiceTest extends TestCase
 
     public function test_no_seasonal_rate_falls_back_to_base_rate(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
-        
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
+
         Rate::create([
             'facility_id' => $facility->id,
             'name' => 'Summer Promo',
@@ -213,8 +213,8 @@ class PricingServiceTest extends TestCase
 
     public function test_inactive_rates_are_ignored(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
-        
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
+
         Rate::create([
             'facility_id' => $facility->id,
             'name' => 'Inactive Promo',
@@ -237,26 +237,26 @@ class PricingServiceTest extends TestCase
 
     public function test_invalid_reservation_period_is_rejected(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
-        
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
+
         $checkIn = Carbon::now();
         $checkOut = Carbon::now()->subDay(); // Checkout before checkin
 
         $this->expectException(InvalidPricingPeriodException::class);
         $this->expectExceptionMessage('Check-out must be after check-in.');
-        
+
         $this->pricingService->calculate($facility, $checkIn, $checkOut);
     }
 
     public function test_negative_additional_hours_are_rejected(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now();
         $checkOut = Carbon::now()->addDay();
 
         $this->expectException(InvalidPricingPeriodException::class);
         $this->expectExceptionMessage('Additional hours cannot be negative.');
-        
+
         $this->pricingService->calculate($facility, $checkIn, $checkOut, -1, 0);
     }
 
@@ -275,11 +275,11 @@ class PricingServiceTest extends TestCase
 
         $this->pricingService->calculate($facility, $checkIn, $checkOut);
     }
-    
+
     public function test_overlapping_seasonal_rates_throws_exception(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
-        
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
+
         Rate::create([
             'facility_id' => $facility->id,
             'name' => 'Promo 1',
@@ -290,7 +290,7 @@ class PricingServiceTest extends TestCase
             'effective_until' => '2026-08-31',
             'is_active' => true,
         ]);
-        
+
         Rate::create([
             'facility_id' => $facility->id,
             'name' => 'Promo 2',
@@ -314,7 +314,7 @@ class PricingServiceTest extends TestCase
 
     public function test_monetary_calculations_do_not_produce_floating_point_errors(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now();
         $checkOut = Carbon::now()->addDays(3);
 
@@ -327,7 +327,7 @@ class PricingServiceTest extends TestCase
 
     public function test_price_breakdown_total_equals_sum_of_components(): void
     {
-        $facility = $this->getFacilityBySlug('Deluxe');
+        $facility = $this->getFacilityBySlug('Deluxe (Room 26)');
         $checkIn = Carbon::now();
         $checkOut = Carbon::now()->addDays(2);
 

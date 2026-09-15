@@ -10,7 +10,18 @@ return [
     'email' => 'villamercedesresort@yahoo.com',
     'facebook_url' => 'https://www.facebook.com/VillaMercedesNatureFarmResort',
     'facebook_label' => 'Villa Mercedes Nature Farm & Resort',
+    'messenger_url' => env('RESORT_MESSENGER_URL', 'https://m.me/VillaMercedesNatureFarmResort'),
+    'instagram_url' => 'https://www.instagram.com/villamercedesresort/',
+    'instagram_label' => 'Villa Mercedes on Instagram',
+
+    /*
+    | Seeded guest reviews and other demonstration copy. Keep this false in a
+    | public release so @villamercedes.test testimonials never appear as live reviews.
+    */
+    'demo_content' => (bool) env('RESORT_DEMO_CONTENT', env('APP_ENV') !== 'production'),
+
     'hours' => 'Open daily — visit our Facebook page for current hours and announcements.',
+    'maps_query' => 'Villa Mercedes Nature Farm and Resort, Barangay Namnama, Ilagan, Isabela, Philippines',
 
     /*
     |--------------------------------------------------------------------------
@@ -57,66 +68,16 @@ return [
     'stats' => [
         ['value' => '3', 'label' => 'Swimming Pools'],
         ['value' => 'Hotel & Cottages', 'label' => 'Stay Options'],
-        ['value' => 'Cafe & Restobar', 'label' => 'On-site Dining'],
-        ['value' => 'TESDA NC II', 'label' => 'Training Programs'],
-    ],
-
-    'training' => [
-        'intro' => 'Villa Mercedes is an Enterprise-Based Education and Training (EBET) provider. We welcome guests who want to stay — and students who want to build hospitality skills.',
-        'note' => 'Scholarship details, schedules, and slot availability change with TESDA offerings. Confirm the latest requirements on our Facebook page or by calling us.',
-        'programs' => [
-            [
-                'title' => 'Housekeeping NC II',
-                'duration' => 'About 58 days',
-                'description' => 'Hands-on training in lodging operations — preparing rooms, maintaining cleanliness, and delivering guest-ready service in a real resort setting.',
-                'highlights' => [
-                    'Learn in a live hotel and resort environment',
-                    'Practice guest-room and public-area standards',
-                    'Build skills for hospitality employment',
-                ],
-            ],
-            [
-                'title' => 'Barista NC II',
-                'duration' => 'About 23 days',
-                'description' => 'Coffee and beverage service training connected to our cafe and restobar — from drink preparation to guest-facing service.',
-                'highlights' => [
-                    'Train where guests actually dine and unwind',
-                    'Develop barista and customer-service skills',
-                    'Prepare for cafe, hotel, and restaurant work',
-                ],
-            ],
-        ],
-        'benefits' => [
-            'TESDA-registered enterprise-based training',
-            'Scholarship packages may include free training and assessment',
-            'Meals, transportation, and a daily living allowance may apply when a scholarship is available',
-        ],
-        'requirements' => [
-            'Valid government-issued ID',
-            'PSA birth certificate',
-            'TESDA scholarship or program eligibility as announced',
-            'Willingness to train on-site at the resort',
-        ],
-    ],
-
-    'dining' => [
-        'headline' => 'Cafe & Restobar',
-        'description' => 'Dine in a glass-walled space with warm lighting, wood interiors, and a relaxed restobar atmosphere — part of the stay, not just an extra stop.',
-        'highlights' => [
-            'Cafe service for guests and visitors',
-            'Restobar setting for gatherings and evenings out',
-            'Ideal after a swim or before an event in the function hall',
-        ],
+        ['value' => '4', 'label' => 'Function Halls'],
+        ['value' => 'Packages', 'label' => 'Day & Overnight'],
     ],
 
     'gallery' => [
         ['title' => 'Resort team', 'caption' => 'The people behind Villa Mercedes hospitality.'],
         ['title' => 'Night lodge', 'caption' => 'Warm lights over our wooden architecture.'],
-        ['title' => 'Cafe & restobar', 'caption' => 'Glass-walled dining with a restobar mood.'],
         ['title' => 'Pool at night', 'caption' => 'Evening swimming under resort lighting.'],
-        ['title' => 'Function hall', 'caption' => 'A venue for celebrations, meetings, and trainings.'],
+        ['title' => 'Function hall', 'caption' => 'A venue for celebrations, meetings, and events.'],
         ['title' => 'Pool by day', 'caption' => 'Nature-framed swimming for all ages.'],
         ['title' => 'Guest wings', 'caption' => 'Rooms and cottages for overnight stays.'],
-        ['title' => 'TESDA training', 'caption' => 'Housekeeping and barista programs on site.'],
     ],
 ];

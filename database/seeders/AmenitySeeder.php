@@ -20,6 +20,20 @@ class AmenitySeeder extends Seeder
             ['name' => 'Projector & Screen', 'icon' => 'projector'],
             ['name' => 'Stage', 'icon' => 'stage'],
             ['name' => 'Catering Area', 'icon' => 'utensils'],
+            ['name' => 'Basic Toiletries', 'icon' => 'sparkles'],
+            ['name' => 'Hot/Cold Shower', 'icon' => 'shower'],
+            ['name' => 'Electric Kettle', 'icon' => 'kettle'],
+            ['name' => 'Dining Table', 'icon' => 'table'],
+            ['name' => 'Cabinet with Hangers', 'icon' => 'hanger'],
+            ['name' => 'Full Body Mirror', 'icon' => 'mirror'],
+            ['name' => 'Veranda with Tables & Chairs', 'icon' => 'sun'],
+            ['name' => 'Terrace with Tables & Chairs', 'icon' => 'trees'],
+            ['name' => 'Water Dispenser', 'icon' => 'droplet'],
+            ['name' => 'Kitchen', 'icon' => 'chef'],
+            ['name' => 'Bath Towels', 'icon' => 'towel'],
+            ['name' => 'Coffee Cups', 'icon' => 'coffee'],
+            ['name' => 'Bottled Water', 'icon' => 'bottle'],
+            ['name' => 'Comfort Room in Front of Room', 'icon' => 'door'],
         ];
 
         foreach ($amenities as $amenity) {

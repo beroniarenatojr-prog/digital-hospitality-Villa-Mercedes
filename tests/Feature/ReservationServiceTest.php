@@ -5,21 +5,18 @@ namespace Tests\Feature;
 use App\Enums\FacilityStatus;
 use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
+use App\Enums\Role;
 use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
 use App\Exceptions\Reservation\InvalidReservationTransitionException;
-use App\Exceptions\Reservation\ReservationCancellationException;
 use App\Exceptions\Reservation\ReservationConflictException;
 use App\Exceptions\Reservation\UnauthorizedReservationSourceException;
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Models\User;
-use App\Services\AvailabilityService;
-use App\Services\PricingService;
 use App\Services\ReservationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 use Tests\TestCase;
 
@@ -28,24 +25,27 @@ class ReservationServiceTest extends TestCase
     use RefreshDatabase;
 
     private ReservationService $reservationService;
+
     private Facility $facility;
+
     private User $customer;
+
     private User $admin;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->artisan('db:seed');
 
         $this->reservationService = app(ReservationService::class);
-        $this->facility = Facility::where('slug', 'deluxe')->firstOrFail();
-        
+        $this->facility = Facility::where('slug', 'deluxe-room-26')->firstOrFail();
+
         $this->customer = User::factory()->create();
-        $this->customer->assignRole(\App\Enums\Role::Customer->value);
-        
+        $this->customer->assignRole(Role::Customer->value);
+
         $this->admin = User::factory()->create();
-        $this->admin->assignRole(\App\Enums\Role::Administrator->value);
+        $this->admin->assignRole(Role::Administrator->value);
     }
 
     public function test_online_reservation_starts_as_pending(): void
@@ -133,7 +133,7 @@ class ReservationServiceTest extends TestCase
         );
 
         $this->assertNotNull($reservation->reservation_code);
-        $this->assertStringStartsWith('VM-' . now()->format('Ymd') . '-', $reservation->reservation_code);
+        $this->assertStringStartsWith('VM-'.now()->format('Ymd').'-', $reservation->reservation_code);
     }
 
     public function test_reservation_belongs_to_correct_user_and_facility(): void
@@ -191,7 +191,7 @@ class ReservationServiceTest extends TestCase
 
         // Fetch directly from DB to verify exact string representation
         $dbReservation = DB::table('reservations')->where('id', $reservation->id)->first();
-        
+
         $this->assertEquals(number_format($expectedTotal, 2, '.', ''), $dbReservation->total_price);
     }
 
@@ -405,7 +405,7 @@ class ReservationServiceTest extends TestCase
 
     public function test_different_facility_can_be_reserved_for_same_period(): void
     {
-        $otherFacility = Facility::where('slug', 'superior-twin')->firstOrFail();
+        $otherFacility = Facility::where('slug', 'standard-family-room-21')->firstOrFail();
 
         $this->reservationService->createReservation(
             $this->facility,
@@ -444,7 +444,7 @@ class ReservationServiceTest extends TestCase
         $this->assertEquals(ReservationStatus::Cancelled, $reservation->fresh()->status);
         $this->assertNotNull($reservation->fresh()->cancelled_at);
         $this->assertEquals('Customer request', $reservation->fresh()->cancellation_reason);
-        
+
         // Data preserved
         $this->assertNotNull($reservation->fresh()->check_in);
         $this->assertNotNull($reservation->fresh()->total_price);
@@ -612,7 +612,7 @@ class ReservationServiceTest extends TestCase
 
         $this->assertNotNull($activity);
         $this->assertEquals($this->admin->id, $activity->causer_id);
-        $this->assertStringContainsString('Pending to Approved', $activity->description);
+        $this->assertStringContainsString('Pending to Confirmed', $activity->description);
     }
 
     public function test_failed_transaction_does_not_leave_partial_reservation_data(): void
@@ -672,6 +672,6 @@ class ReservationServiceTest extends TestCase
             }
         }
 
-        $this->assertTrue($hasForUpdate, "Expected a pessimistic row-level lock (FOR UPDATE) on the facilities table.");
+        $this->assertTrue($hasForUpdate, 'Expected a pessimistic row-level lock (FOR UPDATE) on the facilities table.');
     }
 }

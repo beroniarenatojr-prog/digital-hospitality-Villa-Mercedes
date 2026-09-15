@@ -28,6 +28,9 @@ class OnlinePaymentCheckoutTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Exercise preserved historical gateway behavior explicitly; new
+        // production checkout is disabled and covered by CustomerDepositWorkflowTest.
+        config(['payments.allow_gateway_checkout' => true]);
 
         $this->customer = User::factory()->create();
         $this->otherCustomer = User::factory()->create();
@@ -49,6 +52,34 @@ class OnlinePaymentCheckoutTest extends TestCase
         $this->app->instance(PaymentGateway::class, $gateway);
 
         return $gateway;
+    }
+
+    public function test_online_checkout_is_hidden_for_pending_reservations(): void
+    {
+        $this->fakeGateway();
+        $this->reservation->update(['status' => ReservationStatus::Pending->value]);
+
+        $this->actingAs($this->customer)
+            ->get(route('customer.payments.index', $this->reservation))
+            ->assertOk()
+            ->assertSee('Waiting for resort approval')
+            ->assertDontSee('Continue to secure checkout');
+    }
+
+    public function test_online_checkout_is_refused_for_pending_reservations(): void
+    {
+        $this->fakeGateway();
+        $this->reservation->update(['status' => ReservationStatus::Pending->value]);
+
+        $this->actingAs($this->customer)
+            ->post(route('customer.payments.checkout', $this->reservation), [
+                'amount' => 2500,
+                'payment_method' => PaymentMethod::GCash->value,
+            ])
+            ->assertRedirect(route('customer.payments.index', $this->reservation))
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseCount('payments', 0);
     }
 
     public function test_online_checkout_is_hidden_when_no_gateway_is_configured(): void
@@ -185,7 +216,7 @@ class OnlinePaymentCheckoutTest extends TestCase
 
     public function test_cancelling_at_the_gateway_removes_the_placeholder_payment(): void
     {
-        $this->fakeGateway();
+        $this->fakeGateway(paid: false);
 
         $payment = Payment::factory()->create([
             'reservation_id' => $this->reservation->id,
@@ -200,6 +231,62 @@ class OnlinePaymentCheckoutTest extends TestCase
             ->assertSessionHas('error');
 
         $this->assertSoftDeleted('payments', ['id' => $payment->id]);
+    }
+
+    public function test_paid_checkout_is_recorded_when_guest_visits_cancel_url(): void
+    {
+        $this->fakeGateway(paid: true);
+        $payment = Payment::factory()->create([
+            'reservation_id' => $this->reservation->id, 'amount' => 5000,
+            'status' => PaymentStatus::Pending, 'reference_number' => 'paid-session',
+        ]);
+
+        $this->actingAs($this->customer)->get(route('customer.payments.cancel', $payment))->assertSessionHas('success');
+        $this->assertFalse($payment->fresh()->trashed());
+        $this->assertSame(PaymentStatus::Verified, $payment->fresh()->status);
+    }
+
+    public function test_late_provider_confirmation_restores_cancelled_checkout_and_displays_excess(): void
+    {
+        $this->fakeGateway(paid: false);
+        $payment = Payment::factory()->create([
+            'reservation_id' => $this->reservation->id, 'amount' => 5000,
+            'status' => PaymentStatus::Pending, 'reference_number' => 'late-session',
+        ]);
+        $this->actingAs($this->customer)->get(route('customer.payments.cancel', $payment))->assertRedirect();
+        $this->assertSoftDeleted($payment);
+        Payment::factory()->create([
+            'reservation_id' => $this->reservation->id, 'amount' => 5000, 'status' => PaymentStatus::Verified,
+        ]);
+        $this->fakeGateway(paid: true);
+
+        $this->get(route('customer.payments.return', $payment))->assertSessionHas('success');
+        $this->assertFalse(Payment::withTrashed()->findOrFail($payment->id)->trashed());
+        $this->assertSame(5000.0, $this->reservation->fresh()->getOverpaymentAmount());
+        $this->get(route('customer.payments.index', $this->reservation))->assertOk()->assertSee('Overpayment requires reconciliation');
+    }
+
+    public function test_gateway_cancel_cannot_delete_a_manual_receipt(): void
+    {
+        $payment = Payment::factory()->create([
+            'reservation_id' => $this->reservation->id, 'amount' => 5000,
+            'status' => PaymentStatus::Pending, 'reference_number' => null, 'proof_path' => 'receipts/manual.jpg',
+        ]);
+        $this->actingAs($this->customer)->get(route('customer.payments.cancel', $payment))->assertSessionHas('error');
+        $this->assertFalse($payment->fresh()->trashed());
+        $this->assertSame(PaymentStatus::Pending, $payment->fresh()->status);
+    }
+
+    public function test_online_checkout_counts_pending_manual_payments_toward_submission_limit(): void
+    {
+        $this->fakeGateway();
+        Payment::factory()->create([
+            'reservation_id' => $this->reservation->id, 'amount' => 4000, 'status' => PaymentStatus::Pending,
+        ]);
+        $this->actingAs($this->customer)->post(route('customer.payments.checkout', $this->reservation), [
+            'amount' => 2000, 'payment_method' => PaymentMethod::GCash->value,
+        ])->assertSessionHas('error');
+        $this->assertSame(1, $this->reservation->payments()->count());
     }
 }
 

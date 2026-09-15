@@ -61,7 +61,8 @@ class CustomerBoundaryTest extends TestCase
         $customer->assignRole(Role::Customer->value);
 
         $response = $this->actingAs($customer)->get(route('admin.dashboard'));
-        $response->assertStatus(403);
+        $response->assertRedirect(route('admin.login'));
+        $this->assertGuest();
     }
 
     public function test_customer_cannot_access_another_customers_inquiry()

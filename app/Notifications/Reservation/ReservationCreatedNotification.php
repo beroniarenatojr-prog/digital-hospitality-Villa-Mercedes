@@ -3,21 +3,27 @@
 namespace App\Notifications\Reservation;
 
 use App\Models\Reservation;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\Notification;
 
-class ReservationCreatedNotification extends Notification implements ShouldQueue
+class ReservationCreatedNotification extends Notification
 {
-    use Queueable;
-
     public function __construct(
         public readonly Reservation $reservation,
         public readonly bool $isAdminNotification = false
     ) {}
 
+    /**
+     * In-app badge updates stay on the request. SMTP is ReservationCreatedMail.
+     *
+     * @return list<string>
+     */
     public function via(object $notifiable): array
     {
+        if ($notifiable instanceof AnonymousNotifiable) {
+            return [];
+        }
+
         return ['database'];
     }
 
@@ -34,8 +40,8 @@ class ReservationCreatedNotification extends Notification implements ShouldQueue
             'customer_name' => $this->isAdminNotification ? ($this->reservation->user->name ?? 'Unknown') : null,
             'total_price' => $this->reservation->total_price,
             'is_admin_notification' => $this->isAdminNotification,
-            'message' => $this->isAdminNotification 
-                ? "New reservation {$this->reservation->reservation_code} created." 
+            'message' => $this->isAdminNotification
+                ? "New reservation {$this->reservation->reservation_code} created."
                 : "Your reservation {$this->reservation->reservation_code} has been successfully placed.",
         ];
     }
