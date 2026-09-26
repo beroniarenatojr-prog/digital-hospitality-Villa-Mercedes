@@ -24,7 +24,45 @@ final class CustomerNav
     }
 
     /**
-     * Public marketing links in landing-page order. About is last.
+     * Keep the three primary account destinations available outside the booking
+     * wizard, whose own progress header already leads the guest through one flow.
+     */
+    public static function showsAccountNav(): bool
+    {
+        return self::isAccountContext() && ! request()->routeIs('customer.booking.*', 'customer.grouped-booking.*');
+    }
+
+    /**
+     * The compact account navigation. Notifications and profile live in the
+     * account menu (and the phone drawer), and the public site remains
+     * available in the footer, so repeating those destinations here adds noise.
+     *
+     * @return list<array{label: string, route: string, active: bool}>
+     */
+    public static function accountSections(): array
+    {
+        return [
+            [
+                'label' => 'My reservations',
+                'route' => 'customer.reservations.index',
+                'active' => request()->routeIs('customer.reservations.index', 'customer.reservations.show', 'customer.payments.*'),
+            ],
+            [
+                'label' => 'My inquiries',
+                'route' => 'customer.inquiries.index',
+                'active' => request()->routeIs('customer.inquiries.*'),
+            ],
+            [
+                'label' => 'New reservation',
+                'route' => 'customer.grouped-booking.workspace',
+                'active' => request()->routeIs('customer.grouped-booking.*', 'customer.home', 'customer.reservations.new', 'customer.facilities.show', 'customer.booking.*'),
+            ],
+        ];
+    }
+
+    /**
+     * The five public destinations. FAQs and Reviews live on the About page,
+     * so the primary navigation stays focused on browsing the resort.
      *
      * @return list<array{label: string, route: string, active: bool}>
      */
@@ -50,16 +88,6 @@ final class CustomerNav
                 'label' => 'Gallery',
                 'route' => 'gallery',
                 'active' => request()->routeIs('gallery'),
-            ],
-            [
-                'label' => 'FAQs',
-                'route' => 'faq.index',
-                'active' => request()->routeIs('faq.*'),
-            ],
-            [
-                'label' => 'Reviews',
-                'route' => 'reviews',
-                'active' => request()->routeIs('reviews'),
             ],
             [
                 'label' => 'About',
