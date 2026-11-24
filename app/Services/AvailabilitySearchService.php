@@ -5,11 +5,12 @@ namespace App\Services;
 use App\Enums\BookingServiceType;
 use App\Enums\FacilityStatus;
 use App\Enums\FacilityType;
-use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
 use App\Enums\RateType;
+use App\Exceptions\Availability\InvalidAvailabilityPeriodException;
 use App\Models\Facility;
 use App\Models\ResortPool;
 use App\Models\SwimmingSession;
+use App\Support\Money;
 use App\Support\StayPeriod;
 use Carbon\Carbon;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -23,6 +24,12 @@ class AvailabilitySearchService
     private const UNAVAILABLE_MESSAGE = 'Not available on the selected date/time.';
 
     private const ALTERNATIVE_LIMIT = 6;
+
+    /** How many days either side of the guest's window are checked for space. */
+    public const NEARBY_RADIUS = 3;
+
+    /** How many nearby dates a guest is offered before the rest are dropped. */
+    public const NEARBY_LIMIT = 3;
 
     public function __construct(
         private readonly AvailabilityService $availability,
@@ -51,11 +58,12 @@ class AvailabilitySearchService
             : $this->searchFacilities($type->facilityType(), $period, $guests);
 
         $available = $results->isNotEmpty();
-        $message = $available ? null : $this->unavailableMessage($type, $period, $guests);
+        $status = $available ? \App\Enums\ServiceAvailability::Available : $this->emptyResultStatus($type, $period, $guests, $sessionSlug);
+        $message = $available ? null : $status->label().' for the selected period. '.$this->unavailableMessage($type, $period, $guests);
 
         return $this->payload(
             available: $available,
-            status: $available ? 'available' : 'unavailable',
+            status: $status->value,
             message: $message,
             period: $period,
             results: $results->all(),
@@ -64,8 +72,182 @@ class AvailabilitySearchService
     }
 
     /**
+     * Narrow a catalog down to the spaces that are genuinely open.
+     *
+     * This is the picker's question — "which of these can I actually book?" —
+     * asked of the same rules that answer the availability search, so a card the
+     * picker offers and a card the search refuses can never be the same space.
+     * Two deliberate differences:
+     *
+     *  - A `null` period asks a smaller question — does this space fit the party?
+     *    — and leaves the catalog otherwise as the resort published it. Use it
+     *    when the guest has not given dates yet.
+     *  - Cottages are booked per swimming session, so a cottage counts as open
+     *    when the session it is being asked about (or any active session, when
+     *    none was chosen) can host that visit.
+     *
+     * @param  Collection<int, Facility>  $facilities  the catalog to narrow, in the caller's order
+     * @return Collection<int, Facility>
+     */
+    public function openAmong(
+        Collection $facilities,
+        ?StayPeriod $period,
+        ?int $guests = null,
+        ?string $sessionSlug = null,
+    ): Collection {
+        $catalog = $facilities
+            ->filter(fn (Facility $facility): bool => $period instanceof StayPeriod
+                // With dates, the operational status is part of the answer and
+                // `isAvailable` below gives it. Without them the picker still
+                // shows the published catalog as it is: a space under
+                // maintenance is the resort's own notice, not a booking answer.
+                ? $this->passesCapacity($facility, $guests)
+                : $this->fitsParty($facility, $guests))
+            ->values();
+
+        if (! $period instanceof StayPeriod || $catalog->isEmpty()) {
+            return $catalog;
+        }
+
+        $spaces = $catalog->reject(fn (Facility $facility): bool => $facility->isCottage())->values();
+
+        if ($spaces->isNotEmpty()) {
+            $this->availability->primeOverlaps($spaces, $period->arrival->copy()->startOfDay(), $period->departure->copy()->addDay()->endOfDay());
+        }
+
+        $openIds = $spaces
+            ->filter(function (Facility $facility) use ($period, $guests): bool {
+                [$arrival, $departure] = $this->windowFor($facility, $period);
+
+                return $this->isOpen($facility, $arrival, $departure, $guests);
+            })
+            ->pluck('id')
+            ->merge(
+                $this->openCottagesAmong(
+                    $catalog->filter(fn (Facility $facility): bool => $facility->isCottage())->values(),
+                    $period,
+                    $guests,
+                    $sessionSlug,
+                )->pluck('id')
+            )
+            ->all();
+
+        return $catalog
+            ->filter(fn (Facility $facility): bool => in_array($facility->id, $openIds, true))
+            ->values();
+    }
+
+    /**
+     * How many spaces each service has open for a window — the picker's tabs.
+     *
+     * Counts exist so "nothing here" can point somewhere instead of leaving the
+     * guest to guess which of the four services to try next.
+     *
+     * @return array<string, int> keyed by facility type slug
+     */
+    public function openCountsByType(StayPeriod $period, ?int $guests = null, ?string $sessionSlug = null): array
+    {
+        $counts = [];
+
+        foreach (FacilityType::cases() as $type) {
+            $counts[$type->value] = $this->openAmong(
+                $this->candidates($type, $guests),
+                $period,
+                $guests,
+                $sessionSlug,
+            )->count();
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Nearby windows that do have something free.
+     *
+     * "Nothing is free for those dates" is a true answer and a useless one: a
+     * guest who has picked one weekend out of a month, and found the resort busy on
+     * it, has usually picked the one day that is. So the days either side of their
+     * window are asked the same question, of the same rules and for the same party,
+     * nearest first — one day later, one day earlier, two days later, and so on —
+     * and the ones with space are offered as dates to click.
+     *
+     * Only ever asked when a list came back empty, so the ordinary picker pays
+     * nothing for it, and it stops as soon as it has enough. That is also why the
+     * early exit is safe: the walk is already in distance order, so the suggestions
+     * that survive are the nearest ones.
+     *
+     * `checked` says whether the question could be asked at all: a service with
+     * nothing published on it has no days to suggest, and telling that guest the
+     * neighbouring dates are "booked" would be a plain lie.
+     *
+     * @return array{checked: bool, dates: list<array{period: StayPeriod, shift: int, count: int}>}
+     */
+    public function nearbyOpenWindows(
+        FacilityType $type,
+        StayPeriod $period,
+        ?int $guests = null,
+        ?string $sessionSlug = null,
+        int $limit = self::NEARBY_LIMIT,
+        int $radius = self::NEARBY_RADIUS,
+    ): array {
+        // The catalog does not change with the dates, so it is read once: only the
+        // window moves.
+        $catalog = $this->candidates($type, $guests);
+
+        if ($catalog->isEmpty()) {
+            return ['checked' => false, 'dates' => []];
+        }
+
+        $found = [];
+
+        for ($distance = 1; $distance <= $radius && count($found) < $limit; $distance++) {
+            foreach ([$distance, -$distance] as $shift) {
+                $shifted = StayPeriod::fromDates(
+                    Carbon::parse($period->checkInDate)->addDays($shift)->toDateString(),
+                    Carbon::parse($period->checkOutDate)->addDays($shift)->toDateString(),
+                );
+
+                // A window that has already started is not a suggestion, it is a
+                // mistake — a guest cannot book yesterday.
+                if ($shifted->arrival->isPast()) {
+                    continue;
+                }
+
+                $count = $this->openAmong($catalog, $shifted, $guests, $sessionSlug)->count();
+
+                if ($count > 0) {
+                    $found[] = ['period' => $shifted, 'shift' => $shift, 'count' => $count];
+                }
+            }
+        }
+
+        return ['checked' => true, 'dates' => $found];
+    }
+
+    /**
      * @return array<string, mixed>
      */
+    private function emptyResultStatus(BookingServiceType $type, StayPeriod $period, int $guests, ?string $sessionSlug): \App\Enums\ServiceAvailability
+    {
+        $facilityType = $type->facilityType();
+        if (! $facilityType) return \App\Enums\ServiceAvailability::Unavailable;
+        $catalog = $this->facilities->getSearchFacilitiesByType($facilityType->value)
+            ->filter(fn (Facility $facility) => $this->fitsParty($facility, $guests));
+        $states = [];
+        foreach ($catalog as $facility) {
+            $windows = $facility->isCottage()
+                ? $this->activeSessions($sessionSlug)->map(fn ($session) => $this->cottageWindow($facility, $session, $period))->filter()->all()
+                : [$this->windowFor($facility, $period)];
+            foreach ($windows as [$start, $end]) {
+                $states[] = $this->availability->isAvailable($facility, $start, $end, guestCount: $guests)->status();
+            }
+        }
+        if (in_array(\App\Enums\ServiceAvailability::FullyBooked, $states, true)) return \App\Enums\ServiceAvailability::FullyBooked;
+        if ($states !== [] && collect($states)->every(fn ($state) => $state === \App\Enums\ServiceAvailability::TemporarilyClosed)) return \App\Enums\ServiceAvailability::TemporarilyClosed;
+
+        return \App\Enums\ServiceAvailability::Unavailable;
+    }
+
     private function poolResponse(StayPeriod $period, int $guests, ?string $sessionSlug): array
     {
         $pools = ResortPool::query()
@@ -96,7 +278,7 @@ class AvailabilitySearchService
 
         $candidates = $this->candidates($type, $guests);
 
-        $this->availability->primeOverlaps($candidates, $period->arrival, $period->departure);
+        $this->availability->primeOverlaps($candidates, $period->arrival->copy()->startOfDay(), $period->departure->copy()->addDay()->endOfDay());
 
         return $candidates
             ->map(function (Facility $facility) use ($period, $guests): ?array {
@@ -117,11 +299,7 @@ class AvailabilitySearchService
      */
     private function searchCottages(StayPeriod $period, int $guests, ?string $sessionSlug): Collection
     {
-        $sessions = SwimmingSession::query()
-            ->where('is_active', true)
-            ->when($sessionSlug, fn ($query) => $query->where('slug', $sessionSlug))
-            ->orderBy('sort_order')
-            ->get();
+        $sessions = $this->activeSessions($sessionSlug);
 
         if ($sessions->isEmpty()) {
             return collect();
@@ -133,22 +311,16 @@ class AvailabilitySearchService
             return collect();
         }
 
-        $windows = $sessions->map(fn (SwimmingSession $session): array => $session->periodFor($period->checkInDate));
-        $from = $windows->sortBy(fn (array $window): int => $window[0]->timestamp)->first()[0];
-        $to = $windows->sortByDesc(fn (array $window): int => $window[1]->timestamp)->first()[1];
+        [$from, $to] = $this->sessionSpan($sessions, $period);
 
         $this->availability->primeOverlaps($cottages, $from, $to);
 
         return $cottages
             ->flatMap(function (Facility $cottage) use ($sessions, $period, $guests): Collection {
                 return $sessions->map(function (SwimmingSession $session) use ($cottage, $period, $guests): ?array {
-                    try {
-                        $resolved = $this->cottages->resolve($cottage, $session, $period->checkInDate);
-                    } catch (ValidationException) {
-                        return null;
-                    }
+                    $window = $this->cottageWindow($cottage, $session, $period);
 
-                    if (! $this->isOpen($cottage, $resolved['check_in'], $resolved['check_out'], $guests)) {
+                    if ($window === null || ! $this->isOpen($cottage, $window[0], $window[1], $guests)) {
                         return null;
                     }
 
@@ -157,8 +329,8 @@ class AvailabilitySearchService
                         $period,
                         $guests,
                         $session,
-                        $resolved['check_in'],
-                        $resolved['check_out'],
+                        $window[0],
+                        $window[1],
                     );
                 });
             })
@@ -167,21 +339,125 @@ class AvailabilitySearchService
     }
 
     /**
+     * The cottages among these that can host the visit — one row per cottage, not
+     * per session, because this answers "can I book this one?" rather than "what
+     * can I book?".
+     *
+     * @param  Collection<int, Facility>  $cottages
      * @return Collection<int, Facility>
      */
-    private function candidates(FacilityType $type, int $guests): Collection
-    {
-        return $this->facilities->getSearchFacilitiesByType($type->value)
-            ->filter(function (Facility $facility) use ($guests): bool {
-                if ($facility->status !== FacilityStatus::Available) {
-                    return false;
-                }
+    private function openCottagesAmong(
+        Collection $cottages,
+        StayPeriod $period,
+        ?int $guests,
+        ?string $sessionSlug,
+    ): Collection {
+        $sessions = $this->activeSessions($sessionSlug);
 
-                $maxCapacity = $facility->effectiveMaxCapacity();
+        if ($sessions->isEmpty() || $cottages->isEmpty()) {
+            return collect();
+        }
 
-                return $maxCapacity === null || $guests <= $maxCapacity;
+        [$from, $to] = $this->sessionSpan($sessions, $period);
+
+        $this->availability->primeOverlaps($cottages, $from, $to);
+
+        return $cottages
+            ->filter(function (Facility $cottage) use ($sessions, $period, $guests): bool {
+                return $sessions->contains(function (SwimmingSession $session) use ($cottage, $period, $guests): bool {
+                    $window = $this->cottageWindow($cottage, $session, $period);
+
+                    return $window !== null && $this->isOpen($cottage, $window[0], $window[1], $guests);
+                });
             })
             ->values();
+    }
+
+    /**
+     * The sessions a cottage visit can be booked into: the requested one, or all
+     * of them when the guest has not chosen.
+     *
+     * @return Collection<int, SwimmingSession>
+     */
+    private function activeSessions(?string $sessionSlug): Collection
+    {
+        return SwimmingSession::query()
+            ->where('is_active', true)
+            ->when($sessionSlug, fn ($query) => $query->where('slug', $sessionSlug))
+            ->orderBy('sort_order')
+            ->get();
+    }
+
+    /**
+     * The window that covers every session of the visit date, so one priming pass
+     * has every candidate a session could collide with.
+     *
+     * @param  Collection<int, SwimmingSession>  $sessions
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function sessionSpan(Collection $sessions, StayPeriod $period): array
+    {
+        $windows = $sessions->map(fn (SwimmingSession $session): array => $session->periodFor($period->checkInDate));
+
+        return [
+            $windows->sortBy(fn (array $window): int => $window[0]->timestamp)->first()[0],
+            $windows->sortByDesc(fn (array $window): int => $window[1]->timestamp)->first()[1],
+        ];
+    }
+
+    /**
+     * The occupancy window this cottage needs for this session, or null when the
+     * session cannot host the visit at all (past, or outside the resort's rules).
+     *
+     * @return array{0: Carbon, 1: Carbon}|null
+     */
+    private function cottageWindow(Facility $cottage, SwimmingSession $session, StayPeriod $period): ?array
+    {
+        try {
+            $resolved = $this->cottages->resolve($cottage, $session, $period->checkInDate);
+        } catch (ValidationException) {
+            return null;
+        }
+
+        return [$resolved['check_in'], $resolved['check_out']];
+    }
+
+    /**
+     * The published catalog of one service: everything a guest could be shown for
+     * this party size, before any dates are considered.
+     *
+     * @return Collection<int, Facility>
+     */
+    private function candidates(FacilityType $type, ?int $guests): Collection
+    {
+        return $this->facilities->getSearchFacilitiesByType($type->value)
+            ->filter(fn (Facility $facility): bool => $this->passesCapacity($facility, $guests))
+            ->values();
+    }
+
+    /**
+     * Whether a space is on offer at all for this party: published, and able to
+     * take the guests.
+     */
+    private function passesCapacity(Facility $facility, ?int $guests): bool
+    {
+        return $facility->status === FacilityStatus::Available
+            && $this->fitsParty($facility, $guests);
+    }
+
+    /**
+     * Whether a space can take this many guests. A `null` count asks nothing and
+     * every space fits; a space with no published ceiling fits anything.
+     */
+    private function fitsParty(Facility $facility, ?int $guests): bool
+    {
+        if ($guests === null) {
+            return true;
+        }
+
+        $maxCapacity = $facility->effectiveMaxCapacity();
+
+        return $maxCapacity === null || $guests <= $maxCapacity;
     }
 
     /**
@@ -206,7 +482,7 @@ class AvailabilitySearchService
         return $suggestions->take(self::ALTERNATIVE_LIMIT)->values()->all();
     }
 
-    private function isOpen(Facility $facility, Carbon $arrival, Carbon $departure, int $guests): bool
+    private function isOpen(Facility $facility, Carbon $arrival, Carbon $departure, ?int $guests): bool
     {
         try {
             return $this->availability->isAvailable($facility, $arrival, $departure, null, $guests)->isAvailable;
@@ -252,7 +528,7 @@ class AvailabilitySearchService
             'price_cents' => $baseRate ? (int) round(((float) $baseRate->amount) * 100) : null,
             'price_label' => $baseRate ? $this->formatPrice((int) round(((float) $baseRate->amount) * 100)) : null,
             'price_unit' => $baseRate?->unit,
-            'booking_url' => route('customer.booking.create', ['facility' => $facility, ...$bookingQuery]),
+            'booking_url' => route('customer.grouped-booking.workspace', ['facility_id' => $facility->id, ...$bookingQuery]),
             'detail_url' => route('facilities.show', ['facility' => $facility, ...$bookingQuery, 'availability_checked' => 1]),
             'detail_query' => [...$bookingQuery, 'availability_checked' => 1],
             'session' => $session?->slug,
@@ -310,7 +586,7 @@ class AvailabilitySearchService
             );
         }
 
-        return [$period->arrival, $period->departure];
+        return app(ReservationSchedule::class)->windowForDates($facility, Carbon::parse($period->checkInDate), Carbon::parse($period->checkOutDate));
     }
 
     private function unavailableMessage(BookingServiceType $type, StayPeriod $period, int $guests): string
@@ -338,7 +614,7 @@ class AvailabilitySearchService
             return null;
         }
 
-        return '₱'.number_format($cents / 100, 2);
+        return Money::of($cents / 100);
     }
 
     /**

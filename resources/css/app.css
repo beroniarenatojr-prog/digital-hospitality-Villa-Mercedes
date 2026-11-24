@@ -10,6 +10,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* `@tailwindcss/forms` gives every control it styles a resting border in
+   Tailwind's gray-500. Nothing in a view carries that colour - the plugin does -
+   so no scan over class names can see it. The plugin's other outputs are dealt
+   with where the plugin reads them, in `theme.extend.colors`; this is the one
+   that needs a different token than the rest, because the border reads lighter
+   than the placeholder and chevron that share the same theme step.
+
+   Tailwind v3 emits these layers as plain CSS, so specificity decides first and
+   `:is()` is written to land on the plugin's own (0,1,0) - a tie broken by
+   order, which keeps an explicit `border-*` on an element winning. A selector
+   with more specificity than the plugin's would beat the utilities too. */
+@layer base {
+    :is(input:where(:not([type='checkbox']):not([type='radio'])), textarea, select, [multiple]) {
+        @apply border-border;
+    }
+
+    :is([type='checkbox'], [type='radio']) {
+        @apply border-border;
+    }
+}
+
 [x-cloak] {
     display: none !important;
 }
@@ -78,7 +99,7 @@
         height: 48vh;
         max-height: 52vh;
         overflow: hidden;
-        background-color: #432910;
+        background-color: theme('colors.primary.DEFAULT');
         background-size: cover;
         background-position: 62% center;
         background-repeat: no-repeat;
@@ -96,8 +117,8 @@
         position: absolute;
         inset: 0;
         background:
-            linear-gradient(90deg, rgba(31, 20, 12, 0.78) 0%, rgba(31, 20, 12, 0.48) 36%, rgba(31, 20, 12, 0.18) 64%, rgba(31, 20, 12, 0.12) 100%),
-            linear-gradient(180deg, rgba(31, 20, 12, 0.28) 0%, rgba(31, 20, 12, 0.08) 28%, rgba(31, 20, 12, 0.2) 100%);
+            linear-gradient(90deg, rgba(46, 58, 47, 0.78) 0%, rgba(46, 58, 47, 0.48) 36%, rgba(46, 58, 47, 0.18) 64%, rgba(46, 58, 47, 0.12) 100%),
+            linear-gradient(180deg, rgba(46, 58, 47, 0.28) 0%, rgba(46, 58, 47, 0.08) 28%, rgba(46, 58, 47, 0.2) 100%);
     }
 
     .listing-toolbar {
@@ -109,11 +130,11 @@
     }
 
     .listing-tab {
-        @apply inline-flex items-center justify-center min-h-[40px] rounded-full px-5 py-2 text-sm font-semibold text-text-muted bg-accent-light transition hover:bg-primary-light hover:text-primary;
+        @apply inline-flex min-h-11 items-center justify-center border-b-2 border-transparent px-1 py-3 text-sm font-semibold text-text-muted transition-colors duration-200 hover:border-accent/50 hover:text-primary;
     }
 
     .listing-tab[aria-current='page'] {
-        @apply bg-text text-white hover:bg-text hover:text-white;
+        @apply border-primary bg-transparent text-primary hover:bg-transparent hover:text-primary;
     }
 
     .password-meter-bar {
@@ -124,222 +145,545 @@
         @apply bg-primary;
     }
 
-    .chart-col {
-        @apply flex min-h-0 min-w-0 flex-1 flex-col items-center gap-1.5 self-stretch;
-    }
+    /* Keep the verified-details step readable while fitting a desktop viewport. */
+    @media (min-width: 768px) {
+        .registration-details input:not([type='hidden']):not([type='checkbox']),
+        .registration-details select {
+            height: 44px;
+            padding-top: 0;
+            padding-bottom: 0;
+            font-size: 0.875rem;
+        }
 
-    .chart-col-track {
-        @apply relative w-full min-h-0 flex-1;
-    }
+        .registration-details > .grid label {
+            font-size: 0.6875rem;
+            letter-spacing: 0.12em;
+        }
 
-    .chart-col-value {
-        @apply absolute left-1/2 z-10 max-w-full -translate-x-1/2 truncate text-[10px] font-semibold tabular-nums leading-none text-primary;
-        bottom: calc(var(--chart-h, 0%) + 0.35rem);
-        opacity: 0;
-        transform: translate(-50%, 4px);
-        transition: opacity 280ms ease-out, transform 280ms ease-out;
-        transition-delay: var(--chart-delay, 0ms);
-    }
+        .registration-details > .grid label + :is(.relative, input, select) {
+            margin-top: 0.25rem;
+        }
 
-    .chart-col-value.is-drawn {
-        opacity: 1;
-        transform: translate(-50%, 0);
-    }
+        .registration-details [data-password-meter] {
+            margin-top: 0.375rem;
+        }
 
-    .chart-col-fill {
-        @apply absolute inset-x-0 bottom-0 rounded-sm bg-primary;
-        height: var(--chart-h, 0%);
-        transform: scaleY(0);
-        transform-origin: bottom center;
-        transition: transform 650ms cubic-bezier(0.22, 1, 0.36, 1);
-        transition-delay: var(--chart-delay, 0ms);
-    }
-
-    .chart-col-fill.is-drawn {
-        transform: scaleY(1);
-    }
-
-    .admin-vchart {
-        @apply grid items-stretch gap-x-3;
-        grid-template-columns: auto minmax(0, 1fr);
-    }
-
-    .admin-vchart-y {
-        @apply flex flex-col justify-between items-end pb-7 pt-1 text-[10px] font-medium tabular-nums text-gray-400;
-    }
-
-    .admin-vchart-plot {
-        @apply relative min-w-0 overflow-visible border-b border-l border-gray-200 bg-gray-50/50;
-        min-height: 14.5rem;
-        padding-bottom: 1.75rem;
-    }
-
-    .admin-vchart-grid {
-        @apply pointer-events-none absolute inset-x-0 top-0 bottom-7;
-    }
-
-    .admin-vchart-gridline {
-        @apply absolute inset-x-0 border-t border-dashed border-gray-200/90;
-    }
-
-    .admin-vchart-bars {
-        @apply absolute inset-x-0 top-0 bottom-7 flex items-end justify-around gap-1 px-2 pt-5;
-    }
-
-    .admin-vchart-col {
-        @apply relative flex h-full min-h-0 min-w-0 flex-col items-center;
-        flex: 1 1 0;
-        max-width: 2.75rem;
-    }
-
-    .admin-vchart-track {
-        @apply relative w-full min-h-0 flex-1;
-    }
-
-    .admin-vchart-value {
-        @apply absolute left-1/2 z-10 max-w-[4rem] -translate-x-1/2 truncate text-[10px] font-semibold tabular-nums leading-none text-primary;
-        bottom: calc(var(--chart-h, 0%) + 0.3rem);
-        opacity: 0;
-        transform: translate(-50%, 4px);
-        animation: admin-vchart-value-in 280ms ease-out forwards;
-        animation-delay: var(--chart-delay, 0ms);
-    }
-
-    .admin-vchart-fill {
-        @apply absolute bottom-0 left-1/2 -translate-x-1/2 rounded-sm bg-primary;
-        width: min(70%, 1.75rem);
-        height: var(--chart-h, 0%);
-        transform: translateX(-50%) scaleY(0);
-        transform-origin: bottom center;
-        animation: admin-vchart-grow 650ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-        animation-delay: var(--chart-delay, 0ms);
-    }
-
-    .admin-vchart-label {
-        @apply absolute left-1/2 max-w-[3.5rem] -translate-x-1/2 truncate text-center text-[10px] font-medium text-gray-500 sm:text-xs;
-        top: calc(100% + 0.4rem);
-    }
-
-    @keyframes admin-vchart-grow {
-        to { transform: translateX(-50%) scaleY(1); }
-    }
-
-    @keyframes admin-vchart-value-in {
-        to {
-            opacity: 1;
-            transform: translate(-50%, 0);
+        .registration-details [data-password-meter] p {
+            margin-top: 0.25rem;
         }
     }
 
-    @media (prefers-reduced-motion: reduce) {
-        .chart-col-value,
-        .chart-col-fill {
-            transition: none !important;
-        }
-
-        .chart-col-value {
-            opacity: 1;
-            transform: translate(-50%, 0);
-        }
-
-        .chart-col-fill {
-            transform: scaleY(1);
-        }
-
-        .admin-vchart-value,
-        .admin-vchart-fill {
-            animation: none !important;
-        }
-
-        .admin-vchart-value {
-            opacity: 1;
-            transform: translate(-50%, 0);
-        }
-
-        .admin-vchart-fill {
-            transform: translateX(-50%) scaleY(1);
-        }
-    }
-
+    /* z-index scale for the back office, used everywhere and nowhere else:
+       0 content, 20 sticky top bar, 30 drawer backdrop, 40 sidebar/drawer,
+       50 dropdowns and dialogs. */
     .admin-shell {
-        @apply flex h-full;
+        @apply flex min-h-dvh w-full bg-background;
     }
 
+    /* Desktop: the sidebar owns its own scroll column and travels with the
+       document, so anchors, in-page find, and the sticky top bar behave the
+       way staff expect. Below lg it becomes an off-canvas drawer instead. */
     .admin-sidebar {
-        position: relative;
-        z-index: 20;
-        display: flex;
-        width: 16rem;
-        flex-shrink: 0;
-        flex-direction: column;
-        overflow: hidden;
-        border-right: 1px solid #e5e7eb;
-        background: #fff;
-        transition: width 300ms ease-in-out;
-    }
-
-    .admin-sidebar.is-collapsed {
-        width: 0;
-        border-right-width: 0;
-    }
-
-    .admin-sidebar-inner {
-        display: flex;
-        height: 100%;
-        width: 16rem;
-        flex-shrink: 0;
-        flex-direction: column;
+        @apply sticky top-0 z-40 flex h-dvh w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface;
+        transition: transform 200ms ease-out;
     }
 
     .admin-main {
-        position: relative;
-        z-index: 0;
-        display: flex;
-        min-width: 0;
-        flex: 1 1 0%;
-        flex-direction: column;
-        overflow: hidden;
+        @apply relative flex min-w-0 flex-1 flex-col;
+    }
+
+    .admin-nav-link {
+        @apply flex min-h-11 items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-text-muted transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+    }
+
+    /* One form-control vocabulary: same height, same radius, same focus ring on
+       every input, select, and textarea in the back office. */
+    .admin-input {
+        @apply block w-full rounded-lg border-border bg-surface text-sm text-text shadow-none placeholder:text-text-muted focus:border-primary focus:ring-1 focus:ring-primary disabled:bg-muted disabled:text-text-muted;
+    }
+
+    .admin-label {
+        @apply block text-sm font-medium text-text;
+    }
+
+    .admin-help {
+        @apply mt-1 text-xs text-text-muted;
+    }
+
+    .admin-nav-link:hover {
+        @apply bg-muted text-text;
+    }
+
+    /* aria-current is the single source of truth for the active destination, so
+       pointer and assistive-technology users read the same state. */
+    .admin-nav-link[aria-current='page'] {
+        @apply bg-primary-light font-semibold text-primary;
+    }
+
+    /* One paginator vocabulary. Laravel's stock Tailwind pager paints itself on
+       the raw gray palette, so "next page" looked like it belonged to a
+       different application on whichever list happened to paginate. 40px
+       minimum targets keep it usable with a thumb at the front desk. */
+    .admin-pager-link {
+        @apply inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg border border-border bg-surface px-3 text-sm font-medium text-text transition-colors duration-150 hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+    }
+
+    .admin-pager-link[aria-current='page'] {
+        @apply border-primary bg-primary font-semibold text-white hover:bg-primary hover:text-white;
+    }
+
+    .admin-pager-link.is-disabled {
+        @apply border-dashed bg-muted text-text-muted;
+    }
+
+    .admin-pager-gap {
+        @apply inline-flex min-h-[40px] min-w-[40px] items-center justify-center text-sm text-text-muted;
     }
 
     .admin-live-filter-loading {
-        @apply absolute inset-0 z-10 flex min-h-[12rem] items-center justify-center rounded-lg bg-white/80;
+        @apply absolute inset-0 z-10 flex min-h-[12rem] items-center justify-center rounded-lg bg-surface/80;
     }
 
-    .admin-dialog-frame {
-        display: flex;
-        min-height: 100%;
-        align-items: center;
-        justify-content: center;
-        padding: 1rem;
-        transition: padding-left 300ms ease-in-out;
-    }
 }
 
-@media (max-width: 767px) {
-    .admin-sidebar {
-        position: fixed;
-        inset: 0 auto 0 0;
-        height: 100%;
-        width: 16rem;
-        border-right-width: 1px;
-        transform: translateX(0);
-        transition: transform 300ms ease-in-out;
-    }
+/* Desktop-only affordances; hidden until rail mode asks for them. */
+.rail-only,
+.rail-separator {
+    display: none;
+}
 
-    .admin-sidebar.is-collapsed {
-        width: 16rem;
+@media (max-width: 1023px) {
+    /* Drawer: closed by default in CSS, not by JavaScript, so a failed script
+       can never leave an unclosable panel over the page or hide the
+       navigation entirely. `is-open` is the only thing Alpine adds. */
+    .admin-sidebar {
+        @apply fixed inset-y-0 left-0 z-40 w-64;
+        height: 100dvh;
         transform: translateX(-100%);
     }
+
+    .admin-sidebar.is-open {
+        transform: translateX(0);
+        box-shadow: 0 8px 32px 0 rgba(46, 58, 47, 0.16);
+    }
 }
 
-@media (min-width: 768px) {
-    .admin-shell:has(.admin-sidebar:not(.is-collapsed)) .admin-dialog-frame {
-        padding-left: calc(16rem + 1rem);
+@media (min-width: 1024px) {
+    /* Rail: the desktop collapse keeps every destination visible as an icon so
+       staff never lose their place while reclaiming width for dense tables. */
+    .admin-sidebar.is-rail {
+        @apply w-[4.75rem] px-0;
+    }
+
+    .admin-sidebar.is-rail .rail-hide {
+        display: none;
+    }
+
+    .admin-sidebar.is-rail .rail-only {
+        display: flex;
+    }
+
+    .admin-sidebar.is-rail .rail-separator {
+        display: block;
+    }
+
+    .admin-sidebar.is-rail .admin-nav-link {
+        @apply relative justify-center px-0;
+    }
+
+    /* The pending count stays a real number in rail mode; only its position
+       changes, so staff still see outstanding work at a glance. */
+    .admin-sidebar.is-rail .admin-nav-badge {
+        @apply absolute right-1 top-0 min-w-[1.25rem] px-1 text-[10px];
     }
 }
 
 /* Keyboard users need to see where they are. */
 :focus-visible {
-    outline: 2px solid #623f1f;
+    outline: 2px solid theme('colors.primary.DEFAULT');
     outline-offset: 2px;
+}
+
+/* The account header keeps only the three primary work destinations. */
+.customer-marketing-navigation,
+.customer-desktop-utility,
+.customer-desktop-account,
+.customer-guest-utility {
+    display: none;
+}
+.customer-marketing-menu-toggle { display: inline-flex; }
+
+/* Account screens still use panels where a guest needs a clear decision
+   boundary, but the panel should not read like a stack of floating cards. */
+.customer-account-surface .shadow-sm {
+    box-shadow: none;
+}
+
+@media (min-width: 1280px) {
+    /* Restore the full public navigation at the established xl breakpoint.
+       Smaller laptop and tablet widths keep the compact menu so the header
+       remains readable without compressing the logo and utility actions. */
+    .customer-marketing-navigation { display: flex; }
+    .customer-marketing-menu-toggle { display: none; }
+    .customer-mobile-navigation { display: none !important; }
+    .customer-desktop-utility { display: inline-flex; }
+    .customer-desktop-account { display: block; }
+    .customer-guest-utility { display: flex; }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+    .customer-mobile-navigation { max-width: 28rem; margin-left: auto; }
+}
+
+.customer-account-navigation {
+    display: none;
+    position: absolute;
+    inset: 5rem 0 auto;
+    max-height: calc(100dvh - 5rem);
+    overflow-y: auto;
+    padding: .5rem 1rem 1rem;
+    background: theme('colors.primary.DEFAULT');
+}
+.customer-account-navigation.is-open { display: block; }
+@media (min-width: 1280px) {
+    /* True center of the header bar — not the leftover gap between logo and account. */
+    .customer-account-navigation,
+    .customer-account-navigation.is-open {
+        display: block;
+        inset: auto;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        padding: 0;
+        max-height: none;
+        overflow: visible;
+        background: transparent;
+        z-index: 1;
+    }
+}
+
+@media (max-width: 639px) {
+    header[data-customer-header] .w-80 {
+        position: fixed;
+        inset: 5rem 1rem auto;
+        width: auto;
+        max-width: none;
+    }
+}
+
+.payment-history { overflow-x: auto; }
+@media (max-width: 767px) {
+    .payment-history { overflow: visible; }
+    .payment-history table, .payment-history tbody { display: block; }
+    .payment-history thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .payment-history tr { display: block; padding: 1rem; }
+    .payment-history td {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: .25rem;
+        padding: .5rem 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: left;
+    }
+    .payment-history td::before { content: attr(data-label); font-weight: 600; color: theme('colors.text.DEFAULT'); }
+    .payment-history a { min-height: 44px; }
+}
+
+/* ---------------------------------------------------------------------------
+   The bottom of the screen
+
+   `layouts/customer` sets `viewport-fit=cover`, which is the only reason the
+   `env(safe-area-inset-*)` values below resolve to anything but 0. Without it
+   the booking bar's bottom padding — and every offset here — is silently
+   inert, and the CTA the whole flow is aimed at sits under the home indicator.
+
+   `--dock-bottom` is the height of whatever is pinned to the bottom of the
+   viewport: zero everywhere except the booking wizard, which names itself in
+   `body.has-bottom-dock`. Everything that floats above the bottom edge — the
+   chat launcher, back-to-top, the chat panel, the footer — climbs by it, so
+   three fixed elements cannot end up stacked in one corner. The default is a
+   guess that holds before the script runs and after it fails; Alpine measures
+   the real height the moment the wizard boots, because the bar grows a fourth
+   line when the total has moved. Climbing from zero rather than falling back
+   to zero is deliberate: the stock affordances stay put when nothing measures.
+   --------------------------------------------------------------------------- */
+:root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --dock-bottom: 5.75rem;
+}
+
+body:not(.has-bottom-dock) {
+    --dock-bottom: 0px;
+}
+
+[data-back-to-top] {
+    bottom: calc(var(--dock-bottom) + var(--safe-bottom) + 5rem);
+    right: max(1.25rem, var(--safe-right));
+}
+
+[data-chat-launcher] {
+    bottom: calc(var(--dock-bottom) + var(--safe-bottom) + 1.25rem);
+    right: max(1rem, var(--safe-right));
+}
+
+[data-chat-panel] {
+    bottom: calc(var(--dock-bottom) + var(--safe-bottom) + 6rem);
+}
+
+@media (min-width: 640px) {
+    [data-back-to-top] {
+        bottom: calc(var(--dock-bottom) + var(--safe-bottom) + 6rem);
+        right: max(1.75rem, var(--safe-right));
+    }
+
+    [data-chat-launcher] {
+        bottom: calc(var(--dock-bottom) + var(--safe-bottom) + 1.5rem);
+        right: max(1.5rem, var(--safe-right));
+    }
+}
+
+/* The header is fixed to the top of the display, so it answers to the top
+   inset the way the docks answer to the bottom one. `--safe-top` is 0 in a
+   browser tab and non-zero only once the site is opened as a standalone app,
+   which is why `<main>`'s `pt-20` offset still lines up: a page that ever adds
+   a web manifest has to add this inset to that offset as well. */
+[data-customer-header] {
+    padding-top: var(--safe-top);
+    padding-inline: var(--safe-left) var(--safe-right);
+}
+
+/* What is docked overlays the end of the document, so the footer reserves the
+   room the dock occupies instead of ending underneath it. */
+body.has-bottom-dock footer {
+    padding-bottom: calc(var(--dock-bottom) + var(--safe-bottom) + 2.5rem);
+}
+
+/* ---------------------------------------------------------------------------
+   The booking calendar
+
+   flatpickr brings a palette of its own — a blue it picks for the chosen day,
+   cool greys for every hairline, near-black for its ink — and no class in any
+   view names them, so rule 17 in RULES.md ("a colour a library paints is part
+   of the palette too") cannot see them by scanning. That same blindness has
+   already cost this project four leaks through `@tailwindcss/forms`, which is
+   why the map below answers every colour the stock stylesheet writes rather
+   than the ones that happened to show up in a screenshot. The stock values
+   themselves are recorded in `docs/MOBILE-AUDIT.md`, because this file may not
+   carry a literal colour and the inventory is evidence, not style.
+
+   Two things here are not style choices:
+
+   * The selectors are doubled (`.flatpickr-day.flatpickr-day`). The base
+     stylesheet is not part of this file — `app.js` imports it lazily with the
+     library, so it lands in a chunk injected *after* this one, and an equally
+     specific rule would lose to it however this file is ordered.
+   * Day cells are 44px tall. flatpickr's 39px grid is the part of the stock
+     widget that cannot be talked into compliance, and it is under the touch
+     minimum DESIGN.md asks for. Width comes from the seven-column grid rather
+     than that 39px, so the calendar fits a 320px phone instead of overflowing
+     it.
+   --------------------------------------------------------------------------- */
+.flatpickr-calendar.flatpickr-calendar {
+    width: min(21rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    font-size: 1rem;
+    background: theme('colors.surface');
+    border: 1px solid theme('colors.border');
+    border-radius: 1rem;
+    box-shadow: 0 16px 48px rgba(46, 58, 47, 0.18);
+    /* No z-index here: flatpickr writes its own `z-index: 99999` inline when it
+       positions the panel, and an inline style outranks any rule this file
+       could write. It floats over the docks and the header, which is the
+       behaviour a date field wants, so it is left alone rather than fought
+       with `!important`. */
+}
+
+/* The stock day strip is a fixed 307.875px — the width of the stock panel.
+   This panel is fluid, so the strip follows it: left at its stock width the
+   grid sits against the left edge of a wider panel and the cells stay 44px
+   when the room is there for more. */
+.flatpickr-calendar.flatpickr-calendar .flatpickr-days,
+.flatpickr-calendar.flatpickr-calendar .dayContainer {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+}
+
+.flatpickr-calendar.flatpickr-calendar.arrowTop:before { border-bottom-color: theme('colors.border'); }
+.flatpickr-calendar.flatpickr-calendar.arrowTop:after { border-bottom-color: theme('colors.surface'); }
+.flatpickr-calendar.flatpickr-calendar.arrowBottom:before { border-top-color: theme('colors.border'); }
+.flatpickr-calendar.flatpickr-calendar.arrowBottom:after { border-top-color: theme('colors.surface'); }
+
+.flatpickr-months.flatpickr-months .flatpickr-month,
+.flatpickr-months.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months.flatpickr-months .flatpickr-next-month {
+    color: theme('colors.text.DEFAULT');
+    fill: theme('colors.text.DEFAULT');
+}
+
+/* The stock arrow turns red under the cursor and blue when chosen. The
+   resort's one emphasis is the brand brown, so both answers are primary. */
+.flatpickr-months.flatpickr-months .flatpickr-prev-month:hover,
+.flatpickr-months.flatpickr-months .flatpickr-next-month:hover,
+.flatpickr-months.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months.flatpickr-months .flatpickr-next-month:hover svg {
+    color: theme('colors.primary.DEFAULT');
+    fill: theme('colors.primary.DEFAULT');
+}
+
+.flatpickr-current-month.flatpickr-current-month input.cur-year,
+.flatpickr-current-month.flatpickr-current-month .flatpickr-monthDropdown-months {
+    color: theme('colors.text.DEFAULT');
+    font-weight: 600;
+}
+
+.flatpickr-current-month.flatpickr-current-month span.cur-month:hover,
+.flatpickr-current-month.flatpickr-current-month .flatpickr-monthDropdown-months:hover {
+    background: theme('colors.primary.light');
+}
+
+.flatpickr-current-month.flatpickr-current-month .numInputWrapper span.arrowUp:after { border-bottom-color: theme('colors.text.muted'); }
+.flatpickr-current-month.flatpickr-current-month .numInputWrapper span.arrowDown:after { border-top-color: theme('colors.text.muted'); }
+
+span.flatpickr-weekday.flatpickr-weekday {
+    color: theme('colors.text.muted');
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.flatpickr-day.flatpickr-day {
+    max-width: none;
+    height: 2.75rem;
+    line-height: 2.75rem;
+    color: theme('colors.text.DEFAULT');
+    border-radius: 0.75rem;
+}
+
+.flatpickr-day.flatpickr-day:hover,
+.flatpickr-day.flatpickr-day:focus,
+.flatpickr-day.flatpickr-day.prevMonthDay:hover,
+.flatpickr-day.flatpickr-day.nextMonthDay:hover {
+    background: theme('colors.primary.light');
+    border-color: theme('colors.primary.light');
+}
+
+.flatpickr-day.flatpickr-day.today {
+    border-color: theme('colors.accent.DEFAULT');
+}
+
+.flatpickr-day.flatpickr-day.today:hover,
+.flatpickr-day.flatpickr-day.today:focus {
+    background: theme('colors.accent.DEFAULT');
+    border-color: theme('colors.accent.DEFAULT');
+    color: theme('colors.surface');
+}
+
+.flatpickr-day.flatpickr-day.selected,
+.flatpickr-day.flatpickr-day.selected:hover,
+.flatpickr-day.flatpickr-day.selected:focus,
+.flatpickr-day.flatpickr-day.startRange,
+.flatpickr-day.flatpickr-day.endRange {
+    background: theme('colors.primary.DEFAULT');
+    border-color: theme('colors.primary.DEFAULT');
+    color: theme('colors.surface');
+}
+
+.flatpickr-day.flatpickr-day.inRange {
+    background: theme('colors.primary.light');
+    border-color: theme('colors.primary.light');
+    box-shadow: none;
+}
+
+.flatpickr-day.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-day.flatpickr-disabled:hover,
+.flatpickr-day.flatpickr-day.notAllowed,
+.flatpickr-day.flatpickr-day.prevMonthDay,
+.flatpickr-day.flatpickr-day.nextMonthDay {
+    color: theme('colors.text.muted');
+    opacity: 0.45;
+    background: transparent;
+    border-color: transparent;
+}
+
+/* The hour and minute wheels are a secondary control inside a 44px row; the
+   day grid beside them is the target the audit was actually about. */
+.flatpickr-calendar.flatpickr-calendar.hasTime .flatpickr-time {
+    height: 2.75rem;
+    border-top: 1px solid theme('colors.border');
+}
+
+.flatpickr-time.flatpickr-time,
+.flatpickr-time.flatpickr-time .numInputWrapper {
+    height: 2.75rem;
+    max-height: 2.75rem;
+    line-height: 2.75rem;
+}
+
+.flatpickr-time.flatpickr-time input {
+    /* 16px, because a smaller field is what makes iOS Safari zoom the page the
+       moment the guest taps the hour. */
+    font-size: 1rem;
+    color: theme('colors.text.DEFAULT');
+}
+
+.flatpickr-time.flatpickr-time input:hover,
+.flatpickr-time.flatpickr-time input:focus,
+.flatpickr-time.flatpickr-time .flatpickr-am-pm:hover,
+.flatpickr-time.flatpickr-time .flatpickr-am-pm:focus {
+    background: theme('colors.primary.light');
+}
+
+.flatpickr-time.flatpickr-time .flatpickr-time-separator,
+.flatpickr-time.flatpickr-time .flatpickr-am-pm {
+    color: theme('colors.text.DEFAULT');
+}
+
+/* The spinner arrows sit under `.flatpickr-time`, and the library's own rule
+   for them (`.flatpickr-time .numInputWrapper span.arrowUp:after`) carries the
+   same specificity as a doubled class would — so this group is scoped and
+   doubled, which is what it takes to win a tie against a later stylesheet. The
+   14px-wide arrow lands on 24px here, in a 44px row. */
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper span {
+    width: 1.5rem;
+    border-color: theme('colors.border');
+}
+
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper span:hover { background: theme('colors.primary.light'); }
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper span:active { background: theme('colors.border'); }
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper span.arrowUp:after { border-bottom-color: theme('colors.text.muted'); }
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper span.arrowDown:after { border-top-color: theme('colors.text.muted'); }
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper span svg path { fill: theme('colors.text.muted'); }
+.flatpickr-time.flatpickr-time .numInputWrapper.numInputWrapper:hover { background: theme('colors.muted.DEFAULT'); }
+/* Keep the booking filters scrollable without a second visible bar below them. */
+.booking-category-tabs {
+    scrollbar-width: none;
+}
+
+.booking-category-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+/* Booking has its own help link; keep the floating launcher off form controls. */
+body:has([data-unified-booking-workspace]) [data-support-chat] {
+    display: none;
+}
+
+/* Keep facility names and day headings aligned while the calendar scrolls. */
+.calendar-scroll {
+    --calendar-space: clamp(7rem, 20vw, 14rem);
+    max-height: 75vh;
+    scroll-padding-inline-start: var(--calendar-space);
+    scroll-padding-block-start: 2.5rem;
+}
+.calendar-track {
+    min-width: calc(var(--calendar-space) + var(--calendar-days) * 4rem);
+}
+.calendar-space {
+    width: var(--calendar-space);
 }

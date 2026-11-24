@@ -72,8 +72,10 @@ class ReservationConcurrencyTest extends TestCase
         \App\Models\PaymentDestination::create(['method' => 'gcash', 'account_name' => 'Test', 'account_number' => 'TEST', 'qr_path' => 'test.png', 'is_active' => true]);
         $customer = User::factory()->create();
         $customer->assignRole('Customer');
+        // Approval is what opens the deposit, so the race is between two guests
+        // paying a confirmed booking's half at the same moment.
         $reservation = Reservation::factory()->create(['user_id' => $customer->id, 'facility_id' => $this->facility()->id,
-            'status' => ReservationStatus::Pending, 'total_price' => 3000, 'deposit_required' => 1500, 'deposit_due_at' => now()->addHours(24)]);
+            'status' => ReservationStatus::Approved, 'total_price' => 3000, 'deposit_required' => 1500, 'deposit_due_at' => now()->addHours(24)]);
         $this->assertSame(['accepted', 'rejected'], $this->race('deposit', [$reservation->id, $reservation->id], $customer));
         $this->assertSame(1500.0, $reservation->fresh()->getPendingVerificationTotal());
     }

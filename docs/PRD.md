@@ -17,14 +17,14 @@ The product covers:
 | Surface | Audience | Responsibility |
 |---------|----------|----------------|
 | Public site | Guests / prospects | Browse rooms, halls, packages, cottages, pools, gallery, FAQ, contact; search availability; start booking |
-| Guest portal | Authenticated customers | Reserve, pay (deposit / proof), reschedule / cancel within policy, inquire, review, notifications |
-| Administrator back office | Resort staff / owner | Facilities, rates, walk-ins, approvals, payments, inquiries, reports, Decision Board |
+| Guest portal | Authenticated customers | Reserve, pay (deposit / proof), reschedule or withdraw a pending request within policy, review, notifications; questions via Facebook/Messenger |
+| Administrator back office | Resort staff / owner | Facilities, rates, walk-ins, approvals, payments, reports, Decision Board |
 | Domain core | System | Mixed-resource inventory, hour-native occupancy, snapshot pricing, explainable opportunity cost |
 
 ### Out of scope
 
 - OTA / channel-manager distribution (Booking.com, Agoda, etc.)
-- Full PMS accounting, payroll, or inventory POS beyond resort menu catalog
+- Full PMS accounting, payroll, purchasing, or inventory POS; the MVP includes only a simple manual stock ledger
 - Mobile native apps (responsive web only)
 - TESDA / training batch management (removed from product)
 - Black-box ML demand forecasting (Decision Board is rule-based and auditable)
@@ -44,7 +44,7 @@ Provincial hybrid resorts often coordinate lodging, events, and day-use hours wi
 2. **Honor hour-native occupancy** — A cottage held until 9PM occupies until 9PM; early check-in and late check-out extend conflict detection, not only price.
 3. **Explain owner decisions** — The Decision Board states what is free, what a pending request would displace, what that displacement is worth, and what alternatives cost — in pesos and plain language.
 4. **Digitize the guest journey** — Availability search → authenticated booking → deposit / payment proof → stay lifecycle → optional review.
-5. **Keep policy honest** — Published FAQ cancel/reschedule windows and enforced rules read the same config (`config/resort.php`).
+5. **Keep policy honest** — Published FAQ reschedule/withdrawal windows and enforced rules read the same config (`config/resort.php`).
 6. **Support walk-in operations** — Staff can encode on-site bookings immediately as confirmed without blocking on the online deposit workflow.
 
 ---
@@ -64,7 +64,10 @@ Provincial hybrid resorts often coordinate lodging, events, and day-use hours wi
 - Online reservations start as **Pending** (inventory hold)
 - Itemised pricing snapshot on the reservation (never retroactively repriced)
 - Deposit workflow with payment destinations (GCash / Maya / bank) and proof upload
-- Reschedule and cancel inside published cutoff (default 48 hours before check-in)
+- Reschedule a booking, or withdraw a request that is still pending, inside the published cutoff (default 48 hours before check-in). The resort does not accept guest cancellations.
+- **Arrival pass on verified payment** — the reservation code and its printable pass are issued to the guest once staff verify the deposit (default 50%); a record with no deposit needs a verified payment of its own, so a confirmed booking is never mistaken for a paid one at the desk.
+- **Hold ceiling** — one self-service account may hold `resort.policy.max_pending_holds` (default 5) reservations awaiting approval at once, since each pending booking keeps its space off the market until its review window closes. Staff bookings are not capped; larger groups book through the resort.
+- **Approval opens the deposit** — a request is reviewed before it is payable: staff approve (or decline) it, the approval email opens the 50% QR deposit with its own deadline, and the verified transfer is what earns the arrival pass. Nothing about money approves a booking, and approval alone does not pay it.
 - Inquiries, in-app notifications, post-stay review invitation
 
 ### Administrator back office
@@ -75,6 +78,7 @@ Provincial hybrid resorts often coordinate lodging, events, and day-use hours wi
 - Walk-in encoding (status **Approved** immediately; guest contact stored separately from staff account)
 - Payments: verify, reject, destinations / QR management
 - Inquiries, FAQs, customers, page photos, resort services (pools, sessions, rules, fees, menu)
+- Physical stock ledger for supplies and equipment: item units, quantity on hand, minimum levels, and manual movement history
 - Owner Decision Board (timeline, displacement, opportunity cost, what-ifs)
 - Reporting and immutable activity log
 
@@ -134,7 +138,7 @@ Provincial hybrid resorts often coordinate lodging, events, and day-use hours wi
 |--------|-------------|
 | Online booking completion | Share of availability searches that become Pending reservations |
 | Deposit conversion | Share of Pending reservations with verified deposit before expiry |
-| Policy adherence | Guest cancel/reschedule only within cutoff; FAQ and enforcement stay aligned |
+| Policy adherence | Guest reschedule/withdrawal only within cutoff; cancellations are staff-only, and FAQ and enforcement stay aligned |
 | Payment ops | Median time from proof upload to verify/reject |
 | Usability | ISO 25010-oriented guest and admin task success (secondary instrument) |
 

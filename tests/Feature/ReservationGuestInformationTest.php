@@ -32,7 +32,7 @@ class ReservationGuestInformationTest extends TestCase
 
     public function test_online_booking_requires_the_guest_information_sheet(): void
     {
-        $customer = User::factory()->create();
+        $customer = User::factory()->create(['address' => null, 'nationality' => null, 'valid_id_type' => null, 'phone' => null]);
         $customer->assignRole(Role::Customer->value);
         $facility = $this->createBookableFacility();
 
@@ -40,18 +40,16 @@ class ReservationGuestInformationTest extends TestCase
             ->from(route('customer.booking.create', $facility))
             ->post(route('customer.reservations.store'), [
                 'facility_id' => $facility->id,
-                'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
-                'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
+                'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
                 'guestCount' => 2,
             ])
             ->assertRedirect(route('customer.booking.create', $facility))
             ->assertSessionHasErrors([
-                'guest_name',
                 'guest_place_of_origin',
                 'guest_nationality',
                 'guest_valid_id',
                 'guest_phone',
-                'guest_email',
             ]);
 
         $this->assertDatabaseCount('reservations', 0);
@@ -61,6 +59,9 @@ class ReservationGuestInformationTest extends TestCase
     {
         $customer = User::factory()->create([
             'gender' => GuestGender::Female,
+            'name' => 'Maria Santos', 'address' => 'Ilagan, Isabela', 'nationality' => 'Filipino',
+            'company' => 'Villa Mercedes Tours', 'valid_id_type' => GuestIdType::PhilSys,
+            'phone' => '09171234567', 'email' => 'maria.santos@example.com',
         ]);
         $customer->assignRole(Role::Customer->value);
         $admin = User::factory()->create();
@@ -74,8 +75,8 @@ class ReservationGuestInformationTest extends TestCase
 
         $stay = [
             'facility_id' => $facility->id,
-            'check_in' => now()->addDays(8)->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(9)->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(8)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(9)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 2,
         ];
 
@@ -85,8 +86,8 @@ class ReservationGuestInformationTest extends TestCase
 
         $this->actingAs($admin)
             ->post(route('admin.reservations.store'), array_merge($stay, $sheet, [
-                'check_in' => now()->addDays(18)->format('Y-m-d\TH:i'),
-                'check_out' => now()->addDays(19)->format('Y-m-d\TH:i'),
+                'check_in' => now()->addDays(18)->setTime(14, 0)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(19)->setTime(12, 0)->format('Y-m-d\TH:i'),
             ]))
             ->assertRedirect();
 
@@ -120,8 +121,8 @@ class ReservationGuestInformationTest extends TestCase
 
         $stay = [
             'facility_id' => $facility->id,
-            'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 2,
         ];
 
@@ -168,8 +169,8 @@ class ReservationGuestInformationTest extends TestCase
         $this->actingAs($admin)
             ->post(route('admin.reservations.store'), [
                 'facility_id' => $facility->id,
-                'check_in' => now()->addDays(4)->format('Y-m-d\TH:i'),
-                'check_out' => now()->addDays(5)->format('Y-m-d\TH:i'),
+                'check_in' => now()->addDays(4)->setTime(14, 0)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(5)->setTime(12, 0)->format('Y-m-d\TH:i'),
                 'guestCount' => 2,
             ] + $this->guestInformationPayload([
                 'other_guest_names' => $companions,
@@ -194,8 +195,8 @@ class ReservationGuestInformationTest extends TestCase
             ->from(route('admin.reservations.index'))
             ->post(route('admin.reservations.store'), [
                 'facility_id' => $facility->id,
-                'check_in' => now()->addDays(4)->format('Y-m-d\TH:i'),
-                'check_out' => now()->addDays(5)->format('Y-m-d\TH:i'),
+                'check_in' => now()->addDays(4)->setTime(14, 0)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(5)->setTime(12, 0)->format('Y-m-d\TH:i'),
                 'guestCount' => 10,
             ] + $this->guestInformationPayload([
                 'other_guest_names' => $tooMany,

@@ -3,7 +3,6 @@
 namespace Tests\Feature\Admin;
 
 use App\Enums\FacilityStatus;
-use App\Enums\InquiryStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Enums\ReservationSource;
@@ -11,7 +10,6 @@ use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Models\Facility;
 use App\Models\FacilityType;
-use App\Models\Inquiry;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
@@ -156,7 +154,7 @@ class AdminLiveFilterTest extends TestCase
             ->get(route('admin.reservations.index', ['search' => 'VM-20260910-LIVE01']))
             ->assertOk()
             ->assertSee($reservation->reservation_code)
-            ->assertSee('1 matching reservation');
+            ->assertSee('1 reservation matches');
     }
 
     public function test_live_filter_search_does_not_redirect_a_unique_match(): void
@@ -170,7 +168,7 @@ class AdminLiveFilterTest extends TestCase
         $this->liveFilter('admin.reservations.index', ['search' => 'VM-20260910-LIVE02'])
             ->assertOk()
             ->assertSee($reservation->reservation_code)
-            ->assertSee('1 matching reservation');
+            ->assertSee('1 reservation matches');
     }
 
     public function test_payment_live_filter_combines_status_method_and_space(): void
@@ -237,7 +235,7 @@ class AdminLiveFilterTest extends TestCase
             ->assertOk()
             ->assertSee($inactive->name)
             ->assertSee($this->facility->name)
-            ->assertDontSee('Facility Management');
+            ->assertDontSee('Facilities');
     }
 
     public function test_facility_search_combines_with_type_status_and_active(): void
@@ -289,45 +287,26 @@ class AdminLiveFilterTest extends TestCase
         $response->assertDontSee($inactive->name);
     }
 
-    public function test_customer_and_inquiry_live_filters_return_partials(): void
+    public function test_customer_live_filters_return_partials(): void
     {
         $this->liveFilter('admin.customers.index', ['search' => $this->customer->email])
             ->assertOk()
             ->assertSee($this->customer->name)
             ->assertDontSee('Customer Management');
 
-        $inquiry = Inquiry::factory()->create([
-            'user_id' => $this->customer->id,
-            'subject' => 'Garden villa availability',
-            'status' => InquiryStatus::Pending->value,
-        ]);
-        Inquiry::factory()->create([
-            'user_id' => $this->customer->id,
-            'subject' => 'Closed banquet question',
-            'status' => InquiryStatus::Closed->value,
-        ]);
-
-        $this->liveFilter('admin.inquiries.index', [
-            'status' => InquiryStatus::Pending->value,
-            'search' => 'Garden villa',
-        ])
-            ->assertOk()
-            ->assertSee($inquiry->subject)
-            ->assertDontSee('Closed banquet question')
-            ->assertDontSee('Inquiry Management');
     }
 
     public function test_rates_and_activity_log_live_filters_return_partials(): void
     {
         $this->liveFilter('admin.rates.index')
             ->assertOk()
-            ->assertDontSee('Rate Management')
+            ->assertDontSee('Rates and pricing')
             ->assertDontSee('Create Rate');
 
         $this->liveFilter('admin.activity-log.index', ['staff_id' => $this->admin->id])
             ->assertOk()
             ->assertDontSee('cannot be edited or deleted')
-            ->assertDontSee('Activity Log');
+            ->assertDontSee('Staff activity');
     }
 
     /**

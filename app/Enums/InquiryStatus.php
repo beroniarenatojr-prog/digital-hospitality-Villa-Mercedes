@@ -17,6 +17,15 @@ enum InquiryStatus: string
         };
     }
 
+    /** @return 'success'|'warning'|'danger'|'info'|'neutral'|'muted' */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Closed => 'success',
+            self::Open, self::Pending => 'warning',
+        };
+    }
+
     /**
      * @return list<string>
      */

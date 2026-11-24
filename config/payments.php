@@ -3,6 +3,12 @@
 return [
     'deposit_workflow' => (bool) env('PAYMENT_DEPOSIT_WORKFLOW', true),
     'allow_gateway_checkout' => false,
+
+    /*
+    | How long a new online hold waits for its deposit before the scheduler
+    | releases it (see DepositDeadline and `reservations:expire-unpaid`), and how
+    | long a submitted proof may sit before the review screen calls it overdue.
+    */
     'hold_hours' => 24,
     'review_hours' => 24,
 

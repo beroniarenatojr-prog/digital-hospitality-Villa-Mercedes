@@ -205,10 +205,33 @@ class PackageSystemTest extends TestCase
 
         $this->assertFalse($hall->is_listed);
         $this->assertFalse($hall->isOnlineBookable());
+        $this->assertSame(0, Facility::query()->listed()->whereKey($hall->id)->count());
 
         $this->get(route('halls'))
             ->assertOk()
             ->assertDontSee('Private Function Hall');
+
+        $guest = User::factory()->create();
+        $guest->assignRole('Customer');
+
+        // The guest's own picker is a listing of function halls as well.
+        $this->actingAs($guest)
+            ->get(route('customer.reservations.new', ['type' => 'function_hall']))
+            ->assertOk()
+            ->assertDontSee('Private Function Hall');
+
+        // `facility_id` passing `exists` is not enough: a crafted POST must not
+        // turn the inventory-only hall into a standalone reservation.
+        $this->actingAs($guest)
+            ->post(route('customer.reservations.store'), [
+                'facility_id' => $hall->id,
+                'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
+                'guestCount' => 2,
+            ] + $this->guestInformationPayload())
+            ->assertSessionHasErrors('facility_id');
+
+        $this->assertDatabaseMissing('reservations', ['facility_id' => $hall->id]);
     }
 
     public function test_overnight_package_remains_online_bookable(): void
@@ -219,7 +242,7 @@ class PackageSystemTest extends TestCase
 
         $this->get(route('facilities.show', $package))
             ->assertOk()
-            ->assertSee('Check availability');
+            ->assertSee('Add to booking');
 
         $guest = User::factory()->create();
         $guest->assignRole('Customer');

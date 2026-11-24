@@ -19,6 +19,7 @@ class StoreFacilityRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'facility_type_id' => ['required', 'integer', 'exists:facility_types,id'],
             'description' => ['nullable', 'string', 'max:5000'],
+            'exclusions' => ['nullable', 'string', 'max:5000'],
             'base_capacity' => ['required', 'integer', 'min:1'],
             'max_capacity' => ['required', 'integer', 'gte:base_capacity'],
             'is_active' => ['boolean'],

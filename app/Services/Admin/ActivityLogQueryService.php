@@ -84,7 +84,7 @@ class ActivityLogQueryService
     {
         if ($actionType === ActivityActionType::Approve) {
             $query->where(function (Builder $approve) {
-                $approve->where('event', 'payment_verified')
+                $approve->whereIn('event', ['payment_verified', 'late_checkout_approved'])
                     ->orWhere(function (Builder $reservation) {
                         $reservation->where('event', 'status_changed')
                             ->where(fn (Builder $description) => $description->where('description', 'like', '%to Approved%')->orWhere('description', 'like', '%to Confirmed%'));

@@ -18,7 +18,7 @@ final class AdminCatalogCache
         /** @var Collection<int, Facility> $facilities */
         $facilities = Cache::remember(self::BOOKABLE_KEY, now()->addMinutes(5), function (): Collection {
             return Facility::query()
-                ->with(['facilityType', 'packageComponents'])
+                ->with(['facilityType', 'packageComponents', 'galleryImages', 'amenities', 'rates'])
                 ->where('is_active', true)
                 ->orderBy('name')
                 ->get()

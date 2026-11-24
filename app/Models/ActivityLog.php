@@ -79,7 +79,7 @@ class ActivityLog extends Activity
             Payment::class => route('admin.payments.show', $subject),
             Facility::class => route('admin.facilities.show', $subject),
             Rate::class => route('admin.rates.show', $subject),
-            Inquiry::class => route('admin.inquiries.show', $subject),
+            Inquiry::class => null, // Historical record; inquiry workflow retired.
             User::class => $subject->hasRole(Role::Customer->value)
                 ? route('admin.customers.show', $subject)
                 : null,

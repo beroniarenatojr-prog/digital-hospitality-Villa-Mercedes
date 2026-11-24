@@ -25,6 +25,8 @@ class AdminAuthenticationTest extends TestCase
         $this->get(route('admin.login'))
             ->assertOk()
             ->assertSee('Administrator sign in')
+            // The tab still names itself from the route it is on.
+            ->assertSee('<title>Staff sign in', false)
             ->assertDontSee('Create one in a minute')
             ->assertDontSee('Create an account');
     }
@@ -169,7 +171,11 @@ class AdminAuthenticationTest extends TestCase
 
         $this->assertAuthenticatedAs($admin);
 
-        $this->post('/logout')->assertRedirect('/');
+        // Out of the back office and back to its door, saying what happened,
+        // rather than onto the public home page a staff member never came from.
+        $this->post(route('admin.logout'))
+            ->assertRedirect(route('admin.login'))
+            ->assertSessionHas('status');
         $this->assertGuest();
     }
 }

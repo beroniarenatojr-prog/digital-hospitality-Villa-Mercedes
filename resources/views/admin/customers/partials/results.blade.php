@@ -1,78 +1,102 @@
-<div class="hidden md:block">
-    <x-admin.table>
-        <x-admin.table-head>
-            <x-admin.table-cell :isHeader="true">Name</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Email</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Phone</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Registered</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Reservations</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Actions</x-admin.table-cell>
-        </x-admin.table-head>
-        <x-admin.table-body>
-            @forelse($customers as $customer)
-                <x-admin.table-row>
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.customers.show', $customer->id) }}" class="font-semibold text-primary hover:text-primary-dark">
+@php
+    $hasFilters = request()->anyFilled(['search', 'has_reservations', 'registered_from', 'registered_until']);
+@endphp
+
+@if ($customers->isEmpty())
+    <div class="rounded-xl border border-border bg-surface">
+        <x-admin.empty
+            icon="customers"
+            title="{{ $hasFilters ? 'No customers match these filters' : 'No guest accounts yet' }}"
+            description="{{ $hasFilters ? 'Clear a filter or search by a different name, email, or phone number.' : 'Guests appear here when they create an account through the public booking flow.' }}"
+        />
+    </div>
+@else
+    <div class="hidden lg:block">
+        <x-admin.table>
+            <x-admin.table-head>
+                <x-admin.table-cell :isHeader="true">Guest</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Email</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Phone</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Registered</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true" numeric>Bookings</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true"><span class="sr-only">Actions</span></x-admin.table-cell>
+            </x-admin.table-head>
+            <x-admin.table-body>
+                @foreach ($customers as $customer)
+                    <x-admin.table-row>
+                        <x-admin.table-cell>
+                            <a href="{{ route('admin.customers.show', $customer->id) }}" class="rounded font-semibold text-text hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                {{ $customer->name }}
+                            </a>
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            {{ $customer->email }}
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            @if ($customer->phone)
+                                {{ $customer->phone }}
+                            @else
+                                <span class="text-text-muted">No number on file</span>
+                            @endif
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            <x-admin.date-time :value="$customer->created_at" format="date" />
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell numeric>
+                            <span class="font-medium">{{ $customer->reservations_count }}</span>
+                            @if ($customer->reservations_max_check_in)
+                                <span class="mt-0.5 block text-xs text-text-muted">
+                                    Latest <x-admin.date-time :value="\Carbon\Carbon::parse($customer->reservations_max_check_in)" format="date" />
+                                </span>
+                            @endif
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            <a href="{{ route('admin.customers.show', $customer->id) }}" class="rounded font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                Open guest
+                            </a>
+                        </x-admin.table-cell>
+                    </x-admin.table-row>
+                @endforeach
+            </x-admin.table-body>
+        </x-admin.table>
+    </div>
+
+    <ul class="space-y-3 lg:hidden">
+        @foreach ($customers as $customer)
+            <li class="rounded-xl border border-border bg-surface p-4">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <a href="{{ route('admin.customers.show', $customer->id) }}" class="block truncate font-semibold text-text hover:text-primary">
                             {{ $customer->name }}
                         </a>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm text-gray-700">{{ $customer->email }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm text-gray-700">{{ $customer->phone ?: '—' }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm text-gray-700">{{ $customer->created_at->format('M d, Y') }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm font-medium text-gray-900">{{ $customer->reservations_count }}</span>
-                        @if($customer->reservations_max_check_in)
-                            <span class="block text-xs text-gray-400">Latest: {{ \Carbon\Carbon::parse($customer->reservations_max_check_in)->format('M d, Y') }}</span>
+                        <p class="truncate text-sm text-text-muted">{{ $customer->email }}</p>
+                        @if ($customer->phone)
+                            <p class="truncate text-sm text-text-muted tabular-nums">{{ $customer->phone }}</p>
                         @endif
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.customers.show', $customer->id) }}" class="text-primary hover:text-primary-dark text-sm font-medium">View</a>
-                    </x-admin.table-cell>
-                </x-admin.table-row>
-            @empty
-                <x-admin.table-row>
-                    <x-admin.table-cell colspan="6" class="text-center py-8 text-gray-500">
-                        No customers found matching your criteria.
-                    </x-admin.table-cell>
-                </x-admin.table-row>
-            @endforelse
-        </x-admin.table-body>
-    </x-admin.table>
-</div>
+                    </div>
+                    <span class="shrink-0 text-xs text-text-muted tabular-nums">
+                        {{ $customer->reservations_count }} {{ \Illuminate\Support\Str::plural('booking', $customer->reservations_count) }}
+                    </span>
+                </div>
 
-<div class="md:hidden space-y-4">
-    @forelse($customers as $customer)
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div class="flex items-start justify-between mb-2">
-                <a href="{{ route('admin.customers.show', $customer->id) }}" class="font-semibold text-primary hover:text-primary-dark">
-                    {{ $customer->name }}
-                </a>
-                <span class="text-xs text-gray-400">{{ $customer->reservations_count }} reservations</span>
-            </div>
-            <div class="text-sm text-gray-600 space-y-1">
-                <p>{{ $customer->email }}</p>
-                @if($customer->phone)
-                    <p>{{ $customer->phone }}</p>
-                @endif
-                <p class="text-xs text-gray-400">Registered {{ $customer->created_at->format('M d, Y') }}</p>
-            </div>
-            <div class="mt-3 pt-3 border-t border-gray-100">
-                <a href="{{ route('admin.customers.show', $customer->id) }}" class="w-full text-center block px-4 py-2 border border-primary rounded-md text-sm font-medium text-primary hover:bg-primary hover:text-white transition">
-                    View Customer
-                </a>
-            </div>
+                <div class="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+                    <span class="text-xs text-text-muted">
+                        Registered <x-admin.date-time :value="$customer->created_at" format="date" />
+                    </span>
+                    <x-admin.button variant="secondary" size="sm" :href="route('admin.customers.show', $customer->id)">Open guest</x-admin.button>
+                </div>
+            </li>
+        @endforeach
+    </ul>
+
+    @if ($customers->hasPages())
+        <div class="mt-6">
+            {{ $customers->withQueryString()->links() }}
         </div>
-    @empty
-        <p class="text-center text-gray-500 py-8">No customers found.</p>
-    @endforelse
-</div>
-
-<div class="mt-6">
-    {{ $customers->withQueryString()->links() }}
-</div>
+    @endif
+@endif

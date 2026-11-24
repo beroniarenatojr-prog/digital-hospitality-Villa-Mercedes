@@ -1,168 +1,228 @@
+@php
+    $reservations = $customer->reservations->sortByDesc('created_at');
+    $allPayments = $customer->reservations->flatMap->payments->sortByDesc('created_at');
+@endphp
+
 <x-admin-layout>
-    <x-slot name="header">
-        {{ $customer->name }}
-    </x-slot>
+    <x-slot name="header">{{ $customer->name }}</x-slot>
 
-    <!-- Breadcrumb -->
-    <nav class="mb-6 text-sm text-gray-500">
-        <a href="{{ route('admin.customers.index') }}" class="hover:text-primary">Customers</a>
-        <span class="mx-2">/</span>
-        <span class="text-gray-900">{{ $customer->name }}</span>
-    </nav>
+    <x-admin.page-header
+        title="{{ $customer->name }}"
+        :breadcrumbs="[
+            ['label' => 'Customers', 'url' => route('admin.customers.index')],
+            ['label' => $customer->name],
+        ]"
+    >
+        <x-slot:actions>
+            <x-admin.button variant="secondary" :href="route('admin.reservations.index', ['search' => $customer->email])">Their reservations</x-admin.button>
+            <x-admin.button variant="secondary" :href="route('admin.payments.index', ['search' => $customer->email])">Their payments</x-admin.button>
+        </x-slot:actions>
+    </x-admin.page-header>
 
-    <!-- KPI Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Reservations</p>
-            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $stats['total_reservations'] }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Upcoming</p>
-            <p class="text-2xl font-bold text-primary mt-1">{{ $stats['upcoming'] }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Verified Paid</p>
-            <p class="text-2xl font-bold text-success mt-1">₱{{ number_format($paymentStats['verified_total'], 2) }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Pending Payments</p>
-            <p class="text-2xl font-bold text-amber-600 mt-1">{{ $paymentStats['pending_count'] }}</p>
-        </div>
+    <div class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <x-admin.panel>
+            <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Reservations</p>
+            <p class="mt-1 text-2xl font-semibold tabular-nums text-text">{{ $stats['total_reservations'] }}</p>
+        </x-admin.panel>
+
+        <x-admin.panel>
+            <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Upcoming stays</p>
+            <p class="mt-1 text-2xl font-semibold tabular-nums text-primary">{{ $stats['upcoming'] }}</p>
+        </x-admin.panel>
+
+        <x-admin.panel>
+            <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Verified paid</p>
+            <p class="mt-1 text-2xl font-semibold text-success"><x-amount :value="$paymentStats['verified_total']" /></p>
+        </x-admin.panel>
+
+        <x-admin.panel>
+            <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Proofs waiting</p>
+            <p class="mt-1 text-2xl font-semibold tabular-nums text-warning">{{ $paymentStats['pending_count'] }}</p>
+        </x-admin.panel>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Main Content -->
-        <div class="lg:col-span-2 space-y-6">
-
-            <!-- Customer Information -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Customer Information</h3>
-                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+    <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+        <div class="space-y-6 lg:col-span-2">
+            <x-admin.panel title="Customer information">
+                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Full Name</dt>
-                        <dd class="mt-1 text-sm font-semibold text-gray-900">{{ $customer->name }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Full name</dt>
+                        <dd class="mt-1 text-sm font-semibold text-text">{{ $customer->name }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Email Address</dt>
-                        <dd class="mt-1 text-sm text-gray-900">
-                            <a href="mailto:{{ $customer->email }}" class="text-primary hover:underline">{{ $customer->email }}</a>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Email address</dt>
+                        <dd class="mt-1 text-sm">
+                            <a href="mailto:{{ $customer->email }}" class="rounded font-medium text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                {{ $customer->email }}
+                            </a>
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Phone</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $customer->phone ?: 'Not provided' }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Phone</dt>
+                        <dd class="mt-1 text-sm tabular-nums text-text">{{ $customer->phone ?: 'Not provided' }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Registered</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $customer->created_at->format('F j, Y') }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Registered</dt>
+                        <dd class="mt-1"><x-admin.date-time :value="$customer->created_at" format="date" /></dd>
                     </div>
                 </dl>
-            </div>
+            </x-admin.panel>
 
-            <!-- Reservation History -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Reservation History</h3>
-                @if($customer->reservations->count() > 0)
-                    <div class="space-y-3">
-                        @foreach($customer->reservations->sortByDesc('created_at') as $reservation)
-                            <div class="flex items-center justify-between p-3 rounded-md border border-gray-100 hover:bg-gray-50 transition">
-                                <div class="min-w-0 flex-1">
-                                    <a href="{{ route('admin.reservations.show', $reservation) }}" class="font-mono text-sm font-semibold text-primary hover:text-primary-dark">
-                                        {{ $reservation->reservation_code }}
-                                    </a>
-                                    <p class="text-xs text-gray-500 mt-0.5">
-                                        {{ $reservation->facility->name }} · {{ $reservation->check_in->format('M d') }}–{{ $reservation->check_out->format('M d, Y') }} · {{ $reservation->guest_count }} pax
-                                    </p>
-                                </div>
-                                <div class="flex items-center gap-3 ml-4 flex-shrink-0">
-                                    <span class="text-sm font-semibold text-gray-900">₱{{ number_format($reservation->total_price, 2) }}</span>
-                                    <x-badge :status="$reservation->status->value" />
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @else
-                    <p class="text-center text-gray-500 py-6">This customer has no reservations yet.</p>
-                @endif
-            </div>
+            <x-admin.panel
+                title="Reservation history"
+                :badge="$reservations->count()"
+                :padding="false"
+                description="Newest first. Manage a reservation to approve or decline it, review payment, reschedule, check in, or prepare its guest sheet."
+            >
+                @if ($reservations->isNotEmpty())
+                    <x-admin.table plain>
+                        <x-admin.table-head>
+                            <x-admin.table-cell :isHeader="true">Reservation</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Stay</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true" numeric>Total</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Status</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true" class="text-right">Action</x-admin.table-cell>
+                        </x-admin.table-head>
+                        <x-admin.table-body>
+                            @foreach ($reservations as $reservation)
+                                <x-admin.table-row>
+                                    <x-admin.table-cell>
+                                        <a href="{{ route('admin.reservations.show', $reservation) }}" class="rounded font-mono text-xs font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                            {{ $reservation->reservation_code }}
+                                        </a>
+                                        <span class="mt-0.5 block text-xs text-text-muted">{{ $reservation->facility->name }} · {{ $reservation->guest_count }} pax</span>
+                                    </x-admin.table-cell>
 
-            <!-- Payment History -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Payment History</h3>
-                @php
-                    $allPayments = $customer->reservations->flatMap->payments->sortByDesc('created_at');
-                @endphp
-                @if($allPayments->count() > 0)
-                    <div class="space-y-3">
-                        @foreach($allPayments as $payment)
-                            <div class="flex items-center justify-between p-3 rounded-md border border-gray-100 hover:bg-gray-50 transition">
-                                <div class="min-w-0 flex-1">
-                                    <a href="{{ route('admin.payments.show', $payment) }}" class="text-sm font-semibold text-primary hover:text-primary-dark">
-                                        ₱{{ number_format($payment->amount, 2) }}
-                                    </a>
-                                    <p class="text-xs text-gray-500 mt-0.5">
-                                        {{ $payment->method->label() }} · {{ $payment->payment_date->format('M d, Y') }} · {{ $payment->reservation->reservation_code }}
-                                    </p>
-                                </div>
-                                <div class="flex-shrink-0 ml-4">
-                                    <x-badge :status="$payment->status->value" />
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
+                                    <x-admin.table-cell>
+                                        <x-admin.date-range :from="$reservation->check_in" :to="$reservation->check_out" :time="false" />
+                                    </x-admin.table-cell>
+
+                                    <x-admin.table-cell numeric>
+                                        <x-amount :value="$reservation->total_price" />
+                                    </x-admin.table-cell>
+
+                                    <x-admin.table-cell nowrap>
+                                        <x-badge :status="$reservation->status" />
+                                    </x-admin.table-cell>
+
+                                    <x-admin.table-cell class="text-right" nowrap>
+                                        <x-admin.button variant="secondary" size="sm" :href="route('admin.reservations.show', $reservation)">
+                                            Manage reservation
+                                        </x-admin.button>
+                                    </x-admin.table-cell>
+                                </x-admin.table-row>
+                            @endforeach
+                        </x-admin.table-body>
+                    </x-admin.table>
                 @else
-                    <p class="text-center text-gray-500 py-6">This customer has no payment records yet.</p>
+                    <x-admin.empty
+                        icon="reservations"
+                        title="No reservations yet"
+                        description="This guest has an account but has not booked a stay. Bookings made with the same email will appear here."
+                    />
                 @endif
-            </div>
+            </x-admin.panel>
+
+            <x-admin.panel
+                title="Payment history"
+                :badge="$allPayments->count()"
+                :padding="false"
+                description="Proofs, front-desk receipts, and refunds recorded against these stays."
+            >
+                @if ($allPayments->isNotEmpty())
+                    <x-admin.table plain>
+                        <x-admin.table-head>
+                            <x-admin.table-cell :isHeader="true">Amount</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Method</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Date</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Reservation</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Status</x-admin.table-cell>
+                        </x-admin.table-head>
+                        <x-admin.table-body>
+                            @foreach ($allPayments as $payment)
+                                <x-admin.table-row>
+                                    <x-admin.table-cell numeric>
+                                        <a href="{{ route('admin.payments.show', $payment) }}" class="rounded font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                            <x-amount :value="$payment->amount" />
+                                        </a>
+                                    </x-admin.table-cell>
+
+                                    <x-admin.table-cell nowrap>{{ $payment->method->label() }}</x-admin.table-cell>
+
+                                    <x-admin.table-cell nowrap>
+                                        <x-admin.date-time :value="$payment->payment_date" format="date" />
+                                    </x-admin.table-cell>
+
+                                    <x-admin.table-cell nowrap>
+                                        <span class="font-mono text-xs text-text-muted">{{ $payment->reservation->reservation_code }}</span>
+                                    </x-admin.table-cell>
+
+                                    <x-admin.table-cell nowrap>
+                                        <x-badge :status="$payment->status" />
+                                    </x-admin.table-cell>
+                                </x-admin.table-row>
+                            @endforeach
+                        </x-admin.table-body>
+                    </x-admin.table>
+                @else
+                    <x-admin.empty
+                        icon="payments"
+                        title="No payments recorded yet"
+                        description="Nothing has been paid towards this guest's stays. Proofs appear here as soon as the guest uploads them."
+                    />
+                @endif
+            </x-admin.panel>
         </div>
 
-        <!-- Sidebar -->
-        <div class="space-y-6">
-            <!-- Reservation Summary -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Reservation Summary</h3>
-                <div class="space-y-3">
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Total Reservations</span>
-                        <span class="font-semibold text-gray-900">{{ $stats['total_reservations'] }}</span>
+        <div class="space-y-6 lg:sticky lg:top-24">
+            <x-admin.panel title="Reservation summary">
+                <dl class="space-y-3 text-sm">
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Total reservations</dt>
+                        <dd class="font-semibold tabular-nums text-text">{{ $stats['total_reservations'] }}</dd>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Upcoming</span>
-                        <span class="font-semibold text-primary">{{ $stats['upcoming'] }}</span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Upcoming</dt>
+                        <dd class="font-semibold tabular-nums text-primary">{{ $stats['upcoming'] }}</dd>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Completed</span>
-                        <span class="font-semibold text-success">{{ $stats['completed'] }}</span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Completed</dt>
+                        <dd class="font-semibold tabular-nums text-success">{{ $stats['completed'] }}</dd>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Cancelled / Rejected</span>
-                        <span class="font-semibold text-gray-500">{{ $stats['cancelled'] }}</span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Cancelled or rejected</dt>
+                        <dd class="font-semibold tabular-nums text-text-muted">{{ $stats['cancelled'] }}</dd>
                     </div>
-                </div>
-            </div>
+                </dl>
+            </x-admin.panel>
 
-            <!-- Payment Summary -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Payment Summary</h3>
-                <div class="space-y-3">
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Total Payments</span>
-                        <span class="font-semibold text-gray-900">{{ $paymentStats['total_payments'] }}</span>
+            <x-admin.panel title="Payment summary">
+                <dl class="space-y-3 text-sm">
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Total payments</dt>
+                        <dd class="font-semibold tabular-nums text-text">{{ $paymentStats['total_payments'] }}</dd>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Verified Amount</span>
-                        <span class="font-bold text-success">₱{{ number_format($paymentStats['verified_total'], 2) }}</span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Verified amount</dt>
+                        <dd class="font-semibold text-success"><x-amount :value="$paymentStats['verified_total']" /></dd>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Pending</span>
-                        <span class="font-semibold text-amber-600">{{ $paymentStats['pending_count'] }}</span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Waiting for verification</dt>
+                        <dd class="font-semibold tabular-nums text-warning">{{ $paymentStats['pending_count'] }}</dd>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Rejected</span>
-                        <span class="font-semibold text-danger">{{ $paymentStats['rejected_count'] }}</span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-text-muted">Rejected</dt>
+                        <dd class="font-semibold tabular-nums text-danger">{{ $paymentStats['rejected_count'] }}</dd>
                     </div>
+                </dl>
+            </x-admin.panel>
+
+            <x-admin.panel title="Actions">
+                <div class="space-y-2">
+                    <x-admin.button variant="secondary" :href="route('admin.customers.index')" class="w-full">All customers</x-admin.button>
+                    <x-admin.button variant="ghost" :href="route('admin.reservations.index')" class="w-full">All reservations</x-admin.button>
                 </div>
-            </div>
+            </x-admin.panel>
         </div>
     </div>
 </x-admin-layout>

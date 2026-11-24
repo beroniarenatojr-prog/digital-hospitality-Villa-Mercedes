@@ -45,7 +45,7 @@ class FileSecurityTest extends TestCase
             'proof' => $file,
         ]);
 
-        $response->assertRedirect(route('customer.reservations.show', $reservation));
+        $response->assertRedirect(route('customer.reservations.index', ['tab' => 'upcoming']));
 
         $payment = Payment::query()->where('reservation_id', $reservation->id)->first();
         $this->assertNotNull($payment);
@@ -233,7 +233,7 @@ class FileSecurityTest extends TestCase
             'amount' => 2500,
             'payment_method' => PaymentMethod::GCash->value,
             'proof' => $file,
-        ])->assertRedirect(route('customer.reservations.show', $reservation));
+        ])->assertRedirect(route('customer.reservations.index', ['tab' => 'upcoming']));
 
         $payment = Payment::query()->where('reservation_id', $reservation->id)->first();
         $this->assertNotNull($payment);

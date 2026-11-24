@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Customer;
 
 use App\Enums\PaymentMethod;
+use App\Enums\ReservationStatus;
 use App\Exceptions\Payment\InvalidPaymentAmountException;
 use App\Exceptions\Payment\PaymentGatewayException;
 use App\Exceptions\Payment\PaymentNotEligibleException;
@@ -15,6 +16,7 @@ use App\Models\Reservation;
 use App\Services\Customer\CustomerPaymentService;
 use App\Services\FileUploadService;
 use App\Services\Payments\OnlinePaymentService;
+use App\Support\Money;
 use Exception;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -43,6 +45,18 @@ class CustomerPaymentController extends Controller
         ]);
     }
 
+    public function groupIndex(Request $request, \App\Models\ReservationGroup $group): View
+    {
+        abort_unless($group->user_id === $request->user()->id, 403);
+        $group->load(['reservations' => fn ($query) => $query->where('user_id', $request->user()->id)->with('facility')]);
+        $payments = Payment::query()->where(function ($query) use ($group) {
+            $query->whereIn('reservation_id', $group->reservations->modelKeys())
+                ->orWhere(fn ($direct) => $direct->where('reservation_group_id', $group->id)->whereNull('reservation_id'));
+        })->with('verifiedBy')->orderByDesc('created_at')->orderByDesc('id')->get();
+
+        return view('customer.payments.group', compact('group', 'payments'));
+    }
+
     public function store(StorePaymentRequest $request, Reservation $reservation): RedirectResponse
     {
         abort_unless($reservation->user_id === $request->user()->id, 403);
@@ -61,8 +75,11 @@ class CustomerPaymentController extends Controller
                 [...$request->validated(), 'proof_hash' => hash_file('sha256', $request->file('proof')->getRealPath())]
             );
 
-            return redirect()->route('customer.reservations.show', $reservation)
-                ->with('success', 'Payment submitted successfully.');
+            return redirect()->route('customer.reservations.index', ['tab' => $reservation->fresh()->status === ReservationStatus::Pending ? 'pending' : 'upcoming'])
+                ->with(
+                    'success',
+                    'Proof for '.Money::of($payment->amount).' was submitted. The admin will review the transfer. It appears as Under review until verified; Verified paid and the final balance update after approval.'
+                );
 
         } catch (PaymentOwnershipException $e) {
             $this->fileUploadService->delete($proofPath);
@@ -146,9 +163,33 @@ class CustomerPaymentController extends Controller
                 : 'Checkout was left before payment confirmation. Check your payment account before trying again.');
     }
 
+    public function receipt(Request $request, Payment $payment): View
+    {
+        $reservation = $payment->reservation;
+        $group = $payment->reservation_group_id ? $payment->reservationGroup : null;
+        abort_unless($reservation ? $reservation->user_id === $request->user()->id : $group?->user_id === $request->user()->id, 403);
+        abort_unless($payment->status === \App\Enums\PaymentStatus::Verified, 404, 'Payment proof is under review; a receipt is available only after verification.');
+        $reservations = $reservation ? collect([$reservation]) : $group->reservations()->with('facility')->get();
+        $verifiedPaid = $reservation ? $reservation->getVerifiedTotalPaid() : $group->verifiedPaymentsTotal();
+        $pendingPaid = $reservation ? $reservation->getPendingVerificationTotal() : $group->pendingPaymentsTotal();
+        $balance = $reservation ? $reservation->getRemainingBalance() : $group->outstandingBalance();
+
+        return view('customer.payments.receipt', compact('payment', 'group', 'reservations', 'verifiedPaid', 'pendingPaid', 'balance'));
+    }
+
+    private function authorizePaymentDocument(Request $request, Payment $payment): void
+    {
+        if ($payment->reservation_id) {
+            $this->paymentService->getPaymentsForReservation($request->user(), $payment->reservation);
+        } else {
+            abort_unless($payment->reservationGroup?->user_id === $request->user()->id, 403);
+        }
+        abort_unless(filled($payment->proof_path), 404);
+    }
+
     public function viewProof(Request $request, Payment $payment): StreamedResponse
     {
-        $this->paymentService->getPaymentsForReservation($request->user(), $payment->reservation);
+        $this->authorizePaymentDocument($request, $payment);
 
         return $this->fileUploadService->view((string) $payment->proof_path);
     }
@@ -156,7 +197,7 @@ class CustomerPaymentController extends Controller
     public function downloadProof(Request $request, Payment $payment): StreamedResponse
     {
         // Ownership verification (throws exception if not owned)
-        $this->paymentService->getPaymentsForReservation($request->user(), $payment->reservation);
+        $this->authorizePaymentDocument($request, $payment);
 
         return $this->fileUploadService->download((string) $payment->proof_path);
     }

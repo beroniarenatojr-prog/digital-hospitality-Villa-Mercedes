@@ -1,4 +1,4 @@
-@props(['variant' => 'hero', 'submitLabel' => 'Check availability'])
+@props(['variant' => 'hero', 'submitLabel' => 'Check Availability'])
 
 @php
     $routeName = request()->route()?->getName();
@@ -56,7 +56,7 @@
     @class([
         'rounded-2xl',
         'bg-surface/95 backdrop-blur-md p-4 sm:p-5 shadow-2xl ring-1 ring-black/5' => $onHero,
-        'bg-surface border border-border p-4 shadow-sm' => ! $onHero,
+        'bg-surface border-y border-border p-4 shadow-none' => ! $onHero,
     ])
 >
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4 lg:items-end">
@@ -107,7 +107,6 @@
                 min="1"
                 max="500"
                 inputmode="numeric"
-                placeholder="2"
                 required
                 class="{{ $fieldClasses }}"
             >

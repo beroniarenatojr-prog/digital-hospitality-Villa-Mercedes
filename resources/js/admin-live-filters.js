@@ -142,7 +142,7 @@ const bindLiveFilter = (root) => {
                 return;
             }
 
-            content.innerHTML = '<p class="py-8 text-center text-sm text-gray-500">Results could not be updated. Try again.</p>';
+            content.innerHTML = '<p class="py-8 text-center text-sm text-text-muted">Results could not be updated. Try again.</p>';
         } finally {
             if (sequence === requestSequence) {
                 setLoading(false);

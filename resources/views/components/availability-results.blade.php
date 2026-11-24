@@ -14,16 +14,16 @@
             @endif
         </div>
 
-        @if(($search['status'] ?? null) === 'unavailable')
-            <p role="status" class="rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+        @if(in_array($search['status'] ?? null, ['unavailable', 'fully_booked', 'temporarily_closed'], true))
+            <p role="status" class="rounded-lg bg-danger-light px-4 py-3 text-sm font-semibold text-danger">
                 {{ $search['message'] ?? 'Not available on the selected date/time.' }}
             </p>
         @elseif(($search['status'] ?? null) === 'walk_in')
-            <p role="status" class="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p role="status" class="rounded-lg bg-warning-light px-4 py-3 text-sm text-warning">
                 {{ $search['message'] }}
             </p>
         @elseif(($search['status'] ?? null) === 'invalid')
-            <p role="alert" class="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">
+            <p role="alert" class="rounded-lg bg-danger-light px-4 py-3 text-sm text-danger">
                 {{ $search['message'] }}
             </p>
         @elseif(($search['status'] ?? null) === 'available')

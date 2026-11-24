@@ -2,11 +2,9 @@
 
 namespace Tests\Feature\Admin;
 
-use App\Enums\InquiryStatus;
 use App\Enums\Role;
 use App\Models\Faq;
 use App\Models\FaqCategory;
-use App\Models\Inquiry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -23,7 +21,6 @@ class AdminFaqInquiryManagementTest extends TestCase
 
     private Faq $faq;
 
-    private Inquiry $inquiry;
 
     protected function setUp(): void
     {
@@ -52,12 +49,6 @@ class AdminFaqInquiryManagementTest extends TestCase
             'sort_order' => 1,
         ]);
 
-        $this->inquiry = Inquiry::create([
-            'user_id' => $this->customer->id,
-            'subject' => 'Help with booking',
-            'message' => 'I need help booking a room for my family.',
-            'status' => InquiryStatus::Open->value,
-        ]);
     }
 
     // ==========================================
@@ -168,103 +159,4 @@ class AdminFaqInquiryManagementTest extends TestCase
         $response->assertSessionHasErrors(['faq_category_id', 'question', 'answer']);
     }
 
-    // ==========================================
-    // INQUIRY TESTS
-    // ==========================================
-
-    public function test_unauthenticated_blocked_from_inquiries(): void
-    {
-        $this->get(route('admin.inquiries.index'))->assertRedirect(route('admin.login'));
-        $this->get(route('admin.inquiries.show', $this->inquiry))->assertRedirect(route('admin.login'));
-    }
-
-    public function test_customer_cannot_access_admin_inquiry_routes(): void
-    {
-        $this->actingAs($this->customer)->get(route('admin.inquiries.index'))->assertRedirect(route('admin.login'));
-        $this->actingAs($this->customer)->get(route('admin.inquiries.show', $this->inquiry))->assertRedirect(route('admin.login'));
-        $this->actingAs($this->customer)->post(route('admin.inquiries.respond', $this->inquiry), ['response' => 'test'])->assertRedirect(route('admin.login'));
-        $this->actingAs($this->customer)->patch(route('admin.inquiries.status', $this->inquiry), ['status' => 'closed'])->assertRedirect(route('admin.login'));
-    }
-
-    public function test_admin_can_view_inquiry_queue(): void
-    {
-        $response = $this->actingAs($this->admin)->get(route('admin.inquiries.index'));
-        $response->assertStatus(200);
-        $response->assertSee($this->inquiry->subject);
-    }
-
-    public function test_inquiry_filtering_works(): void
-    {
-        Inquiry::create([
-            'user_id' => $this->customer->id,
-            'subject' => 'Closed Inquiry',
-            'message' => 'This is resolved.',
-            'status' => InquiryStatus::Closed->value,
-        ]);
-
-        $response = $this->actingAs($this->admin)->get(route('admin.inquiries.index', ['status' => 'closed']));
-        $response->assertStatus(200);
-        $response->assertSee('Closed Inquiry');
-        $response->assertDontSee('Help with booking'); // The open one
-    }
-
-    public function test_inquiry_search_works(): void
-    {
-        $response = $this->actingAs($this->admin)->get(route('admin.inquiries.index', ['search' => 'booking']));
-        $response->assertStatus(200);
-        $response->assertSee('Help with booking');
-    }
-
-    public function test_admin_can_view_inquiry_detail(): void
-    {
-        $response = $this->actingAs($this->admin)->get(route('admin.inquiries.show', $this->inquiry));
-        $response->assertStatus(200);
-        $response->assertSee($this->inquiry->subject);
-        $response->assertSee($this->inquiry->message);
-    }
-
-    public function test_customer_information_displays_safely(): void
-    {
-        $response = $this->actingAs($this->admin)->get(route('admin.inquiries.show', $this->inquiry));
-        $response->assertStatus(200);
-        $response->assertSee($this->customer->name);
-        $response->assertSee($this->customer->email);
-        $response->assertDontSee($this->customer->password);
-    }
-
-    public function test_admin_can_respond(): void
-    {
-        $response = $this->actingAs($this->admin)->post(route('admin.inquiries.respond', $this->inquiry), [
-            'response' => 'This is an official admin response.',
-            'status' => InquiryStatus::Pending->value, // Wait for customer
-        ]);
-
-        $response->assertRedirect();
-
-        $this->inquiry->refresh();
-        $this->assertEquals('This is an official admin response.', $this->inquiry->admin_response);
-        $this->assertEquals($this->admin->id, $this->inquiry->responded_by);
-        $this->assertEquals(InquiryStatus::Pending, $this->inquiry->status);
-    }
-
-    public function test_admin_can_update_status(): void
-    {
-        $response = $this->actingAs($this->admin)->patch(route('admin.inquiries.status', $this->inquiry), [
-            'status' => InquiryStatus::Closed->value,
-        ]);
-
-        $response->assertRedirect();
-
-        $this->inquiry->refresh();
-        $this->assertEquals(InquiryStatus::Closed, $this->inquiry->status);
-    }
-
-    public function test_invalid_status_transition_rejected(): void
-    {
-        $response = $this->actingAs($this->admin)->patch(route('admin.inquiries.status', $this->inquiry), [
-            'status' => 'invalid-status',
-        ]);
-
-        $response->assertSessionHasErrors(['status']);
-    }
 }

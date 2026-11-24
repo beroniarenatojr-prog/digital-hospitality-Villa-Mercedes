@@ -114,8 +114,8 @@ class CustomerPaymentTest extends TestCase
                 'proof' => $file,
             ]);
 
-        $response->assertRedirect(route('customer.reservations.show', $this->reservation));
-        $response->assertSessionHas('success');
+        $response->assertRedirect(route('customer.reservations.index', ['tab' => 'upcoming']));
+        $response->assertSessionHas('success', fn (string $message) => str_contains($message, 'The admin will review the transfer'));
 
         $this->assertDatabaseHas('payments', [
             'reservation_id' => $this->reservation->id,
@@ -242,7 +242,7 @@ class CustomerPaymentTest extends TestCase
                 'verified_by' => 999,
             ]);
 
-        $response->assertRedirect(route('customer.reservations.show', $this->reservation));
+        $response->assertRedirect(route('customer.reservations.index', ['tab' => 'upcoming']));
 
         $this->assertDatabaseHas('payments', [
             'reservation_id' => $this->reservation->id,

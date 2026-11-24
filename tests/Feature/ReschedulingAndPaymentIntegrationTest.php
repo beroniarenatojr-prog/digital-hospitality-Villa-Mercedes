@@ -13,10 +13,13 @@ use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
 use App\Services\Customer\CustomerReservationService;
+use App\Services\BookingPracticeService;
 use App\Services\PaymentService;
 use App\Services\ReservationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 use Tests\TestCase;
 
@@ -42,7 +45,8 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
     {
         parent::setUp();
 
-        $this->artisan('db:seed');
+        $this->seedReservationCatalog();
+        Notification::fake();
 
         $this->reservationService = app(ReservationService::class);
         $this->customerReservationService = app(CustomerReservationService::class);
@@ -70,13 +74,26 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         );
     }
 
+    private function confirmGuestAcceptedChange(Reservation $reservation, Facility $facility, Carbon $start, Carbon $end): Reservation
+    {
+        $service = app(BookingPracticeService::class);
+        $service->proposeChange($reservation, $this->admin, [
+            'facility_id' => $facility->id, 'check_in' => $start->toDateTimeString(),
+            'check_out' => $end->toDateTimeString(), 'guest_count' => 2,
+        ]);
+        $service->acceptChange($reservation, $this->customer, $reservation->fresh()->booking_workflow['change']['quote_cents']);
+        $service->confirmChange($reservation, $this->admin);
+
+        return $reservation->refresh();
+    }
+
     // --- PAYMENT BALANCE TESTS ---
 
     public function test_payment_balance_helpers(): void
     {
         $reservation = $this->createTestReservation(
-            Carbon::parse('2026-09-01 14:00:00'),
-            Carbon::parse('2026-09-03 12:00:00')
+            now()->addDays(20)->setTime(14, 0),
+            now()->addDays(22)->setTime(12, 0)
         );
 
         $totalPrice = (float) $reservation->total_price;
@@ -84,14 +101,12 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         $this->assertEquals($totalPrice, $reservation->getRemainingBalance());
         $this->assertFalse($reservation->isFullyPaid());
 
-        $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
-        $reservation = $reservation->fresh();
-
         // Create pending payment
+        $deposit = $reservation->requiredDepositAmount();
         $payment1 = $this->paymentService->createPayment(
             $reservation,
             $this->customer,
-            500,
+            $deposit,
             PaymentMethod::GCash
         );
 
@@ -100,15 +115,16 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
 
         // Verify payment
         $this->paymentService->verifyPayment($payment1, $this->admin);
+        $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
 
-        $this->assertEquals(500, $reservation->getVerifiedTotalPaid());
-        $this->assertEquals($totalPrice - 500, $reservation->getRemainingBalance());
+        $this->assertEquals($deposit, $reservation->getVerifiedTotalPaid());
+        $this->assertEquals($totalPrice - $deposit, $reservation->getRemainingBalance());
 
         // Create full payment
         $payment2 = $this->paymentService->createPayment(
             $reservation,
             $this->customer,
-            $totalPrice - 500,
+            $totalPrice - $deposit,
             PaymentMethod::BankTransfer
         );
         $this->paymentService->verifyPayment($payment2, $this->admin);
@@ -123,22 +139,20 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
     public function test_reschedule_to_available_period_succeeds_and_updates_prices(): void
     {
         $reservation = $this->createTestReservation(
-            Carbon::parse('2026-09-01 14:00:00'),
-            Carbon::parse('2026-09-03 12:00:00')
+            now()->addDays(20)->setTime(14, 0),
+            now()->addDays(22)->setTime(12, 0)
         );
 
         $oldPrice = $reservation->total_price;
 
-        $newCheckIn = Carbon::parse('2026-09-10 14:00:00');
-        $newCheckOut = Carbon::parse('2026-09-12 12:00:00');
+        $newCheckIn = now()->addDays(29)->setTime(14, 0);
+        $newCheckOut = now()->addDays(31)->setTime(12, 0);
 
-        $rescheduled = $this->reservationService->reschedule(
+        $rescheduled = $this->confirmGuestAcceptedChange(
             $reservation,
             $this->room2,
             $newCheckIn,
-            $newCheckOut,
-            $this->admin,
-            2
+            $newCheckOut
         );
 
         $this->assertEquals($this->room2->id, $rescheduled->facility_id);
@@ -159,21 +173,19 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
     public function test_reschedule_allows_overlapping_with_its_own_previous_slot(): void
     {
         $reservation = $this->createTestReservation(
-            Carbon::parse('2026-09-01 14:00:00'),
-            Carbon::parse('2026-09-05 12:00:00')
+            now()->addDays(20)->setTime(14, 0),
+            now()->addDays(24)->setTime(12, 0)
         );
 
-        $newCheckIn = Carbon::parse('2026-09-02 14:00:00');
-        $newCheckOut = Carbon::parse('2026-09-06 12:00:00');
+        $newCheckIn = now()->addDays(21)->setTime(14, 0);
+        $newCheckOut = now()->addDays(25)->setTime(12, 0);
 
         // Should succeed despite overlapping old slot
-        $rescheduled = $this->reservationService->reschedule(
+        $rescheduled = $this->confirmGuestAcceptedChange(
             $reservation,
             $this->room1,
             $newCheckIn,
-            $newCheckOut,
-            $this->customer,
-            2
+            $newCheckOut
         );
 
         $this->assertEquals($newCheckIn->toDateTimeString(), $rescheduled->check_in->toDateTimeString());
@@ -182,46 +194,44 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
     public function test_reschedule_fails_if_conflicting_with_other_reservation(): void
     {
         $reservation1 = $this->createTestReservation(
-            Carbon::parse('2026-09-01 14:00:00'),
-            Carbon::parse('2026-09-03 12:00:00')
+            now()->addDays(20)->setTime(14, 0),
+            now()->addDays(22)->setTime(12, 0)
         );
 
         $reservation2 = $this->createTestReservation(
-            Carbon::parse('2026-09-05 14:00:00'),
-            Carbon::parse('2026-09-07 12:00:00'),
+            now()->addDays(24)->setTime(14, 0),
+            now()->addDays(26)->setTime(12, 0),
             $this->room1
         );
 
-        $this->expectException(ReservationConflictException::class);
+        $this->expectException(ValidationException::class);
 
         // Try to reschedule res1 into res2's slot
-        $this->reservationService->reschedule(
+        $this->confirmGuestAcceptedChange(
             $reservation1,
             $this->room1,
-            Carbon::parse('2026-09-06 14:00:00'),
-            Carbon::parse('2026-09-08 12:00:00'),
-            $this->customer,
-            2
+            now()->addDays(25)->setTime(14, 0),
+            now()->addDays(27)->setTime(12, 0)
         );
     }
 
     public function test_reschedule_fails_for_invalid_status(): void
     {
         $reservation = $this->createTestReservation(
-            Carbon::parse('2026-09-01 14:00:00'),
-            Carbon::parse('2026-09-03 12:00:00')
+            now()->addDays(20)->setTime(14, 0),
+            now()->addDays(22)->setTime(12, 0)
         );
 
-        $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin, 'approved');
-        $this->reservationService->cancel($reservation, $this->customer);
+        // A previously cancelled record must never be resurrected by rescheduling.
+        $reservation->update(['status' => ReservationStatus::Cancelled]);
 
         $this->expectException(InvalidReservationTransitionException::class);
 
         $this->reservationService->reschedule(
             $reservation,
             $this->room1,
-            Carbon::parse('2026-09-10 14:00:00'),
-            Carbon::parse('2026-09-12 12:00:00'),
+            now()->addDays(29)->setTime(14, 0),
+            now()->addDays(31)->setTime(12, 0),
             $this->customer,
             2
         );
@@ -239,7 +249,8 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
         $newCheckIn = now()->addDays(40)->setTime(14, 0);
         $newCheckOut = now()->addDays(42)->setTime(12, 0);
 
-        $rescheduled = $this->customerReservationService->rescheduleReservation(
+        $originalStart = $reservation->check_in->toDateTimeString();
+        $proposal = $this->customerReservationService->rescheduleReservation(
             $this->customer,
             $reservation,
             $this->room1,
@@ -248,6 +259,10 @@ class ReschedulingAndPaymentIntegrationTest extends TestCase
             2
         );
 
-        $this->assertEquals($newCheckIn->toDateTimeString(), $rescheduled->check_in->toDateTimeString());
+        $this->assertEquals($originalStart, $proposal->check_in->toDateTimeString(), 'A customer request must not silently move the booking.');
+        $service = app(BookingPracticeService::class);
+        $service->acceptChange($proposal, $this->customer, $proposal->booking_workflow['change']['quote_cents']);
+        $service->confirmChange($proposal, $this->admin);
+        $this->assertEquals($newCheckIn->toDateTimeString(), $proposal->fresh()->check_in->toDateTimeString());
     }
 }

@@ -6,11 +6,14 @@ use App\Enums\RateType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customer\SendBookingMagicLinkRequest;
 use App\Models\Facility;
+use App\Rules\PersonName;
 use App\Models\SwimmingSession;
 use App\Services\BookingMagicLinkService;
+use App\Services\BookingResumeLink;
 use App\Services\CottageBookingService;
 use App\Services\Customer\CustomerReservationService;
 use App\Services\PricingService;
+use App\Support\BookingDraft;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -24,6 +27,7 @@ class CustomerBookingController extends Controller
         private readonly CustomerReservationService $reservationService,
         private readonly BookingMagicLinkService $magicLinkService,
         private readonly CottageBookingService $cottageBookingService,
+        private readonly BookingResumeLink $resumeLinks,
     ) {}
 
     public function availability(Request $request, Facility $facility): View|RedirectResponse
@@ -79,14 +83,49 @@ class CustomerBookingController extends Controller
 
         $prefill = $this->resolvePrefill($request, $facility);
 
+        // "Start over" is a link, so it has to leave the guest somewhere they can
+        // reload: drop whatever this booking left behind and redirect to the clean
+        // URL. It only ever touches the guest's own session.
+        if ($request->query('fresh') === '1') {
+            BookingDraft::forget($facility);
+
+            return redirect()->route('customer.booking.create', $facility);
+        }
+
+        $resume = $this->resumeDraft($request, $facility, $prefill);
+
+        if ($resume !== null) {
+            $prefill = BookingDraft::mergeInto($prefill, $resume);
+        }
+
         return view('customer.booking.create', compact(
             'facility',
             'earlyCheckInRate',
             'lateCheckOutRate',
             'baseRate',
             'extraPersonRate',
-            'prefill'
+            'prefill',
+            'resume'
         ));
+    }
+
+    /**
+     * The guest's unfinished booking for this space, if there is one and this
+     * visit is a return rather than a fresh intent.
+     *
+     * A link that carries its own dates — the availability bar's dates, or the
+     * continuation hint that follows them — is a guest starting this booking now,
+     * so it wins over a draft they left earlier and the draft is left alone.
+     *
+     * @param  array<string, mixed>  $prefill
+     * @return array<string, mixed>|null
+     */
+    private function resumeDraft(Request $request, Facility $facility, array $prefill): ?array
+    {
+        $carriesItsOwnDates = filled($prefill['check_in'] ?? null)
+            || $request->query('availability_checked') === '1';
+
+        return $carriesItsOwnDates ? null : BookingDraft::load($facility);
     }
 
     /**
@@ -127,7 +166,7 @@ class CustomerBookingController extends Controller
                 'departure' => ['required', 'date_format:Y-m-d H:i', 'after:arrival'],
             ]);
 
-            return [...$empty, 'check_in' => $selection['arrival'], 'check_out' => $selection['departure']];
+            return [...$empty, 'check_in' => $selection['arrival'], 'check_out' => $selection['departure'], 'early_check_in_hours' => min(2, max(0, (int) $request->query('early_check_in_hours', 0)))];
         }
 
         $checkInDate = $this->parseDate($request->query('check_in'));
@@ -142,33 +181,14 @@ class CustomerBookingController extends Controller
             $checkOutDate = $checkInDate->copy()->addDay();
         }
 
-        if ($facility->isFlyerPackage()) {
-            [$arrival, $departure] = $facility->occupancyWindowForDate($checkInDate, $checkOutDate);
-
-            return [
-                ...$empty,
-                'check_in' => $arrival->format('Y-m-d H:i'),
-                'check_out' => $departure->format('Y-m-d H:i'),
-                'preset' => $facility->stay_category?->value,
-            ];
-        }
-
-        // A same-day request is a day-use visit; anything longer is an overnight stay.
-        $preset = $checkOutDate->isSameDay($checkInDate) ? 'day_use' : 'overnight';
-
-        if ($preset === 'day_use') {
-            $start = config('resort.stay.day_use_hours.start');
-            $end = config('resort.stay.day_use_hours.end');
-        } else {
-            $start = config('resort.stay.overnight_hours.check_in');
-            $end = config('resort.stay.overnight_hours.check_out');
-        }
+        [$arrival, $departure] = app(\App\Services\ReservationSchedule::class)->windowForDates($facility, $checkInDate, $checkOutDate);
 
         return [
             ...$empty,
-            'check_in' => $checkInDate->copy()->setTimeFromTimeString($start)->format('Y-m-d H:i'),
-            'check_out' => $checkOutDate->copy()->setTimeFromTimeString($end)->format('Y-m-d H:i'),
-            'preset' => $preset,
+            'check_in' => $arrival->format('Y-m-d H:i'),
+            'check_out' => $departure->format('Y-m-d H:i'),
+            'preset' => $facility->stay_category?->value,
+            'early_check_in_hours' => min(2, max(0, (int) $request->query('early_check_in_hours', 0))),
         ];
     }
 
@@ -202,14 +222,14 @@ class CustomerBookingController extends Controller
                     $facility, $resolved['check_in'], $resolved['check_out'], null, $validated['guestCount']
                 );
                 if (! $availability->isAvailable) {
-                    return response()->json(['success' => false, 'message' => $availability->reason], 422);
+                    return response()->json(['success' => false, 'message' => $availability->reason, 'availability' => $availability->toArray()], 422);
                 }
 
                 $price = $this->cottageBookingService->price(
                     $facility, $resolved['session']->id, $resolved['check_in'], $resolved['check_out']
                 );
 
-                return response()->json(['success' => true, 'data' => [
+                return response()->json(['success' => true, 'availability' => $availability->toArray(), 'data' => [
                     'base_amount' => $price->baseAmount,
                     'early_check_in_charge' => 0,
                     'late_check_out_charge' => 0,
@@ -226,13 +246,38 @@ class CustomerBookingController extends Controller
         }
 
         $validated = $request->validate([
-            'check_in' => ['required', 'date', 'after_or_equal:now'],
+            'check_in' => ['required', 'date'],
             'check_out' => ['required', 'date', 'after:check_in'],
             'guestCount' => ['required', 'integer', 'min:1'],
+            'children_count' => ['nullable', 'integer', 'min:0', 'lte:guestCount'],
+            'pets_included' => ['nullable', 'boolean'],
             'pax_tier' => ['nullable', 'integer', 'min:1'],
-            'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:'.config('resort.stay.max_additional_hours', 12)],
-            'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:'.config('resort.stay.max_additional_hours', 12)],
+            'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:2'],
+            'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:0'],
+            // The wizard reports which step it is on, and hands over the guest-sheet
+            // work it has collected, so a guest who leaves on step 2 or 3 can be
+            // given it back. All three are optional: the public availability bar
+            // prices a selection without any of them.
+            'step' => ['nullable', 'integer', 'min:1', 'max:3'],
+            'other_guest_names' => ['nullable', 'array'],
+            'other_guest_names.*.name' => ['nullable', 'string', 'max:255', new PersonName],
+            'other_guest_names.*.valid_id' => ['nullable', 'string', 'max:64'],
+            'special_requests' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        app(\App\Services\ReservationSchedule::class)->validate($facility, Carbon::parse($validated['check_in']), Carbon::parse($validated['check_out']), (int) ($validated['early_check_in_hours'] ?? 0), (int) ($validated['late_check_out_hours'] ?? 0));
+
+        // Only an account leaves a draft: a browsing guest has no booking to come
+        // back to, and no reason for their party's names to sit in a session.
+        if ($request->user() !== null) {
+            BookingDraft::remember($facility, $validated, (int) ($validated['step'] ?? 2));
+
+            // A draft lives in one browser. Reaching the confirm step also arms the
+            // emailed way back to it, which `arm()` schedules only for a guest who
+            // actually stops here (and drops it again the moment they go back to
+            // change something).
+            $this->resumeLinks->arm($request->user(), $facility);
+        }
 
         try {
             $checkIn = Carbon::parse($validated['check_in']);
@@ -270,6 +315,7 @@ class CustomerBookingController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => $availability->reason ?: 'Facility is unavailable for the selected dates.',
+                    'availability' => $availability->toArray(),
                 ], 422);
             }
 
@@ -280,18 +326,22 @@ class CustomerBookingController extends Controller
                 $checkOut,
                 $earlyCheckInHours,
                 $lateCheckOutHours,
-                $guestCount,
+                max(0, $guestCount - (($facility->isRoom() || $facility->isPackage()) ? (int) ($validated['children_count'] ?? 0) : 0)),
                 $paxTier
             );
+            $petFee = $request->boolean('pets_included') ? 50000 : 0;
 
             return response()->json([
                 'success' => true,
+                'availability' => $availability->toArray(),
                 'data' => [
                     'base_amount' => $price->baseAmount,
                     'early_check_in_charge' => $price->earlyCheckInCharge,
                     'late_check_out_charge' => $price->lateCheckOutCharge,
+                    'hall_extension_charge' => $price->hallExtensionCharge,
                     'extra_person_charge' => $price->extraPersonCharge,
-                    'total_amount' => $price->totalAmount,
+                    'pet_fee' => $petFee,
+                    'total_amount' => $price->totalAmount + $petFee,
                 ],
             ]);
 
@@ -302,6 +352,40 @@ class CustomerBookingController extends Controller
                 'message' => 'Unable to calculate pricing for this selection. Please try different dates or contact support.',
             ], 422);
         }
+    }
+
+    /**
+     * Throw an unfinished booking away, from "My reservations".
+     *
+     * The same action the wizard's own **Start over** performs, offered where the
+     * guest can see what they are discarding — a draft that is never shown is a
+     * draft nobody can clear.
+     */
+    public function discardDraft(Request $request, Facility $facility): RedirectResponse
+    {
+        BookingDraft::forget($facility);
+
+        return back()->with('success', 'Unfinished booking discarded. Nothing was held, so nothing was lost but the typing.');
+    }
+
+    /**
+     * The guest asked for the link now, rather than waiting to be asked.
+     *
+     * The same link the scheduler would have sent twenty minutes after they
+     * walked away, sent when they take it: on the device they will not finish on,
+     * or simply while they still have the page in front of them.
+     */
+    public function sendResumeLink(Request $request, Facility $facility): RedirectResponse
+    {
+        abort_if(! $facility->is_active || ! $facility->isOnlineBookable(), 404);
+
+        $user = $request->user();
+
+        if (! $this->resumeLinks->sendNow($user, $facility)) {
+            return back()->with('error', 'We could not email that link right now. Your booking is still on this page — try again in a moment, or keep this tab open.');
+        }
+
+        return back()->with('success', 'Sent to '.$user->email.'. Open it on any device to finish from the confirm step.');
     }
 
     public function sendMagicLink(SendBookingMagicLinkRequest $request, Facility $facility): RedirectResponse
@@ -351,6 +435,6 @@ class CustomerBookingController extends Controller
             ->route('customer.reservations.show', $reservation)
             ->with('success', $finishAccount
                 ? 'Reservation created. Add your name, mobile number, and a password in Profile so you can sign in next time.'
-                : 'Reservation created. Save the arrival pass or keep the confirmation email — you will not need to sign in at the front desk.');
+                : 'Reservation created. Save the check in pass or keep the confirmation email — you will not need to sign in at the front desk.');
     }
 }

@@ -3,90 +3,84 @@
     $isCustomer = \App\Support\CustomerNav::isCustomer();
 @endphp
 
-@if($isAccountContext)
-<footer class="bg-primary-dark text-white">
-    <div class="max-w-7xl mx-auto px-4 py-8 flex flex-wrap gap-x-8 gap-y-3 text-sm">
-        <a href="{{ route('customer.reservations.index') }}">My Reservations</a>
-        <a href="{{ route('customer.inquiries.index') }}">Contact staff</a>
-        <a href="{{ route('profile.edit') }}">My Account</a>
-        <a href="{{ route('home') }}">Browse the resort</a>
-        <a href="{{ config('resort.phone_href') }}">{{ config('resort.phone') }}</a>
-        <span>© {{ date('Y') }} {{ config('resort.short_name') }}</span>
-    </div>
-</footer>
-@else
-<footer class="bg-primary-dark text-white">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+<footer class="bg-primary text-white">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-14">
+        <div class="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-                <a href="{{ route('home') }}" class="inline-flex items-center gap-3">
+                <a href="{{ $isAccountContext ? route('customer.home') : route('home') }}" class="inline-flex items-center gap-3">
                     <img src="{{ asset('images/logo-villa-mercedes.png') }}" alt="" class="h-12 w-auto rounded-md">
-                    <span class="text-lg font-semibold leading-tight">{{ config('resort.short_name') }}</span>
+                    <span class="font-heading text-lg font-semibold leading-tight">{{ config('resort.short_name') }}</span>
                 </a>
-                <p class="mt-4 text-sm text-white/75 leading-relaxed">
+                <p class="mt-4 text-sm leading-relaxed text-white/75">
                     {{ config('resort.tagline') }} {{ config('resort.location') }}.
                 </p>
-                <x-social-links size="sm" class="mt-4" />
             </div>
+
             <div>
-                <h4 class="font-semibold mb-4">Quick Links</h4>
-                <ul class="space-y-2 text-sm text-white/75">
-                    <li>
-                        <a href="{{ route('home') }}" class="hover:text-white transition">
-                            {{ $isAccountContext ? 'Browse the resort' : 'Home' }}
-                        </a>
-                    </li>
-                    <li><a href="{{ route('gallery') }}" class="hover:text-white transition">Gallery</a></li>
-                    <li><a href="{{ route('faq.index') }}" class="hover:text-white transition">FAQs</a></li>
-                    <li><a href="{{ route('reviews') }}" class="hover:text-white transition">Reviews</a></li>
-                    <li><a href="{{ route('about') }}" class="hover:text-white transition">About</a></li>
-                    <li><a href="{{ route('contact') }}" class="hover:text-white transition">Contact</a></li>
-                    <li><a href="{{ route('terms') }}" class="hover:text-white transition">Terms of Use</a></li>
-                    <li><a href="{{ route('privacy') }}" class="hover:text-white transition">Privacy Notice</a></li>
-                    @if($isCustomer)
-                        <li><a href="{{ route('customer.reservations.index') }}" class="hover:text-white transition">My reservations</a></li>
-                    @elseif(! Auth::check())
-                        <li><a href="{{ route('login') }}" class="hover:text-white transition">Log in</a></li>
+                <h4 class="text-xs font-semibold uppercase tracking-[0.16em] text-white/90">Reservations</h4>
+                <ul class="mt-4 space-y-2 text-sm text-white/75">
+                    @if($isAccountContext)
+                        <li><a href="{{ route('customer.grouped-booking.workspace') }}" class="transition hover:text-white">New reservation</a></li>
+                        <li><a href="{{ route('customer.reservations.index') }}" class="transition hover:text-white">My reservations</a></li>
+                        <li><a href="{{ route('customer.grouped-booking.workspace', ['type' => 'cottage']) }}" class="transition hover:text-white">Day-use cottages</a></li>
+                    @else
+                        <li><a href="{{ route('rooms') }}" class="transition hover:text-white">Rooms &amp; suites</a></li>
+                        <li><a href="{{ route('cottages') }}" class="transition hover:text-white">Day-use cottages</a></li>
+                        <li><a href="{{ route('packages') }}" class="transition hover:text-white">Resort packages</a></li>
+                        <li><a href="{{ route('halls') }}" class="transition hover:text-white">Event booking</a></li>
                     @endif
                 </ul>
             </div>
+
             <div>
-                <h4 class="font-semibold mb-4">Services</h4>
-                <ul class="space-y-2 text-sm text-white/75">
-                    <li><a href="{{ route('rooms') }}" class="hover:text-white transition">Services</a></li>
-                    <li><a href="{{ route('rooms') }}" class="hover:text-white transition">Rooms</a></li>
-                    <li><a href="{{ route('resort.show') }}" class="hover:text-white transition">Resort, pools &amp; cottages</a></li>
-                    <li><a href="{{ route('halls') }}" class="hover:text-white transition">Event hosting</a></li>
-                    <li><a href="{{ route('packages') }}" class="hover:text-white transition">Packages</a></li>
+                <h4 class="text-xs font-semibold uppercase tracking-[0.16em] text-white/90">Resort info</h4>
+                <ul class="mt-4 space-y-2 text-sm text-white/75">
+                    <li><a href="{{ route('about') }}" class="transition hover:text-white">About</a></li>
+                    <li><a href="{{ route('resort.show') }}" class="transition hover:text-white">Amenities</a></li>
+                    <li><a href="{{ route('faq.index') }}" class="transition hover:text-white">FAQs</a></li>
+                    <li><a href="{{ route('gallery') }}" class="transition hover:text-white">Gallery</a></li>
+                    @unless($isAccountContext)
+                        <li><a href="{{ route('reviews') }}" class="transition hover:text-white">Reviews</a></li>
+                        <li><a href="{{ route('terms') }}" class="transition hover:text-white">Terms of Use</a></li>
+                        <li><a href="{{ route('privacy') }}" class="transition hover:text-white">Privacy Notice</a></li>
+                    @endunless
+                    @if($isAccountContext)
+                        <li><a href="{{ route('home') }}" class="transition hover:text-white">Browse the resort</a></li>
+                        <li><a href="{{ route('profile.edit') }}" class="transition hover:text-white">Guest account</a></li>
+                    @elseif($isCustomer)
+                        <li><a href="{{ route('customer.reservations.index') }}" class="transition hover:text-white">My reservations</a></li>
+                    @elseif(! Auth::check())
+                        <li><a href="{{ route('login') }}" class="transition hover:text-white">Log in</a></li>
+                    @endif
                 </ul>
             </div>
+
             <div>
-                <h4 class="font-semibold mb-4">Contact Info</h4>
-                <ul class="space-y-4 text-sm text-white/75">
-                    <li class="flex gap-3">
-                        <span class="mt-0.5 shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        </span>
-                        <span>{{ config('resort.location') }}</span>
+                <h4 class="text-xs font-semibold uppercase tracking-[0.16em] text-white/90">Connect</h4>
+                <ul class="mt-4 space-y-3 text-sm text-white/75">
+                    <li>
+                        <a href="mailto:{{ config('resort.email') }}" class="break-all transition hover:text-white">{{ config('resort.email') }}</a>
                     </li>
-                    <li class="flex gap-3 items-center">
-                        <span class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                        </span>
-                        <a href="{{ config('resort.phone_href') }}" class="hover:text-white">{{ config('resort.phone') }}</a>
+                    <li>
+                        <a href="{{ config('resort.phone_href') }}" class="transition hover:text-white">{{ config('resort.phone') }}</a>
                     </li>
-                    <li class="flex gap-3 items-center">
-                        <span class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                        </span>
-                        <a href="mailto:{{ config('resort.email') }}" class="hover:text-white break-all">{{ config('resort.email') }}</a>
-                    </li>
+                    <li>{{ config('resort.location') }}</li>
                 </ul>
+                <x-social-links size="sm" class="mt-5" />
             </div>
         </div>
-        <p class="mt-12 pt-6 border-t border-white/15 text-sm text-white/60">
-            &copy; {{ date('Y') }} {{ config('resort.name') }}. All rights reserved.
-        </p>
+
+        <div class="mt-10 flex flex-col gap-3 border-t border-white/15 pt-6 text-sm text-white/60 sm:flex-row sm:items-center sm:justify-between">
+            <p>&copy; {{ date('Y') }} {{ config('resort.name') }}. All rights reserved.</p>
+            <div class="flex flex-wrap gap-x-5 gap-y-2">
+                @if(config('resort.instagram_url'))
+                    <a href="{{ config('resort.instagram_url') }}" class="transition hover:text-white" target="_blank" rel="noopener noreferrer">Instagram</a>
+                @endif
+                @if(config('resort.facebook_url'))
+                    <a href="{{ config('resort.facebook_url') }}" class="transition hover:text-white" target="_blank" rel="noopener noreferrer">Facebook</a>
+                @endif
+                <a href="{{ route('contact') }}" class="transition hover:text-white">Contact</a>
+            </div>
+        </div>
     </div>
 </footer>
-@endif

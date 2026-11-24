@@ -55,6 +55,14 @@ Route::post('admin/login', [AdminAuthenticatedSessionController::class, 'store']
     ->middleware('guest')
     ->name('admin.login.store');
 
+// The back office leaves through its own door. The destination is part of the
+// route rather than something inferred at sign-out time, so a staff member
+// lands on the staff sign-in form even when the session that would have said
+// who they were is already gone.
+Route::post('admin/logout', [AdminAuthenticatedSessionController::class, 'destroy'])
+    ->middleware('auth')
+    ->name('admin.logout');
+
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)
         ->name('verification.notice');

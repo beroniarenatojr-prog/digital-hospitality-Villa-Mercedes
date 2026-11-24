@@ -200,7 +200,7 @@
                                     <div class="flex items-start justify-between gap-3">
                                         <h3 class="font-heading text-2xl font-semibold text-text">{{ $pool->name }}</h3>
                                         @if($pool->is_package_only)
-                                            <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">Package only</span>
+                                            <span class="rounded-full bg-warning-light px-2.5 py-1 text-xs font-semibold text-warning">Package only</span>
                                         @endif
                                     </div>
                                     <p class="mt-3 text-text-muted">{{ $pool->description }}</p>

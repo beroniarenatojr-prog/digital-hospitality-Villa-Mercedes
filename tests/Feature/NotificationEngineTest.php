@@ -7,6 +7,7 @@ use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Models\Facility;
+use App\Models\Reservation;
 use App\Models\User;
 use App\Notifications\Payment\PaymentStatusChangedNotification;
 use App\Notifications\Payment\PaymentSubmittedNotification;
@@ -14,12 +15,19 @@ use App\Notifications\Reservation\ReservationCreatedMail;
 use App\Notifications\Reservation\ReservationCreatedNotification;
 use App\Notifications\Reservation\ReservationStatusChangedMail;
 use App\Notifications\Reservation\ReservationStatusChangedNotification;
+use App\Notifications\Reservation\ReviewInvitationMail;
+use App\Observers\ReservationObserver;
 use App\Services\PaymentService;
 use App\Services\ReservationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
+use Symfony\Component\Mailer\Exception\TransportException;
 use Tests\TestCase;
 
 class NotificationEngineTest extends TestCase
@@ -40,7 +48,11 @@ class NotificationEngineTest extends TestCase
     {
         parent::setUp();
 
-        $this->artisan('db:seed');
+        // Preserve the historical service transitions this notification suite
+        // exercises; confirmed-policy notifications have dedicated workflow tests.
+        $this->travelTo(Carbon::parse('2026-09-01 00:00:00'));
+        config(['resort.policy.version' => '2026-09-v2']);
+        $this->seedReservationCatalog();
 
         $this->reservationService = app(ReservationService::class);
         $this->paymentService = app(PaymentService::class);
@@ -57,6 +69,8 @@ class NotificationEngineTest extends TestCase
     public function test_reservation_creation_triggers_notifications(): void
     {
         Notification::fake();
+
+        $customerEmail = $this->customer->email;
 
         $reservation = $this->reservationService->createReservation(
             $this->facility,
@@ -87,18 +101,155 @@ class NotificationEngineTest extends TestCase
             }
         );
 
-        Notification::assertSentTo($this->customer, ReservationCreatedMail::class);
+        Notification::assertSentOnDemand(
+            ReservationCreatedMail::class,
+            function ($notification, $channels, $notifiable) use ($reservation, $customerEmail) {
+                return $notification->reservation->id === $reservation->id
+                    && in_array('mail', $channels, true)
+                    && ($notifiable->routes['mail'] ?? null) === $customerEmail;
+            }
+        );
 
         $guestNotice = new ReservationCreatedNotification($reservation->fresh()->load('facility'), false);
         $this->assertSame(['database'], $guestNotice->via($this->customer));
         $mail = (new ReservationCreatedMail($reservation->fresh()->load('facility')))->toMail($this->customer)->render();
         $this->assertStringContainsString($reservation->reservation_code, $mail);
-        $this->assertStringContainsString('Here is a copy of your reservation', $mail);
+        // A request under review is copied as a request, not as a confirmed stay.
+        $this->assertStringContainsString('Here is a copy of your request', $mail);
+        $this->assertStringContainsString('still with staff for approval', $mail);
         $this->assertStringContainsString($this->facility->name, $mail);
         $this->assertStringContainsString('₱', $mail);
 
         $adminNotice = new ReservationCreatedNotification($reservation, true);
         $this->assertSame(['database'], $adminNotice->via($this->admin));
+    }
+
+    public function test_database_worker_renders_queued_reservation_emails(): void
+    {
+        config(['queue.default' => 'database']);
+
+        $reservation = Reservation::withoutEvents(fn () => Reservation::factory()
+            ->for($this->customer)
+            ->for($this->facility)
+            ->create());
+
+        Notification::route('mail', $this->customer->email)
+            ->notify(new ReservationCreatedMail($reservation));
+
+        $this->assertDatabaseCount('jobs', 1);
+        $sent = [];
+        Event::listen(NotificationSent::class, function (NotificationSent $event) use (&$sent): void {
+            $sent[] = $event;
+        });
+        $job = Queue::connection('database')->pop();
+        $this->assertNotNull($job);
+        $job->fire();
+        $job->delete();
+
+        $this->assertCount(1, $sent);
+        $this->assertSame('mail', $sent[0]->channel);
+        $this->assertInstanceOf(ReservationCreatedMail::class, $sent[0]->notification);
+        $this->assertDatabaseCount('jobs', 0);
+    }
+
+    public function test_reservation_email_transport_failure_does_not_escape_after_commit_observer(): void
+    {
+        // The guest email is now routed to the booking's address rather than to
+        // the account's notifiable, so the failing transport is simulated at the
+        // mail channel itself — the same way the review-invitation test does it.
+        config(['mail.default' => 'smtp']);
+
+        Notification::extend('mail', fn () => new class
+        {
+            public function send(object $notifiable, object $notification): void
+            {
+                throw new TransportException('Simulated SMTP DNS failure.');
+            }
+        });
+
+        $reservation = Reservation::withoutEvents(fn () => Reservation::factory()
+            ->for($this->customer)
+            ->for($this->facility)
+            ->create());
+
+        Log::shouldReceive('warning')
+            ->once()
+            ->withArgs(fn (string $message, array $context): bool => $message === 'Reservation email could not be dispatched.'
+                && $context['reservation_id'] === $reservation->id
+                && $context['notification'] === ReservationCreatedMail::class
+                && $context['exception'] === TransportException::class
+            );
+
+        (new ReservationObserver)->created($reservation);
+
+        $this->assertDatabaseHas('reservations', ['id' => $reservation->id]);
+    }
+
+    public function test_checkout_survives_a_review_invitation_mail_transport_failure(): void
+    {
+        config(['mail.default' => 'smtp']);
+
+        Notification::extend('mail', fn () => new class
+        {
+            public function send(object $notifiable, object $notification): void
+            {
+                throw new TransportException('Simulated SMTP transport failure.');
+            }
+        });
+
+        $reservation = Reservation::withoutEvents(fn () => Reservation::factory()
+            ->for($this->customer)
+            ->for($this->facility)
+            ->create([
+                'status' => ReservationStatus::Approved->value,
+                'checked_in_at' => now()->subDay(),
+                'checked_out_at' => null,
+            ]));
+
+        Log::spy();
+
+        $this->reservationService->checkOut($reservation, $this->admin);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context): bool => $message === 'Review invitation email could not be dispatched.'
+                && $context['reservation_id'] === $reservation->id
+                && $context['notification'] === ReviewInvitationMail::class
+                && $context['exception'] === TransportException::class
+            );
+
+        // The review invitation is sent before the status notification, so a
+        // mailer outage must not swallow the status email that follows it.
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message): bool => $message === 'Reservation email could not be dispatched.');
+
+        $completed = $reservation->fresh();
+        $this->assertSame(ReservationStatus::Completed, $completed->status);
+        $this->assertNotNull($completed->checked_out_at);
+        $this->assertNotNull($completed->review_invited_at);
+
+        $this->actingAs($this->customer)
+            ->get(route('customer.reservations.show', $reservation))
+            ->assertOk()
+            ->assertSee('Rate your experience');
+    }
+
+    public function test_local_log_mailer_keeps_review_email_enabled(): void
+    {
+        config(['mail.default' => 'log']);
+        Notification::fake();
+
+        $reservation = Reservation::withoutEvents(fn () => Reservation::factory()
+            ->for($this->customer)
+            ->for($this->facility)
+            ->create([
+                'status' => ReservationStatus::Approved->value,
+                'checked_in_at' => now()->subDay(),
+                'checked_out_at' => null,
+            ]));
+
+        $this->reservationService->checkOut($reservation, $this->admin);
+
+        Notification::assertSentTo($this->customer, ReviewInvitationMail::class);
     }
 
     public function test_reservation_status_change_triggers_notification(): void
@@ -117,6 +268,8 @@ class NotificationEngineTest extends TestCase
         // Clear fake to ignore the creation notifications
         Notification::fake();
 
+        $customerEmail = $this->customer->email;
+
         $this->reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
 
         Notification::assertSentTo(
@@ -127,7 +280,54 @@ class NotificationEngineTest extends TestCase
             }
         );
 
-        Notification::assertSentTo($this->customer, ReservationStatusChangedMail::class);
+        Notification::assertSentOnDemand(
+            ReservationStatusChangedMail::class,
+            function ($notification, $channels, $notifiable) use ($reservation, $customerEmail) {
+                return $notification->reservation->id === $reservation->id
+                    && in_array('mail', $channels, true)
+                    && ($notifiable->routes['mail'] ?? null) === $customerEmail;
+            }
+        );
+
+        $approvedMail = (new ReservationStatusChangedMail($reservation->fresh()->load('facility')))
+            ->toMail($this->customer)
+            ->render();
+        $this->assertStringContainsString('Your stay is confirmed', $approvedMail);
+        $this->assertStringContainsString($reservation->reservation_code, $approvedMail);
+    }
+
+    public function test_rejection_status_change_notifies_customer_by_email_with_reason(): void
+    {
+        Notification::fake();
+
+        $reservation = $this->reservationService->createReservation(
+            $this->facility,
+            $this->customer,
+            Carbon::parse('2026-11-05 14:00:00'),
+            Carbon::parse('2026-11-07 12:00:00'),
+            ReservationSource::Online,
+            2
+        );
+
+        Notification::fake();
+        $customerEmail = $this->customer->email;
+        $this->reservationService->changeStatus($reservation, ReservationStatus::Rejected, $this->admin, 'The selected dates are no longer available.');
+
+        Notification::assertSentTo($this->customer, ReservationStatusChangedNotification::class);
+        Notification::assertSentOnDemand(
+            ReservationStatusChangedMail::class,
+            function ($notification, $channels, $notifiable) use ($reservation, $customerEmail) {
+                return $notification->reservation->id === $reservation->id
+                    && in_array('mail', $channels, true)
+                    && ($notifiable->routes['mail'] ?? null) === $customerEmail;
+            }
+        );
+
+        $rejectedMail = (new ReservationStatusChangedMail($reservation->fresh()->load('facility')))
+            ->toMail($this->customer)
+            ->render();
+        $this->assertStringContainsString('We could not confirm this reservation.', $rejectedMail);
+        $this->assertStringContainsString('The selected dates are no longer available.', $rejectedMail);
     }
 
     public function test_payment_submission_triggers_admin_notification(): void

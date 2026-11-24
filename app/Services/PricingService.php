@@ -18,6 +18,8 @@ class PricingService
 
     public const LATE_CHECK_OUT_RATE_NAME = 'Late Check-out';
 
+    public const HALL_EXTENSION_RATE_NAME = 'Hall Extension';
+
     /**
      * Calculate the expected price of a reservation before creation.
      *
@@ -43,6 +45,19 @@ class PricingService
 
         $baseAmount = $this->calculateBaseAmount($applicableRate, $checkIn, $checkOut);
 
+        if ($facility->isRoom() && $checkIn->isSameDay($checkOut)) {
+            $earlyCheckInHours = 0;
+            $lateCheckOutHours = 0;
+        }
+        if ($facility->isRoom() && ($earlyCheckInHours > 0 || $lateCheckOutHours > 0)) {
+            foreach ([self::EARLY_CHECK_IN_RATE_NAME => [$earlyCheckInHours, 20000], self::LATE_CHECK_OUT_RATE_NAME => [$lateCheckOutHours, 30000]] as $name => [$hours, $expected]) {
+                if ($hours === 0) continue;
+                $rates = $activeRates->filter(fn (Rate $rate) => $rate->type === RateType::AdditionalCharge && $rate->name === $name);
+                if ($rates->count() !== 1 || (int) round($rates->first()->amount * 100) !== $expected || $rates->first()->unit !== 'per hour') {
+                    throw new NoApplicableRateException('Staff must audit and reconcile room hourly rates before quoting early or late hours.');
+                }
+            }
+        }
         $earlyCharge = $this->calculateAdditionalCharge($activeRates, self::EARLY_CHECK_IN_RATE_NAME, $earlyCheckInHours);
         $lateCharge = $this->calculateAdditionalCharge($activeRates, self::LATE_CHECK_OUT_RATE_NAME, $lateCheckOutHours);
 
@@ -53,7 +68,9 @@ class PricingService
             $extraPersonCharge = $this->calculateExtraPersonCharge($activeRates, $extraGuests, $applicableRate->unit, $checkIn, $checkOut);
         }
 
-        $totalAmount = $baseAmount + $earlyCharge + $lateCharge + $extraPersonCharge;
+        $schedule = app(ReservationSchedule::class);
+        $extensionCharge = $schedule->extensionHours($facility, $checkIn, $checkOut) * $schedule->extensionRateCents($facility);
+        $totalAmount = $baseAmount + $earlyCharge + $lateCharge + $extraPersonCharge + $extensionCharge;
 
         return new PriceBreakdown(
             baseAmount: $baseAmount,
@@ -61,7 +78,8 @@ class PricingService
             lateCheckOutCharge: $lateCharge,
             extraPersonCharge: $extraPersonCharge,
             totalAmount: $totalAmount,
-            appliedRateName: $applicableRate->name
+            appliedRateName: $applicableRate->name,
+            hallExtensionCharge: $extensionCharge
         );
     }
 

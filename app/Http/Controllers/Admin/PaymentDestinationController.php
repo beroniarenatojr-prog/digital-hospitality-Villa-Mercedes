@@ -39,7 +39,14 @@ class PaymentDestinationController extends Controller
     {
         abort_unless($destination->is_active || $request->user()->hasRole('Administrator'), 404);
         abort_unless(Storage::disk('uploads')->exists($destination->qr_path), 404);
-        return $request->boolean('download') ? Storage::disk('uploads')->download($destination->qr_path)
-            : Storage::disk('uploads')->response($destination->qr_path, null, ['X-Content-Type-Options' => 'nosniff']);
+        $disk = Storage::disk('uploads');
+        if ($request->boolean('download')) {
+            $extension = strtolower(pathinfo($destination->qr_path, PATHINFO_EXTENSION));
+            $extension = in_array($extension, ['png', 'jpg', 'jpeg'], true) ? '.'.$extension : '';
+
+            return $disk->download($destination->qr_path, "villa-mercedes-{$destination->method->value}-qr{$extension}");
+        }
+
+        return $disk->response($destination->qr_path, null, ['X-Content-Type-Options' => 'nosniff']);
     }
 }

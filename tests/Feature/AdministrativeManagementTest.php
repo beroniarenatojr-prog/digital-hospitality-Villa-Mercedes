@@ -282,7 +282,10 @@ class AdministrativeManagementTest extends TestCase
 
         $this->assertEquals(ReservationStatus::Pending, $reservation->status);
 
-        // Admin approves it
+        // Current policy reserves the booking only after the initial payment is verified.
+        $payments = app(PaymentService::class);
+        $deposit = $payments->createPayment($reservation, $this->customer, $reservation->requiredDepositAmount(), PaymentMethod::GCash, 'SYNTHETIC-ADMIN-APPROVAL');
+        $payments->verifyPayment($deposit, $this->admin);
         $reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
         $this->assertEquals(ReservationStatus::Approved, $reservation->refresh()->status);
     }
@@ -304,12 +307,10 @@ class AdministrativeManagementTest extends TestCase
             2
         );
 
-        $reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
-
         $payment = $paymentService->createPayment(
             $reservation,
             $this->customer,
-            500,
+            $reservation->requiredDepositAmount(),
             PaymentMethod::GCash,
             '123456789'
         );
@@ -324,5 +325,7 @@ class AdministrativeManagementTest extends TestCase
         // Admin can verify
         $paymentService->verifyPayment($payment, $this->admin);
         $this->assertEquals(PaymentStatus::Verified, $payment->refresh()->status);
+        $reservationService->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+        $this->assertEquals(ReservationStatus::Approved, $reservation->fresh()->status);
     }
 }

@@ -1,130 +1,93 @@
 <x-admin-layout>
-    <x-slot name="header">
-        Edit Rate — {{ $rate->name }}
-    </x-slot>
+    <x-slot name="header">Edit {{ $rate->name }}</x-slot>
 
-    <!-- Breadcrumb -->
-    <nav class="mb-6 text-sm text-gray-500">
-        <a href="{{ route('admin.rates.index') }}" class="hover:text-primary">Rates</a>
-        <span class="mx-2">/</span>
-        <a href="{{ route('admin.rates.show', $rate) }}" class="hover:text-primary">{{ $rate->name }}</a>
-        <span class="mx-2">/</span>
-        <span class="text-gray-900">Edit</span>
-    </nav>
+    <x-admin.page-header
+        title="Edit {{ $rate->name }}"
+        :breadcrumbs="[
+            ['label' => 'Rates', 'url' => route('admin.rates.index')],
+            ['label' => $rate->name, 'url' => route('admin.rates.show', $rate)],
+            ['label' => 'Edit'],
+        ]"
+    >
+        <x-slot:actions>
+            <x-admin.button variant="secondary" :href="route('admin.rates.show', $rate)">Back to rate</x-admin.button>
+        </x-slot:actions>
+    </x-admin.page-header>
 
-    <div class="max-w-2xl">
-        <div class="bg-white shadow-sm rounded-lg border border-gray-200">
-            <form method="POST" action="{{ route('admin.rates.update', $rate) }}" class="p-6 space-y-6"
-                  x-data="{
-                      selectedType: '{{ old('type', $rate->type->value) }}',
-                      get showDates() { return this.selectedType === 'seasonal'; },
-                      get showTypeHint() {
-                          const hints = {
-                              'base': 'The standard rate applied when no seasonal rate matches.',
-                              'seasonal': 'A rate applied during a specific date range. Requires effective dates.',
-                              'additional_charge': 'An extra charge (e.g. early check-in, late check-out). Applied per hour or event.',
-                              'extra_person': 'Charged when guest count exceeds the facility\'s standard capacity but remains within maximum capacity.'
-                          };
-                          return hints[this.selectedType] || '';
-                      }
-                  }">
-                @csrf
-                @method('PUT')
+    <form
+        method="POST"
+        action="{{ route('admin.rates.update', $rate) }}"
+        x-data="{
+            type: @js((string) old('type', $rate->type->value)),
+            hints: @js(\App\Enums\RateType::hints()),
+            get hint() { return this.hints[this.type] ?? '' },
+        }"
+        class="max-w-3xl space-y-6"
+    >
+        @csrf
+        @method('PUT')
 
-                <!-- Facility (read-only) -->
+        <x-admin.panel title="Which space and what kind of rate" description="A rate cannot be moved to another facility. Create a new rate for a different space instead.">
+            <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Facility</label>
-                    <p class="mt-1 text-sm text-gray-900">{{ $rate->facility->name }} ({{ $rate->facility->facilityType->name }})</p>
+                    <p class="admin-label">Facility</p>
+                    <p class="mt-1 text-sm text-text">
+                        <a href="{{ route('admin.facilities.show', $rate->facility) }}" class="rounded font-medium text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                            {{ $rate->facility->name }}
+                        </a>
+                        <span class="text-text-muted">({{ $rate->facility->facilityType->name }})</span>
+                    </p>
                 </div>
 
-                <!-- Rate Name -->
                 <div>
-                    <label for="name" class="block text-sm font-medium text-gray-700">Rate Name <span class="text-danger">*</span></label>
-                    <input type="text" id="name" name="name" value="{{ old('name', $rate->name) }}" required
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                    @error('name')
-                        <p class="mt-1 text-sm text-danger">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <!-- Rate Type -->
-                <div>
-                    <label for="type" class="block text-sm font-medium text-gray-700">Rate Type <span class="text-danger">*</span></label>
-                    <select id="type" name="type" x-model="selectedType" required
-                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                        @foreach(\App\Enums\RateType::cases() as $rateType)
-                            <option value="{{ $rateType->value }}" {{ old('type', $rate->type->value) === $rateType->value ? 'selected' : '' }}>{{ $rateType->label() }}</option>
+                    <label for="type" class="admin-label">Rate type <span class="text-danger" aria-hidden="true">*</span></label>
+                    <select id="type" name="type" x-model="type" required aria-required="true"
+                            @error('type') aria-invalid="true" @enderror class="admin-input mt-1">
+                        @foreach (\App\Enums\RateType::cases() as $rateType)
+                            <option value="{{ $rateType->value }}" @selected(old('type', $rate->type->value) === $rateType->value)>{{ $rateType->label() }}</option>
                         @endforeach
                     </select>
-                    <p class="mt-1 text-xs text-gray-500" x-show="showTypeHint" x-text="showTypeHint" x-transition></p>
-                    @error('type')
-                        <p class="mt-1 text-sm text-danger">{{ $message }}</p>
-                    @enderror
+                    <p class="admin-help" x-show="hint" x-text="hint"></p>
+                    <x-input-error class="mt-1" :messages="$errors->get('type')" />
                 </div>
 
-                <!-- Amount & Unit -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label for="amount" class="block text-sm font-medium text-gray-700">Amount (₱) <span class="text-danger">*</span></label>
-                        <input type="number" id="amount" name="amount" value="{{ old('amount', $rate->amount) }}" required min="0.01" step="0.01"
-                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                        <p class="mt-1 text-xs text-gray-500">Philippine Peso. Must be greater than zero.</p>
-                        @error('amount')
-                            <p class="mt-1 text-sm text-danger">{{ $message }}</p>
-                        @enderror
-                    </div>
-                    <div>
-                        <label for="unit" class="block text-sm font-medium text-gray-700">Unit <span class="text-danger">*</span></label>
-                        <select id="unit" name="unit" required
-                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            @foreach (\App\Enums\RateUnit::cases() as $unit)
-                                <option value="{{ $unit->value }}" @selected(old('unit', $rate->unit) === $unit->value)>{{ $unit->value }}</option>
-                            @endforeach
-                        </select>
-                        @error('unit')
-                            <p class="mt-1 text-sm text-danger">{{ $message }}</p>
-                        @enderror
-                    </div>
+                <div>
+                    <label for="name" class="admin-label">Rate name <span class="text-danger" aria-hidden="true">*</span></label>
+                    <input type="text" id="name" name="name" value="{{ old('name', $rate->name) }}" required aria-required="true" maxlength="255"
+                           @error('name') aria-invalid="true" @enderror class="admin-input mt-1">
+                    <x-input-error class="mt-1" :messages="$errors->get('name')" />
+                </div>
+            </div>
+        </x-admin.panel>
+
+        <x-admin.panel title="Price" description="Philippine pesos. The unit is what the amount is multiplied by when a guest books.">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label for="amount" class="admin-label">Amount (₱) <span class="text-danger" aria-hidden="true">*</span></label>
+                    <input type="number" id="amount" name="amount" value="{{ old('amount', $rate->amount) }}" required aria-required="true" min="0.01" step="0.01"
+                           @error('amount') aria-invalid="true" @enderror class="admin-input mt-1">
+                    <p class="admin-help">Must be greater than zero.</p>
+                    <x-input-error class="mt-1" :messages="$errors->get('amount')" />
                 </div>
 
-                <!-- Effective Dates -->
-                <div x-show="showDates" x-transition class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label for="effective_from" class="block text-sm font-medium text-gray-700">Effective From</label>
-                        <input type="date" id="effective_from" name="effective_from" value="{{ old('effective_from', $rate->effective_from?->format('Y-m-d')) }}"
-                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                        @error('effective_from')
-                            <p class="mt-1 text-sm text-danger">{{ $message }}</p>
-                        @enderror
-                    </div>
-                    <div>
-                        <label for="effective_until" class="block text-sm font-medium text-gray-700">Effective Until</label>
-                        <input type="date" id="effective_until" name="effective_until" value="{{ old('effective_until', $rate->effective_until?->format('Y-m-d')) }}"
-                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                        @error('effective_until')
-                            <p class="mt-1 text-sm text-danger">{{ $message }}</p>
-                        @enderror
-                    </div>
+                <div>
+                    <label for="unit" class="admin-label">Charged per <span class="text-danger" aria-hidden="true">*</span></label>
+                    <select id="unit" name="unit" required aria-required="true"
+                            @error('unit') aria-invalid="true" @enderror class="admin-input mt-1">
+                        @foreach (\App\Enums\RateUnit::cases() as $unit)
+                            <option value="{{ $unit->value }}" @selected(old('unit', $rate->unit) === $unit->value)>{{ str_replace('_', ' ', $unit->value) }}</option>
+                        @endforeach
+                    </select>
+                    <x-input-error class="mt-1" :messages="$errors->get('unit')" />
                 </div>
+            </div>
+        </x-admin.panel>
 
-                <!-- Active State -->
-                <div class="flex items-center gap-2">
-                    <input type="hidden" name="is_active" value="0">
-                    <input type="checkbox" id="is_active" name="is_active" value="1" {{ old('is_active', $rate->is_active) ? 'checked' : '' }}
-                           class="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring-primary">
-                    <label for="is_active" class="text-sm font-medium text-gray-700">Active (used in pricing calculations)</label>
-                </div>
+        @include('admin.rates.partials.effective-period-and-pricing', ['rate' => $rate])
 
-                <!-- Submit -->
-                <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-                    <a href="{{ route('admin.rates.show', $rate) }}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                        Cancel
-                    </a>
-                    <button type="submit" class="inline-flex items-center px-4 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition">
-                        Save Changes
-                    </button>
-                </div>
-            </form>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+            <x-admin.button variant="secondary" :href="route('admin.rates.show', $rate)">Cancel</x-admin.button>
+            <x-admin.button type="submit">Save changes</x-admin.button>
         </div>
-    </div>
+    </form>
 </x-admin-layout>

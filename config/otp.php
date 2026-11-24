@@ -18,6 +18,8 @@ return [
 
     'max_verifies_per_ip' => (int) env('OTP_MAX_VERIFIES_PER_IP', 20),
 
+    'verify_decay_seconds' => (int) env('OTP_VERIFY_DECAY_SECONDS', 300),
+
     'verified_session_minutes' => (int) env('OTP_VERIFIED_SESSION_MINUTES', 30),
 
 ];

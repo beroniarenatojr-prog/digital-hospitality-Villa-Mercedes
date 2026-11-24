@@ -5,7 +5,7 @@
     $rating = max(1, min(5, (int) $review->rating));
 @endphp
 
-<blockquote {{ $attributes->merge(['class' => 'bg-surface rounded-[1.75rem] border border-border p-6 sm:p-8 shadow-sm flex flex-col text-left']) }}>
+<blockquote {{ $attributes->merge(['class' => 'flex flex-col border-t border-border bg-surface p-6 text-left shadow-none sm:p-8']) }}>
     <p class="flex gap-0.5 text-accent" aria-label="{{ $rating }} out of 5 stars">
         @for($i = 1; $i <= 5; $i++)
             <svg class="w-4 h-4 {{ $i <= $rating ? 'fill-current' : 'fill-none stroke-current opacity-40' }}" viewBox="0 0 20 20" aria-hidden="true">

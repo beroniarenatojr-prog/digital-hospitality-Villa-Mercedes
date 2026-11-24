@@ -1,5 +1,5 @@
 <div class="space-y-8 text-sm sm:text-base text-text-muted leading-relaxed">
-    <p class="text-xs uppercase tracking-wide text-text-muted">Last updated {{ now()->format('F j, Y') }}</p>
+    <p class="text-xs uppercase tracking-wide text-text-muted">Published {{ config('resort.policy.published_on') }} · {{ config('resort.policy.version') }}</p>
 
     <section class="space-y-3">
         <h2 class="font-heading text-xl sm:text-2xl font-semibold text-text">1. Who we are</h2>
@@ -30,14 +30,23 @@
         <h2 class="font-heading text-xl sm:text-2xl font-semibold text-text">3. Reservations and payment</h2>
         <p>
             Submitting a reservation request does not guarantee a confirmed booking until the resort accepts it and any required deposit is verified.
-            Prices, availability, deposits, cancellation, and reschedule windows follow the information shown during booking and the resort’s published policy
-            (including a free cancel/reschedule window of {{ (int) config('resort.policy.cancellation_cutoff_hours') }} hours before arrival, where applicable).
+            Prices and availability follow the saved quote and policy version accepted during booking. Future terms do not rewrite historical accepted terms or prices.
+        </p>
+        <p>
+            Guests submit at least a 50% down payment and may pay 100% online. Submitted proof remains under review until staff verify the transfer. Function halls needing a staff quotation receive an exact quote before payment. Any remaining balance is due at physical check-in.
+        </p>
+        <p>
+            Before physical check-in, including no-show, verified payments are eligible for full refund. Staff receive cancellation requests and notify the owner; the owner approves refunds; administrators record that approval and the funds returned. Request, approval, and return are separate stages. Physical check-in ends this eligibility.
+        </p>
+        <p>
+            Rescheduling has no notice deadline before physical check-in. Staff review the new service, dates, availability, and price difference before confirmation. Cottage session changes require staff assistance.
         </p>
         <p>
             Guests must present a valid ID matching the lead guest details at check-in when staff request it.
         </p>
     </section>
 
+    @include('pages.partials.confirmed-booking-policy')
     <section class="space-y-3">
         <h2 class="font-heading text-xl sm:text-2xl font-semibold text-text">4. Guest conduct</h2>
         <p>

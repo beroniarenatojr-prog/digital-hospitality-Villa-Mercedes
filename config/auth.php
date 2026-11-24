@@ -140,6 +140,15 @@ return [
         'max_attempts' => (int) env('RATE_LIMIT_LOGIN', 5),
     ],
 
+    'booking_calculate' => [
+        'max_attempts' => (int) env('RATE_LIMIT_BOOKING_CALCULATE', 20),
+    ],
+
+    'initial_admin' => [
+        'email' => env('INITIAL_ADMIN_EMAIL'),
+        'password' => env('INITIAL_ADMIN_PASSWORD'),
+    ],
+
     'booking_magic_link' => [
         'expire_minutes' => (int) env('BOOKING_MAGIC_LINK_EXPIRE_MINUTES', 45),
         'max_sends_per_email' => (int) env('BOOKING_MAGIC_LINK_MAX_SENDS_PER_EMAIL', 5),

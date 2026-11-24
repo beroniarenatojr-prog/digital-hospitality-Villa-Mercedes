@@ -24,12 +24,12 @@ final class CustomerNav
     }
 
     /**
-     * Keep the three primary account destinations available outside the booking
-     * wizard, whose own progress header already leads the guest through one flow.
+     * Keep account destinations available throughout booking so guests can
+     * leave the workspace using the desktop menu or mobile navigation.
      */
     public static function showsAccountNav(): bool
     {
-        return self::isAccountContext() && ! request()->routeIs('customer.booking.*', 'customer.grouped-booking.*');
+        return self::isAccountContext();
     }
 
     /**
@@ -46,11 +46,6 @@ final class CustomerNav
                 'label' => 'My reservations',
                 'route' => 'customer.reservations.index',
                 'active' => request()->routeIs('customer.reservations.index', 'customer.reservations.show', 'customer.payments.*'),
-            ],
-            [
-                'label' => 'My inquiries',
-                'route' => 'customer.inquiries.index',
-                'active' => request()->routeIs('customer.inquiries.*'),
             ],
             [
                 'label' => 'New reservation',

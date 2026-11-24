@@ -6,6 +6,7 @@ use App\Enums\FacilityType as FacilityTypeEnum;
 use App\Enums\PaymentStatus;
 use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
+use App\Enums\Role;
 use App\Models\Facility;
 use App\Models\Faq;
 use App\Models\FaqCategory;
@@ -16,6 +17,7 @@ use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -41,9 +43,59 @@ class DatabaseArchitectureTest extends TestCase
             'amount' => 2500, // Deluxe rate
         ]);
 
-        $this->assertDatabaseHas('users', [
+        $this->assertDatabaseMissing('users', [
             'email' => 'customer@villamercedes.test',
         ]);
+
+        $this->assertDatabaseHas('resort_pools', [
+            'slug' => 'adult-pool',
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('swimming_sessions', [
+            'slug' => 'day',
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('resort_fees', [
+            'name' => 'Catering, lights & sounds',
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('menu_categories', [
+            'slug' => 'viands',
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('resort_settings', [
+            'key' => 'cafe_hours',
+        ]);
+
+        $admin = User::query()->where('email', 'admin@villamercedes.test')->firstOrFail();
+        $this->assertTrue($admin->hasRole(Role::Administrator->value));
+        $this->assertTrue(Hash::check('Password123!', $admin->password));
+
+        $secondAdmin = User::query()->where('email', 'admin2@villamercedes.test')->firstOrFail();
+        $this->assertTrue($secondAdmin->hasRole(Role::Administrator->value));
+        $this->assertTrue(Hash::check('Password123!', $secondAdmin->password));
+
+        $this->post(route('admin.login.store'), [
+            'email' => 'admin@villamercedes.test',
+            'password' => 'Password123!',
+        ])->assertRedirect(route('admin.dashboard', absolute: false));
+
+        $this->post(route('admin.logout'))->assertRedirect();
+
+        $this->post(route('admin.login.store'), [
+            'email' => 'admin2@villamercedes.test',
+            'password' => 'Password123!',
+        ])->assertRedirect(route('admin.dashboard', absolute: false));
+
+        $this->assertSame(0, Reservation::query()
+            ->where('reservation_code', 'like', 'VM-HIST-%')
+            ->whereIn('status', [ReservationStatus::Pending, ReservationStatus::Approved])
+            ->where('check_out', '<=', now())
+            ->count());
     }
 
     public function test_reservation_can_be_created_with_relationships(): void

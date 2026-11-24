@@ -57,7 +57,7 @@ class ReservationWithdrawalTest extends TestCase
         ]);
 
         $this->actingAs($this->customer)
-            ->patch(route('customer.reservations.cancel', $reservation), ['reason' => 'Plans changed'])
+            ->patch(route('customer.reservations.withdraw', $reservation), ['reason' => 'Plans changed'])
             ->assertRedirect(route('customer.reservations.show', $reservation))
             ->assertSessionHas('success');
 
@@ -82,11 +82,31 @@ class ReservationWithdrawalTest extends TestCase
         ]);
 
         $this->actingAs($this->customer)
-            ->patch(route('customer.reservations.cancel', $reservation), ['reason' => 'Again'])
+            ->patch(route('customer.reservations.withdraw', $reservation), ['reason' => 'Again'])
             ->assertRedirect(route('customer.reservations.show', $reservation))
             ->assertSessionHas('error');
 
         $this->assertSame('First request', $reservation->fresh()->cancellation_request_reason);
+    }
+
+    public function test_an_approved_reservation_cannot_be_withdrawn(): void
+    {
+        $reservation = Reservation::factory()->create([
+            'user_id' => $this->customer->id,
+            'facility_id' => $this->facility->id,
+            'status' => ReservationStatus::Approved->value,
+            'check_in' => now()->addDays(10),
+            'check_out' => now()->addDays(12),
+        ]);
+
+        $this->actingAs($this->customer)
+            ->patch(route('customer.reservations.withdraw', $reservation), ['reason' => 'Plans changed'])
+            ->assertRedirect(route('customer.reservations.show', $reservation))
+            ->assertSessionHas('error');
+
+        $reservation->refresh();
+        $this->assertSame(ReservationStatus::Approved, $reservation->status);
+        $this->assertNull($reservation->cancellation_requested_at);
     }
 
     public function test_there_is_no_unrequest_route(): void
@@ -135,7 +155,7 @@ class ReservationWithdrawalTest extends TestCase
         ]);
 
         $this->actingAs($this->customer)
-            ->patch(route('customer.reservations.cancel', $reservation), ['reason' => 'Too late'])
+            ->patch(route('customer.reservations.withdraw', $reservation), ['reason' => 'Too late'])
             ->assertRedirect(route('customer.reservations.show', $reservation))
             ->assertSessionHas('error');
 

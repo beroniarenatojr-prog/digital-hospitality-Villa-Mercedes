@@ -15,52 +15,85 @@
             'check_in', 'check_out', 'guests', 'date', 'session', 'arrival', 'departure',
         ]), fn ($value) => $value !== null && $value !== '');
         $listUrl = $isCustomerDetail
-            ? route('customer.reservations.new', [
+            ? route('customer.grouped-booking.workspace', [
                 'type' => $facility->facilityType->slug,
                 ...$selectionQuery,
             ])
-            : route($publicListRoute);
+            : route($publicListRoute, $facility->isRoom() ? array_filter([
+                'check_in' => substr((string) ($selectionQuery['arrival'] ?? $selectionQuery['check_in'] ?? ''), 0, 10),
+                'check_out' => substr((string) ($selectionQuery['departure'] ?? $selectionQuery['check_out'] ?? ''), 0, 10),
+                'guests' => $selectionQuery['guests'] ?? null,
+            ]) : []);
     @endphp
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12 pb-24">
-        
-        {{-- Breadcrumb --}}
-        <nav class="flex mb-6 text-sm text-muted-foreground" aria-label="Breadcrumb">
-            <ol class="inline-flex items-center space-x-1 md:space-x-3">
-                <li class="inline-flex items-center">
-                    <a href="{{ $homeUrl }}" class="inline-flex items-center hover:text-text transition-colors">
-                        {{ $isCustomerDetail ? 'My reservations' : 'Home' }}
-                    </a>
-                </li>
-                <li>
-                    <div class="flex items-center">
-                        <svg class="w-4 h-4 text-muted-foreground mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                        <a href="{{ $listUrl }}" class="hover:text-text transition-colors">
-                            {{ $facility->facilityType->name }}s
+
+        @if($isCustomerDetail)
+            {{--
+                In the account shell this page announces itself the way every
+                account page does. It used to hand-roll its own breadcrumb and its
+                own `text-4xl md:text-5xl lg:text-6xl` heading, which is how one
+                page drifts out of a language the rest of the area speaks.
+                The marketing page keeps its own crumb: different shell, different
+                neighbours (see the `@else` below).
+            --}}
+            <x-customer.page-header
+                class="mb-8"
+                :breadcrumbs="[
+                    ['label' => 'My reservations', 'href' => route('customer.reservations.index')],
+                    ['label' => $facility->facilityType->name.'s', 'href' => $listUrl],
+                    ['label' => $facility->name],
+                ]"
+                :eyebrow="$facility->facilityType->name"
+                :title="$facility->name"
+            />
+        @else
+            {{-- Marketing shell: its neighbours are the public listings, so it keeps
+                 the public way back. --}}
+            <nav class="flex mb-6 text-sm text-muted-foreground" aria-label="Breadcrumb">
+                <ol class="inline-flex items-center space-x-1 md:space-x-3">
+                    <li class="inline-flex items-center">
+                        <a href="{{ $homeUrl }}" class="inline-flex items-center hover:text-text transition-colors">
+                            Home
                         </a>
-                    </div>
-                </li>
-                <li aria-current="page">
-                    <div class="flex items-center">
-                        <svg class="w-4 h-4 text-muted-foreground mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                        <span class="text-text font-medium">{{ $facility->name }}</span>
-                    </div>
-                </li>
-            </ol>
-        </nav>
+                    </li>
+                    <li>
+                        <div class="flex items-center">
+                            <svg class="w-4 h-4 text-muted-foreground mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            <a href="{{ $listUrl }}" class="hover:text-text transition-colors">
+                                {{ $facility->facilityType->name }}s
+                            </a>
+                        </div>
+                    </li>
+                    <li aria-current="page">
+                        <div class="flex items-center">
+                            <svg class="w-4 h-4 text-muted-foreground mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            <span class="text-text font-medium">{{ $facility->name }}</span>
+                        </div>
+                    </li>
+                </ol>
+            </nav>
+        @endif
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 xl:gap-12">
             
             {{-- Main Content --}}
             <div class="lg:col-span-2 space-y-10">
                 
-                {{-- Header & Image --}}
+                {{-- Header & Image. The account shell prints the type and the
+                     name in its own header, so this block belongs to the
+                     marketing page only. --}}
                 <div class="space-y-6">
-                    <div>
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-text mb-3">{{ $facility->facilityType->name }}</span>
-                        <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-semibold text-text tracking-tight">
-                            {{ $facility->name }}
-                        </h1>
-                    </div>
+                    @unless($isCustomerDetail)
+                        <div>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary-light text-text mb-3">{{ $facility->facilityType->name }}</span>
+                            <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-semibold text-text tracking-tight">
+                                {{ $facility->name }}
+                            </h1>
+                            @if($facility->isRoom())
+                                <a href="#reservation-details" class="mt-2 inline-flex min-h-[44px] items-center font-semibold text-primary underline lg:hidden">View rate and booking options</a>
+                            @endif
+                        </div>
+                    @endunless
 
                     <div
                         class="space-y-3"
@@ -156,6 +189,13 @@
                 </section>
                 @endif
 
+                @if(filled($facility->exclusions))
+                    <section>
+                        <h2 class="font-heading text-3xl font-semibold text-text mb-4">Exclusions / Not included</h2>
+                        <p class="text-muted-foreground whitespace-pre-line">{{ $facility->exclusions }}</p>
+                    </section>
+                @endif
+
                 {{-- Included Bookable Resources (Package Components) --}}
                 @if($facility->packageComponents->count() > 0)
                 <section>
@@ -187,7 +227,7 @@
                         <div class="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                         
                         <div class="relative z-10">
-                            <h3 class="font-display text-xl md:text-2xl font-bold text-text mb-6">Reservation details</h3>
+                            <h2 id="reservation-details" tabindex="-1" class="scroll-mt-24 font-display text-xl md:text-2xl font-bold text-text mb-6">Reservation details</h2>
                             
                             <div class="space-y-4 mb-8">
                                 <div class="flex items-center justify-between pb-4 border-b border-border">
@@ -195,7 +235,7 @@
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                                         Standard Capacity
                                     </span>
-                                    <span class="font-medium text-text">{{ $facility->capacity }} pax</span>
+                                    <span class="font-medium text-text">{{ trans_choice('{1} :count guest|[2,*] :count guests', $facility->capacity) }}</span>
                                 </div>
                                 <div class="flex items-center justify-between pb-4 border-b border-border">
                                     <span class="text-muted-foreground flex items-center gap-2">
@@ -203,7 +243,7 @@
                                         Maximum Capacity
                                     </span>
                                     <span class="font-medium text-text">
-                                        {{ $facility->effectiveMaxCapacity() === null ? 'No fixed guest limit' : $facility->effectiveMaxCapacity().' pax' }}
+                                        {{ $facility->effectiveMaxCapacity() === null ? 'No fixed guest limit' : trans_choice('{1} :count guest|[2,*] :count guests', $facility->effectiveMaxCapacity()) }}
                                     </span>
                                 </div>
                             </div>
@@ -211,12 +251,12 @@
                             <div class="mb-8 bg-background p-4 rounded-xl border border-border">
                                 <p class="text-sm text-muted-foreground uppercase tracking-wide font-medium mb-1">Starting from</p>
                                 @php
-                                    $baseRate = $facility->rates->firstWhere('type', \App\Enums\RateType::Base);
+                                    $baseRate = $facility->rates->where('is_active', true)->where('type', \App\Enums\RateType::Base)->sortBy('amount')->first();
                                 @endphp
                                 @if($baseRate)
                                     <div class="flex items-baseline gap-1.5 flex-wrap">
-                                        <x-price-display :amount="$baseRate->amount" class="text-3xl font-extrabold text-primary" />
-                                        <span class="text-muted-foreground font-medium">/ {{ $baseRate->unit }}</span>
+                                        <x-amount :value="$baseRate->amount" class="text-3xl font-extrabold text-primary" />
+                                        <span class="text-muted-foreground font-medium">{{ $baseRate->unit }}</span>
                                     </div>
                                     <p class="text-xs text-muted-foreground mt-2 italic">Note: Final price may vary based on selected dates and seasonal rates.</p>
                                 @else
@@ -232,22 +272,17 @@
                                         $stayQuery = array_filter(request()->only([
                                             'check_in', 'check_out', 'arrival', 'departure', 'guests', 'date', 'session',
                                         ]), fn ($value) => $value !== null && $value !== '');
-                                        $cameFromAvailability = request('availability_checked') === '1';
-                                        $nextUrl = $cameFromAvailability
-                                            ? route('customer.booking.create', [
-                                                'facility' => $facility,
-                                                ...$stayQuery,
-                                                'availability_checked' => 1,
-                                            ])
-                                            : route('facilities.availability', ['facility' => $facility, ...$stayQuery]);
+                                        $nextUrl = auth()->check()
+                                            ? route('customer.grouped-booking.workspace', ['facility_id' => $facility->id, ...$stayQuery])
+                                            : route('customer.booking.legacy', ['facility' => $facility->id, ...$stayQuery]);
+                                        $buttonLabel = 'Add to booking';
+                                        $nextHint = 'Set this service schedule in your booking, then check live availability and the exact estimate.';
                                     @endphp
                                     <x-primary-button tag="a" href="{{ $nextUrl }}" class="w-full justify-center text-center !py-3 !text-base">
-                                        {{ $cameFromAvailability ? 'Continue to reservation' : 'Check availability' }}
+                                        {{ $buttonLabel }}
                                     </x-primary-button>
                                     <p class="text-xs text-center text-muted-foreground">
-                                        {{ $cameFromAvailability
-                                            ? 'Your dates are available. The exact total is calculated and revalidated on the next step.'
-                                            : 'Checking dates is free. The exact total is calculated before you confirm.' }}
+                                        {{ $nextHint }}
                                     </p>
                                 @else
                                     <p class="text-sm text-text">This package cannot be reserved online. Call or message the resort to arrange it.</p>
@@ -267,5 +302,3 @@
         </div>
     </div>
 </x-customer-layout>
-
-

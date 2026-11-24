@@ -42,8 +42,8 @@ class ReportingIntegrationTest extends TestCase
         $response->assertStatus(200);
 
         // Make Reservation
-        $checkIn = Carbon::now()->addDays(2)->format('Y-m-d');
-        $checkOut = Carbon::now()->addDays(4)->format('Y-m-d');
+        $checkIn = Carbon::now()->addDays(2)->setTime(14, 0)->format('Y-m-d H:i:s');
+        $checkOut = Carbon::now()->addDays(4)->setTime(12, 0)->format('Y-m-d H:i:s');
         
         $this->actingAs($customer)->post(route('customer.reservations.store'), [
             ...$this->guestInformationPayload(),
@@ -56,9 +56,6 @@ class ReportingIntegrationTest extends TestCase
         $reservation = Reservation::where('user_id', $customer->id)->first();
         $this->assertNotNull($reservation);
 
-        // Approve it
-        $this->actingAs($admin)->patch(route('admin.reservations.approve', $reservation));
-
         // Submit Payment
         $payment = Payment::factory()->create([
             'reservation_id' => $reservation->id,
@@ -68,6 +65,7 @@ class ReportingIntegrationTest extends TestCase
 
         // Verify Payment
         $this->actingAs($admin)->patch(route('admin.payments.verify', $payment));
+        $this->patch(route('admin.reservations.approve', $reservation))->assertSessionHas('success');
 
         // Admin checks report after
         $response = $this->actingAs($admin)->get(route('admin.reports.index', [

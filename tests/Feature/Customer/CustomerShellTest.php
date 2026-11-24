@@ -6,7 +6,6 @@ use App\Enums\FacilityStatus;
 use App\Enums\RateType;
 use App\Models\Facility;
 use App\Models\FacilityType;
-use App\Models\Inquiry;
 use App\Models\Rate;
 use App\Models\Reservation;
 use App\Models\User;
@@ -64,7 +63,6 @@ class CustomerShellTest extends TestCase
 
     private Reservation $reservation;
 
-    private Inquiry $inquiry;
 
     protected function setUp(): void
     {
@@ -81,7 +79,6 @@ class CustomerShellTest extends TestCase
             'facility_id' => $this->room->id,
         ]);
 
-        $this->inquiry = Inquiry::factory()->create(['user_id' => $this->customer->id]);
     }
 
     /**
@@ -97,6 +94,7 @@ class CustomerShellTest extends TestCase
         'customer/booking/create.blade.php' => 'the wizard keeps its own breadcrumb back to My reservations: its hero is the flow\'s header, and the account navigation is deliberately absent there',
         'customer/booking/cottage.blade.php' => 'the booking flow steps between its own panes ("Choose another cottage"): a guest mid-booking is following one task, not a section of the account',
         'customer/booking/unified-workspace.blade.php' => 'unified booking flow has its own hero header and step controls',
+        'customer/booking/group-quote-checkout.blade.php' => 'a quoted booking continues the payment flow with its own heading and return to the booking',
     ];
 
     /**
@@ -117,8 +115,8 @@ class CustomerShellTest extends TestCase
         ],
         'a "Back to …" link' => [
             'pattern' => '/<a\b[^>]*>\s*Back to\b/',
-            'example' => '<a href="{{ route(\'customer.inquiries.index\') }}">Back to my inquiries</a>',
-            'clean' => '<x-customer.page-header :back="[\'label\' => \'Back to my inquiries\', \'href\' => $url]" />',
+            'example' => '<a href="{{ route(\'customer.reservations.index\') }}">Back to my reservations</a>',
+            'clean' => '<x-customer.page-header :back="[\'label\' => \'Back to my reservations\', \'href\' => $url]" />',
         ],
         'a breadcrumb of its own' => [
             'pattern' => '/aria-label="Breadcrumb"/',
@@ -210,13 +208,11 @@ class CustomerShellTest extends TestCase
             $html = (string) $response->getContent();
             $isFlow = $page['flow'] ?? false;
 
-            // The three primary destinations stay in one shared account navigation.
+            // Account navigation stays available even within the booking flow.
             $this->assertSame(
-                $isFlow ? 0 : 1,
+                1,
                 substr_count($html, self::ACCOUNT_NAV_MARKER),
-                $isFlow
-                    ? $pageLabel.' is part of the booking flow and must not add a second navigation.'
-                    : $pageLabel.' must carry the shared account navigation exactly once.'
+                $pageLabel.' must carry the shared account navigation exactly once.'
             );
 
             // One shared header, which is also the page's only heading.
@@ -313,6 +309,16 @@ class CustomerShellTest extends TestCase
      */
     private function accountPages(): array
     {
+        $payment = \App\Models\Payment::firstOrCreate(['reservation_id' => $this->reservation->id], [
+            'amount' => 500, 'payment_date' => now()->toDateString(), 'method' => 'cash', 'status' => 'verified', 'verified_at' => now(),
+        ]);
+        $group = \App\Models\ReservationGroup::firstOrCreate(['group_code' => 'GRP-SHELL-QUOTE'], [
+            'user_id' => $this->customer->id, 'source' => 'online', 'status' => 'pending',
+            'guest_name' => $this->customer->name, 'guest_email' => $this->customer->email, 'guest_phone' => '09171234567',
+            'quoted_at' => now(), 'requires_quote' => false, 'total_amount' => 1000, 'deposit_required' => 500,
+            'policy_version' => config('resort.policy.confirmed_version'),
+        ]);
+
         return [
             ['route' => 'customer.home', 'params' => []],
             ['route' => 'customer.reservations.index', 'params' => []],
@@ -325,11 +331,13 @@ class CustomerShellTest extends TestCase
             [
                 'route' => 'customer.reservations.show',
                 'params' => ['reservation' => $this->reservation, 'view' => 'arrival'],
-                'note' => 'the arrival facet of a reservation',
+                'note' => 'the check in facet of a reservation',
             ],
             ['route' => 'customer.payments.index', 'params' => ['reservation' => $this->reservation]],
-            ['route' => 'customer.inquiries.index', 'params' => []],
-            ['route' => 'customer.inquiries.show', 'params' => ['inquiry' => $this->inquiry]],
+            ['route' => 'customer.payments.receipt', 'params' => ['payment' => $payment]],
+            ['route' => 'customer.reservation-groups.show', 'params' => ['group' => $group]],
+            ['route' => 'customer.reservation-groups.payments', 'params' => ['group' => $group]],
+            ['route' => 'customer.grouped-booking.quote-checkout', 'params' => ['group' => $group], 'flow' => true],
             ['route' => 'customer.notifications.index', 'params' => []],
             ['route' => 'customer.facilities.show', 'params' => ['facility' => $this->room]],
             ['route' => 'profile.edit', 'params' => []],

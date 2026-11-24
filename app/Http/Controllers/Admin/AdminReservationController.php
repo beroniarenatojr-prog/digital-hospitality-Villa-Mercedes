@@ -6,37 +6,44 @@ use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Exceptions\Reservation\InvalidReservationTransitionException;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\StoreWalkInReservationRequest;
 use App\Http\Requests\Admin\RescheduleReservationRequest;
+use App\Http\Requests\Admin\StoreWalkInReservationRequest;
 use App\Models\Facility;
 use App\Models\FacilityType;
 use App\Models\Reservation;
 use App\Models\SwimmingSession;
-use App\Services\Admin\DecisionSupportService;
-use App\Services\PricingService;
 use App\Services\CottageBookingService;
+use App\Services\PricingService;
 use App\Services\ReservationService;
 use App\Support\AdminCatalogCache;
 use App\Support\GuestInformation;
 use App\Support\LiveFilter;
+use App\Support\ResortTime;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\Response;
 
 class AdminReservationController extends Controller
 {
     public function __construct(
         private readonly ReservationService $service,
         private readonly PricingService $pricingService,
-        private readonly CottageBookingService $cottageBookingService,
-        private readonly DecisionSupportService $decisionSupport
+        private readonly CottageBookingService $cottageBookingService
     ) {}
 
-    public function index(Request $request): View
+    public function index(Request $request): View|RedirectResponse
     {
-        $query = Reservation::with(['user', 'facility.facilityType']);
+        // The walk-in sheet used to live in a modal on this screen. Old
+        // bookmarks and the header shortcut land on the dedicated page now.
+        if ($request->boolean('walk_in')) {
+            return redirect()->route('admin.reservations.create');
+        }
+
+        $query = Reservation::with(['user', 'facility.facilityType', 'reservationGroup']);
 
         // Filter by Status
         if ($request->filled('status')) {
@@ -73,55 +80,74 @@ class AdminReservationController extends Controller
             $query->matchingGuestLookup((string) $request->input('search'));
         }
 
-        $reservations = $query->orderBy('created_at', 'desc')->paginate(20);
+        // The id tiebreaker is what makes this page-safe. created_at is stored to
+        // the second, so a batch of bookings filed in the same second — a busy
+        // morning, a walk-in rush, a seeder — is a tie, and MySQL may order a tie
+        // differently on each page request. Without a total order a reservation
+        // can appear twice, or vanish between page 1 and page 2.
+        $arrivalDay = $request->boolean('arriving_today') ? ResortTime::now() : null;
+        if ($arrivalDay) {
+            $query->arrivingOn($arrivalDay)->reorder();
+        }
+
+        $bookingIds = $query->selectRaw('MAX(reservations.id)')
+            ->groupBy('reservation_group_id')
+            ->groupByRaw('CASE WHEN reservation_group_id IS NULL THEN reservations.id ELSE 0 END');
+        $results = Reservation::with([
+            'user', 'facility.facilityType', 'payments',
+            'reservationGroup.directPayments' => fn ($payments) => $payments->where('status', 'pending')->where('source', 'customer_deposit')->orderBy('id'),
+            'reservationGroup.reservations' => fn ($lines) => $lines
+                ->when($arrivalDay, fn ($query) => $query->arrivingOn($arrivalDay))
+                ->with('facility.facilityType'),
+        ])->whereIn('id', $bookingIds);
+        if ($arrivalDay) {
+            $results->orderBy('check_in')->orderBy('id');
+        } else {
+            $results->orderByDesc('created_at')->orderByDesc('id');
+        }
+        $reservations = $results->paginate(20);
 
         if (LiveFilter::wantsPartial($request)) {
             return view('admin.reservations.partials.results', compact('reservations'));
         }
-
-        $arrivalsToday = Reservation::query()
-            ->with(['user', 'facility.facilityType'])
-            ->arrivingOn(now())
-            ->get();
 
         $facilityTypes = FacilityType::where('is_active', true)->get();
         $filterFacilities = Facility::query()
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name']);
-        $loadWalkInCatalog = $request->boolean('walk_in') || $request->session()->has('errors');
-        $facilities = $loadWalkInCatalog ? AdminCatalogCache::bookableFacilities() : collect();
 
         return view('admin.reservations.index', compact(
             'reservations',
-            'arrivalsToday',
             'facilityTypes',
-            'filterFacilities',
-            'facilities'
+            'filterFacilities'
         ));
+    }
+
+    public function create(): View
+    {
+        return view('admin.reservations.create', [
+            'facilities' => AdminCatalogCache::bookableFacilities(),
+        ]);
     }
 
     public function show(Reservation $reservation): View
     {
+        // The scheduler remains the primary checkout mechanism. Reconcile this
+        // record as it is opened as well, so a stopped local scheduler cannot
+        // leave an ended stay looking active or offer an "early" checkout.
+        if ($reservation->isInHouse() && $reservation->occupancyEnd()->lte(ResortTime::databaseNow())) {
+            $this->service->checkOutAutomatically($reservation);
+            $reservation->refresh();
+        }
+
         $reservation->load(['user', 'facility.facilityType', 'payments', 'activities.causer']);
 
         $facilities = AdminCatalogCache::bookableFacilities();
 
-        $impact = null;
-        $extraHours = null;
-
-        // Decision support only means something while the reservation can still
-        // be acted on.
-        if (in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)) {
-            $impact = $this->decisionSupport->analyze($reservation);
-            $extraHours = $reservation->facility->isCottage()
-                ? null
-                : $this->decisionSupport->extraHourOptions($reservation);
-        }
-
         $swimmingSessions = SwimmingSession::where('is_active', true)->orderBy('sort_order')->get();
 
-        return view('admin.reservations.show', compact('reservation', 'facilities', 'impact', 'extraHours', 'swimmingSessions'));
+        return view('admin.reservations.show', compact('reservation', 'facilities', 'swimmingSessions'));
     }
 
     public function approve(Request $request, Reservation $reservation): RedirectResponse
@@ -189,19 +215,20 @@ class AdminReservationController extends Controller
             $breakdown = $facility->isCottage()
                 ? $this->cottageBookingService->price($facility, $request->validated('swimming_session_id'), $checkIn, $checkOut)
                 : $this->pricingService->calculate(
-                $facility,
-                $checkIn,
-                $checkOut,
-                $earlyCheckInHours,
-                $lateCheckOutHours,
-                $pax
-            );
+                    $facility,
+                    $checkIn,
+                    $checkOut,
+                    $earlyCheckInHours,
+                    $lateCheckOutHours,
+                    $pax
+                );
 
             return response()->json([
                 'success' => true,
                 'breakdown' => [
                     'base_amount' => $breakdown->baseAmount / 100,
-                    'additional_charges' => ($breakdown->earlyCheckInCharge + $breakdown->lateCheckOutCharge + $breakdown->extraPersonCharge) / 100,
+                    'additional_charges' => ($breakdown->totalAmount - $breakdown->baseAmount) / 100,
+                    'hall_extension_charge' => $breakdown->hallExtensionCharge / 100,
                     'total_amount' => $breakdown->totalAmount / 100,
                 ],
                 'facility_name' => $facility->name,
@@ -241,6 +268,97 @@ class AdminReservationController extends Controller
         return redirect()->back()->with('success', 'Reservation rescheduled successfully.');
     }
 
+    public function downloadGuestInformationSheet(Request $request, Reservation $reservation): Response
+    {
+        return app(\App\Services\GuestInformationSheetNumber::class)->issue(
+            $reservation,
+            fn (Reservation $issued) => $this->renderGuestInformationSheet($issued, $request->boolean('print'))
+        );
+    }
+
+    private function renderGuestInformationSheet(Reservation $reservation, bool $inline = false): Response
+    {
+        abort_unless($reservation->status === ReservationStatus::Approved, 404);
+
+        $reservation->load(['user', 'facility']);
+
+        $guest = [
+            'name' => $reservation->guestName(),
+            'place_of_origin' => $reservation->guest_place_of_origin ?: $reservation->user?->address,
+            'nationality' => $reservation->guest_nationality ?: $reservation->user?->nationality,
+            'company' => $reservation->guest_company ?: $reservation->user?->company,
+            'valid_id' => $reservation->guest_valid_id?->label() ?: $reservation->user?->valid_id_type?->label(),
+            'gender' => $reservation->guest_gender?->label() ?: $reservation->user?->gender?->label(),
+            'phone' => $reservation->guestPhone(),
+            'email' => $reservation->guestEmail(),
+        ];
+
+        $pdf = Pdf::loadView('admin.reservations.guest-information-sheet', [
+            'reservation' => $reservation,
+            'guest' => $guest,
+            'companions' => $reservation->otherGuestNames(),
+            'logoDataUri' => $this->guestInformationSheetLogoDataUri(),
+            'documentDetails' => [
+                'location' => 'Barangay Namnama, City of Ilagan, Isabela',
+                'contacts' => '09173268271/09272687279',
+                'email' => 'villa.mercedes318@gmail.com',
+                'accreditation' => 'Department of Tourism Accreditation No.DOT-R02-MAB-01664-2024',
+            ],
+        ])->setPaper('a4', 'portrait');
+
+        $filename = 'guest-information-sheet-'.$reservation->reservation_code.'.pdf';
+
+        return $inline ? $pdf->stream($filename) : $pdf->download($filename);
+    }
+
+    /**
+     * Reuse the transparent mark in the printable sheet without writing a
+     * second logo asset to disk. Its white pixels are recolored for white paper
+     * while the source alpha channel, including antialiased edges, is retained.
+     */
+    private function guestInformationSheetLogoDataUri(): ?string
+    {
+        $logoPath = public_path('images/logo-villa-mercedes-mark.png');
+
+        if (! file_exists($logoPath) || ! function_exists('imagecreatefrompng')) {
+            return null;
+        }
+
+        $logo = imagecreatefrompng($logoPath);
+
+        if ($logo === false) {
+            return null;
+        }
+
+        imagealphablending($logo, false);
+        imagesavealpha($logo, true);
+
+        $colors = [];
+        $width = imagesx($logo);
+        $height = imagesy($logo);
+
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $rgba = imagecolorat($logo, $x, $y);
+                $alpha = ($rgba >> 24) & 0x7F;
+
+                if ($alpha === 127) {
+                    continue;
+                }
+
+                $colors[$alpha] ??= imagecolorallocatealpha($logo, 112, 65, 64, $alpha);
+                imagesetpixel($logo, $x, $y, $colors[$alpha]);
+            }
+        }
+
+        ob_start();
+        imagepng($logo);
+        $png = ob_get_clean();
+        imagedestroy($logo);
+
+        return is_string($png) ? 'data:image/png;base64,'.base64_encode($png) : null;
+    }
+
     public function checkIn(Request $request, Reservation $reservation): RedirectResponse
     {
         try {
@@ -249,7 +367,7 @@ class AdminReservationController extends Controller
             return redirect()->back()->with('error', $e->getMessage());
         }
 
-        return redirect()->back()->with('success', 'Guest checked in.');
+        return redirect()->back()->with('success', "Checked in {$reservation->guestName()} at {$reservation->facility->name}. The stay is now on the Checked-in list.");
     }
 
     public function checkOut(Request $request, Reservation $reservation): RedirectResponse
@@ -260,7 +378,7 @@ class AdminReservationController extends Controller
             return redirect()->back()->with('error', $e->getMessage());
         }
 
-        return redirect()->back()->with('success', 'Guest checked out and the reservation is completed.');
+        return redirect()->back()->with('success', "Checked out {$reservation->guestName()} from {$reservation->facility->name}. Reservation {$reservation->reservation_code} is complete.");
     }
 
     public function complete(Request $request, Reservation $reservation): RedirectResponse

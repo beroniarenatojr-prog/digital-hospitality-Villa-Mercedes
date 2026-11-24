@@ -29,6 +29,7 @@ class PublicBrowsingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-01 08:00:00'));
         $this->seed(FacilityTypeSeeder::class);
     }
 
@@ -63,13 +64,18 @@ class PublicBrowsingTest extends TestCase
         $response->assertSee('Villa Mercedes Nature Farm & Resort');
         $response->assertSee('images/hero-aerial.jpg', false);
         $response->assertSee('images/mission-entrance.jpg', false);
-        $response->assertSee('Stay, celebrate, and learn');
+        $response->assertSee('Stay, celebrate, and unwind');
         $response->assertSee('Explore the Resort');
+        $response->assertSee('Swimming Pools');
+        $response->assertSee('4');
         $response->assertSee('Check Availability');
-        $response->assertSee('Browse Availability');
+        $response->assertDontSee('Browse Availability');
+        $response->assertDontSee('placeholder="2"', false);
         $response->assertSee('Date In');
         $response->assertSee('Date Out');
-        $response->assertSee('TESDA-certified training');
+        // The training module was removed from the product, so the hero must not
+        // keep selling it: `/training` is asserted to 404 further down this file.
+        $response->assertDontSee('TESDA');
         $response->assertSee('Function halls');
         $response->assertSee('Packages');
         $response->assertSee('Resort pools');
@@ -83,8 +89,11 @@ class PublicBrowsingTest extends TestCase
         $response->assertSee('value="pool"', false);
         $response->assertDontSee('/availability/search', false);
         $response->assertDontSee('Availability for your dates');
-        $response->assertSee('Sign in only when you are ready to reserve');
-        $response->assertSee('I want a package');
+        $response->assertSee('Create an account or sign in. Your dates and guest count stay with you.');
+        // The package card describes the bundle rather than advertising it. The
+        // earlier "I want a package when I need rooms and grounds together" copy
+        // was written in the guest's voice on a page that is not theirs.
+        $response->assertSee('Day-use, night-use, and overnight bundles for rooms and grounds.');
         $response->assertSee('images/rooms &amp; cottage.jpg', false);
         $response->assertSee('Wooden guest cottages at Villa Mercedes', false);
         $response->assertSee('images/event-hosting.jpg', false);
@@ -170,15 +179,22 @@ class PublicBrowsingTest extends TestCase
 
             $response->assertOk();
             $response->assertViewIs($view);
+
+            if ($route === 'about') {
+                $response
+                    ->assertSeeInOrder(['Guest reviews', 'Frequently asked questions', 'Heartful hospitality'])
+                    ->assertSee('id="reviews"', false)
+                    ->assertSee('id="faqs"', false);
+            }
         }
 
         $this->get('/dining')->assertNotFound();
         $this->get('/training')->assertNotFound();
         $this->get(route('contact'))->assertSee('villamercedesresort@yahoo.com');
         $this->get(route('contact'))
-            ->assertSee('Log in to send an inquiry')
-            ->assertSee('Create an account')
-            ->assertDontSee('action="'.route('customer.inquiries.store').'"');
+            ->assertSee('Message us on Facebook')
+            ->assertSee(config('resort.messenger_url'), false)
+            ->assertDontSee('Log in to send an inquiry');
 
         $this->get(route('reviews'))
             ->assertOk()
@@ -194,7 +210,7 @@ class PublicBrowsingTest extends TestCase
             ->assertOk()
             ->assertSee('Services')
             ->assertSee(route('rooms'), false)
-            ->assertSeeInOrder(['Home', 'Services', 'Resort & Pools', 'Gallery', 'FAQs', 'Reviews', 'About'])
+            ->assertSeeInOrder(['Home', 'Services', 'Resort & Pools', 'Gallery', 'About'])
             ->assertDontSee('Overnight and day-use stays')
             ->assertDontSee('Bundled stays at one price');
 
@@ -214,6 +230,8 @@ class PublicBrowsingTest extends TestCase
             ->assertDontSee('Suggested topics')
             ->assertSee('Message us on Messenger')
             ->assertSee('href="'.config('resort.messenger_url').'"', false)
+            ->assertSee('target="_blank"', false)
+            ->assertSee('rel="noopener noreferrer"', false)
             ->assertSee('Opens Messenger in a new tab. Replies arrive there.')
             ->assertDontSee('connect.facebook.net', false);
 
@@ -221,6 +239,17 @@ class PublicBrowsingTest extends TestCase
             ->assertOk()
             ->assertSee('data-support-chat', false)
             ->assertSee('Message us on Messenger');
+    }
+
+    public function test_empty_messenger_url_omits_the_entire_widget(): void
+    {
+        config(['resort.messenger_url' => '']);
+
+        $this->get(route('home'))
+            ->assertOk()
+            ->assertDontSee('data-support-chat', false)
+            ->assertDontSee('aria-label="Open Messenger chat"', false)
+            ->assertDontSee('Message us on Messenger');
     }
 
     public function test_rooms_listing_displays_active_rooms_only()
@@ -347,7 +376,7 @@ class PublicBrowsingTest extends TestCase
         $response->assertSee($room->description);
         $response->assertSee('Free Wi-Fi');
         $response->assertSee('1,000.00'); // Check price formatting
-        $response->assertSee('Check availability');
+        $response->assertSee('Add to booking');
     }
 
     public function test_facility_book_link_preserves_availability_query(): void
@@ -362,7 +391,7 @@ class PublicBrowsingTest extends TestCase
             'guests' => 2,
         ]))
             ->assertOk()
-            ->assertSee(route('facilities.availability', $room), false)
+            ->assertSee(route('customer.booking.legacy', $room), false)
             ->assertSee('check_in=2026-10-12', false)
             ->assertSee('check_out=2026-10-13', false)
             ->assertSee('guests=2', false);
@@ -460,19 +489,23 @@ class PublicBrowsingTest extends TestCase
             ->assertSeeInOrder([
                 'Superior',
                 '2 units in this category',
-                'Superior (Room 01)',
-                'Superior (Room 02)',
+                'Room 01',
+                'Room 02',
                 'Superior Barkada',
                 '1 unit in this category',
-                'Superior Barkada (Room 10)',
+                'Room 10',
             ])
+            ->assertDontSee('SUPERIOR · ROOM 01')
             ->assertSee('1 bed')
             ->assertSee('2 included')
             ->assertSee('Max 2')
             ->assertSee('6 beds')
             ->assertSee('6 included')
             ->assertSee('Max 8')
-            ->assertSee('Extra person ₱500');
+            // Read as text, because the symbol and the figure are one amount in two
+            // elements: x-amount keeps the sign in its own span so callers can
+            // restyle the number without restyling the currency.
+            ->assertSeeText('Extra person ₱500.00');
     }
 
     public function test_halls_listing_does_not_group_venues_as_room_categories(): void
@@ -534,7 +567,7 @@ class PublicBrowsingTest extends TestCase
             'Where is Villa Mercedes located?' => 'Villa Mercedes Nature Farm & Resort is at Barangay Namnama, City of Ilagan, Isabela, Philippines.',
             'What is the entrance fee?' => 'Day swimming entrance is ₱100 for adults and ₱70 for children below 4 feet.',
             'What are the pool hours?' => 'Day swimming is 9:00 AM–5:00 PM. Night swimming is 5:00 PM–10:00 PM.',
-            'What are the check-in and check-out times?' => 'Check-in is 2:00 PM and check-out is 12:00 NN.',
+            'What are the check-in and check-out times?' => 'Check-in is 2:00 PM and check-out is 12:00 PM.',
             'Is the resort pet-friendly?' => 'Yes. Pets are welcome when kept on a leash or in a cage, wear pampers, and pay a ₱500 pet fee.',
         ] as $question => $answer) {
             Faq::factory()->create([
@@ -549,7 +582,10 @@ class PublicBrowsingTest extends TestCase
             ->assertOk()
             ->assertSee('GOOD TO KNOW')
             ->assertSee('Questions guests ask')
-            ->assertSee('Still unsure about something? Our front desk answers messages within the hour, seven days a week.')
+            // This line must not promise a response time. "Answers messages within
+            // the hour, seven days a week" is an operating commitment the resort
+            // has not agreed to, and the front desk is the one held to it.
+            ->assertSee('Contact the resort for help with your visit.')
             ->assertSee('Message the resort')
             ->assertSee('Where is Villa Mercedes located?')
             ->assertSee('What is the entrance fee?')
@@ -668,11 +704,18 @@ class PublicBrowsingTest extends TestCase
 
         $response = $this->get(route('home.featured'));
 
+        // The deferred fragment is card-only: it must carry everything a guest
+        // needs to act — the room, its photo, the rate it is quoted at, and the
+        // one call to action.
         $response
             ->assertOk()
             ->assertHeader('Cache-Control')
             ->assertSee($featuredRoom->name)
-            ->assertSee('Premium')
+            ->assertSee('featured-room.webp')
+            ->assertSee('From')
+            ->assertSee('1,000.00')
+            ->assertSee('per night')
+            ->assertSee('View details')
             ->assertDontSee('Open to reserve')
             ->assertDontSee($maintenanceRoom->name)
             ->assertDontSee('per per');

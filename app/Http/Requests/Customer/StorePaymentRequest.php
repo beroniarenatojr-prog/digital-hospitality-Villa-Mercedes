@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Customer;
 
 use App\Enums\PaymentMethod;
+use App\Support\ResortTime;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,12 +23,12 @@ class StorePaymentRequest extends FormRequest
             'payment_method' => ['required', Rule::in(PaymentMethod::values())],
             'reference_number' => ['nullable', 'string', 'max:255'],
             'payment_destination_id' => [config('payments.deposit_workflow') ? 'required' : 'nullable', 'integer', 'exists:payment_destinations,id'],
-            'payment_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.now(\App\Support\DepositDeadline::TIMEZONE)->toDateString()],
+            'payment_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.ResortTime::today()->toDateString()],
             'proof' => [
                 'required',
                 'file',
                 'mimes:jpg,jpeg,png,pdf',
-                "max:{$maxSize}"
+                "max:{$maxSize}",
             ],
         ];
     }

@@ -43,6 +43,16 @@ class PaymentServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Preserve historical partial-payment/approval fixtures; confirmed policy has dedicated minimum-deposit tests.
+        config(['resort.policy.version' => '2026-09-v2']);
+
+        // The stay these rules are exercised on is filed for 1 August, so the
+        // resort clock is pinned a week before it. Payment rules are about money
+        // and authority, not about when the suite happens to run, and a fixture
+        // date left on the real clock quietly falls into the past — at which
+        // point the booking window is refused before a single payment rule is
+        // reached. AdminResortClockTest pins the clock for the same reason.
+        Carbon::setTestNow(Carbon::parse('2026-07-25 09:00:00', 'Asia/Manila'));
 
         $this->artisan('db:seed');
 
@@ -58,6 +68,13 @@ class PaymentServiceTest extends TestCase
 
         $this->admin = User::factory()->create();
         $this->admin->assignRole(Role::Administrator->value);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     private function createTestReservation(User $user): Reservation

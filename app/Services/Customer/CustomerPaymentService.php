@@ -39,7 +39,12 @@ class CustomerPaymentService
     {
         $this->verifyReservationOwnership($customer, $reservation);
 
-        return $reservation->payments()->with('verifiedBy')->get();
+        return Payment::query()->where(function ($query) use ($reservation) {
+            $query->where('reservation_id', $reservation->id);
+            if ($reservation->reservation_group_id) {
+                $query->orWhere(fn ($groupPayments) => $groupPayments->where('reservation_group_id', $reservation->reservation_group_id)->whereNull('reservation_id'));
+            }
+        })->with('verifiedBy')->orderBy('id')->get();
     }
 
     /**

@@ -11,7 +11,7 @@
     }
 @endphp
 
-<article class="rounded-xl border border-border bg-surface p-4 flex flex-col gap-3 shadow-sm">
+<article class="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-none transition-colors duration-200 hover:border-primary/50">
     <div class="flex gap-3">
         @if(! empty($item['image_url']))
             <img src="{{ $item['image_url'] }}" alt="{{ $item['name'] }}" class="h-16 w-20 rounded-lg object-cover shrink-0">
@@ -39,7 +39,7 @@
         </div>
         @if($detailUrl)
             <a href="{{ $detailUrl }}" class="inline-flex min-h-[44px] items-center rounded-lg border border-primary px-4 py-2 text-sm font-semibold text-primary">
-                View details
+                View details<span class="sr-only"> for {{ $item['name'] }}</span>
             </a>
         @endif
     </div>

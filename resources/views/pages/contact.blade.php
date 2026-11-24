@@ -58,26 +58,16 @@
         </div>
 
         <div class="mt-12 flex flex-wrap gap-4">
-            <x-primary-button tag="a" href="{{ route('reserve-space') }}">
-                Reserve a stay
+            <x-primary-button tag="a" href="{{ route('rooms') }}">
+                Book your stay / services
             </x-primary-button>
             <x-secondary-button tag="a" href="{{ route('faq.index') }}">
                 FAQ & support
             </x-secondary-button>
-            @auth
-                @if(!Auth::user()->hasRole('Administrator'))
-                    <x-secondary-button tag="a" href="{{ route('customer.inquiries.index') }}">
-                        Send an inquiry
-                    </x-secondary-button>
-                @endif
-            @else
-                <x-secondary-button tag="a" href="{{ route('login') }}">
-                    Log in to send an inquiry
-                </x-secondary-button>
-                <a href="{{ route('register') }}" class="inline-flex items-center text-sm font-medium text-primary hover:underline">
-                    Create an account
-                </a>
-            @endauth
+            <x-secondary-button tag="a" href="{{ config('resort.messenger_url') ?: config('resort.facebook_url') }}" target="_blank" rel="noopener noreferrer">
+                Message us on Facebook
+            </x-secondary-button>
+            <p class="w-full text-sm text-text-muted">Opens Facebook or Messenger in a new tab. Replies arrive there.</p>
         </div>
     </div>
 </x-customer-layout>

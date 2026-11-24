@@ -34,7 +34,7 @@ class StoreWalkInReservationRequest extends FormRequest
             'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:'.config('resort.stay.max_additional_hours', 12)],
             'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:'.config('resort.stay.max_additional_hours', 12)],
             'admin_notes' => ['nullable', 'string', 'max:1000'],
-            ...$this->guestInformationRules(emailRequired: false),
+            ...$this->guestInformationRules(emailRequired: true),
         ];
     }
 

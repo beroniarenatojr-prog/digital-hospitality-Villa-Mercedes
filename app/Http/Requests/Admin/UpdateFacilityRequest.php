@@ -16,6 +16,7 @@ class UpdateFacilityRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:5000'],
+            'exclusions' => ['nullable', 'string', 'max:5000'],
             'base_capacity' => ['required', 'integer', 'min:1'],
             'max_capacity' => ['required', 'integer', 'gte:base_capacity'],
             'images' => ['nullable', 'array'],

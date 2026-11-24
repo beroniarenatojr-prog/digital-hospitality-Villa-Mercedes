@@ -347,7 +347,16 @@ class ReviewRegressionTest extends TestCase
         $this->actingAs($this->admin)->get(route('admin.reservations.show', $reservation))
             ->assertOk()->assertSee('Swimming session')->assertDontSee('Can they stay longer?');
         $this->postJson(route('admin.reservations.calculate-reschedule', $reservation), $payload)->assertOk()->assertJsonPath('breakdown.total_amount', 750);
-        $this->patch(route('admin.reservations.reschedule', $reservation), $payload)->assertSessionHas('success');
+        $this->patch(route('admin.reservations.reschedule', $reservation), $payload)->assertSessionHas('error');
+        $this->assertTrue($from->equalTo($reservation->fresh()->check_in));
+        $practice = app(\App\Services\BookingPracticeService::class);
+        [$newFrom, $newTo] = $session->periodFor($payload['visit_date']);
+        $practice->proposeChange($reservation, $this->admin, [
+            'facility_id' => $cottage->id, 'check_in' => $newFrom->toDateTimeString(),
+            'check_out' => $newTo->toDateTimeString(), 'guest_count' => 2, 'swimming_session_id' => $session->id,
+        ]);
+        $practice->acceptChange($reservation, $this->customer, $reservation->fresh()->booking_workflow['change']['quote_cents']);
+        $practice->confirmChange($reservation, $this->admin);
         $reservation->refresh();
         $this->assertSame(['08:00', '17:00', '750.00', 0, 0, $session->id], [
             $reservation->check_in->format('H:i'), $reservation->check_out->format('H:i'), $reservation->total_price,
@@ -373,6 +382,6 @@ class ReviewRegressionTest extends TestCase
         $this->assertAuthenticatedAs($this->customer);
         $this->assertModelExists($reservation);
         $this->assertModelExists($this->customer);
-        $this->get(route('profile.edit'))->assertOk()->assertSee('This account has reservation or inquiry history');
+        $this->get(route('profile.edit'))->assertOk()->assertSee('This account has reservation or other retained history');
     }
 }

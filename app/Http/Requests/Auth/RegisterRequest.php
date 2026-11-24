@@ -6,6 +6,7 @@ use App\Enums\GuestGender;
 use App\Enums\GuestIdType;
 use App\Models\User;
 use App\Rules\PhilippineMobileNumber;
+use App\Rules\PersonName;
 use App\Services\RegistrationOtpService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -24,12 +25,12 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
-            'phone' => ['required', 'string', 'max:32', new PhilippineMobileNumber],
+            'name' => ['required', 'string', 'max:255', new PersonName],
+            'phone' => ['required', 'string', 'size:11', new PhilippineMobileNumber],
             'gender' => ['required', Rule::enum(GuestGender::class)],
             'date_of_birth' => ['required', 'date', 'before:today', 'after_or_equal:1900-01-01'],
             'address' => ['required', 'string', 'max:255'],
-            'nationality' => ['required', 'string', 'max:100'],
+            'nationality' => ['required', 'string', 'max:100', new PersonName],
             'valid_id_type' => ['required', Rule::enum(GuestIdType::class)],
             'company' => ['nullable', 'string', 'max:255'],
             'email' => [
@@ -45,7 +46,7 @@ class RegisterRequest extends FormRequest
                     }
                 },
             ],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'password' => ['required', 'string', 'max:255', 'confirmed', Rules\Password::defaults()],
             'terms_accepted' => ['accepted'],
         ];
     }
@@ -58,7 +59,7 @@ class RegisterRequest extends FormRequest
         return [
             'name.required' => 'Please enter your full name.',
             'phone.required' => 'Please enter your mobile number.',
-            'gender.required' => 'Please select your gender.',
+            'gender.required' => 'Please select your sex.',
             'date_of_birth.required' => 'Please enter your date of birth.',
             'date_of_birth.before' => 'Date of birth must be before today.',
             'address.required' => 'Please enter your address.',
@@ -88,6 +89,10 @@ class RegisterRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        if ($this->has('phone')) {
+            $this->merge(['phone' => PhilippineMobileNumber::normalize($this->input('phone'))]);
+        }
+
         if ($this->has('company') && ! filled($this->input('company'))) {
             $this->merge(['company' => null]);
         }

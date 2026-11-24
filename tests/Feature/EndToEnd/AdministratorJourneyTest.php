@@ -25,13 +25,18 @@ class AdministratorJourneyTest extends TestCase
         // Setup Customer and Reservation
         $customer = User::factory()->create();
         $customer->assignRole('Customer');
-        $facility = Facility::where('is_active', true)->first();
+        $facility = Facility::whereHas('facilityType', fn ($q) => $q->where('slug', 'room'))->where('is_active', true)->firstOrFail();
 
         $reservation = Reservation::factory()->create([
             'user_id' => $customer->id,
             'facility_id' => $facility->id,
             'status' => ReservationStatus::Pending,
+            'check_in' => now()->addDays(10)->setTime(14, 0),
+            'check_out' => now()->addDays(11)->setTime(12, 0),
+            'guest_count' => 1, 'total_price' => 1000, 'base_price' => 1000,
+            'deposit_required' => 500, 'policy_version' => config('resort.policy.confirmed_version'),
         ]);
+        \App\Models\Payment::factory()->create(['reservation_id' => $reservation->id, 'amount' => 500, 'status' => \App\Enums\PaymentStatus::Verified]);
 
         // 1. Admin Login
         $admin = User::whereHas('roles', fn ($q) => $q->where('name', 'Administrator'))->first();
@@ -115,7 +120,7 @@ class AdministratorJourneyTest extends TestCase
         // 7. View Reports
         $response = $this->get(route('admin.reports.index'));
         $response->assertStatus(200);
-        $response->assertSee('Reporting');
+        $response->assertSee('Reports and insights');
 
         // Let's make sure the report has the new reservation
         $response->assertSee($facility->name);

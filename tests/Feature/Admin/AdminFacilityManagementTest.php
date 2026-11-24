@@ -14,6 +14,7 @@ use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -57,7 +58,7 @@ class AdminFacilityManagementTest extends TestCase
     {
         $response = $this->actingAs($this->admin)->get(route('admin.facilities.index'));
         $response->assertStatus(200);
-        $response->assertSee('Facility Management');
+        $response->assertSee('Facilities');
     }
 
     public function test_admin_can_filter_facilities_by_type(): void
@@ -136,6 +137,25 @@ class AdminFacilityManagementTest extends TestCase
         $this->assertEquals('Updated Facility Name', $facility->name);
         $this->assertEquals(10, $facility->capacity);
         $this->assertEquals(15, $facility->max_capacity);
+    }
+
+    public function test_confirm_action_does_not_create_nested_forms(): void
+    {
+        $html = Blade::render(<<<'HTML'
+            <form method="POST" action="/demo">
+                <x-admin.confirm-action
+                    action="/demo/delete"
+                    method="DELETE"
+                    label="Delete this photo"
+                    title="Delete this photo?"
+                    consequence="This deletes the photo."
+                    confirm="Delete photo"
+                    size="sm"
+                />
+            </form>
+        HTML);
+
+        $this->assertSame(1, preg_match_all('/<form\b/i', $html));
     }
 
     // --- Status Management ---

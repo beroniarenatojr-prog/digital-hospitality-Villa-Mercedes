@@ -82,7 +82,7 @@ class AvailabilitySearchTest extends TestCase
         $this->assertNull($payload['message']);
         $this->assertSame($room->id, $payload['results'][0]['id']);
         $this->assertTrue($payload['results'][0]['bookable']);
-        $this->assertStringContainsString('/reservation/'.$room->id, $payload['results'][0]['booking_url']);
+        $this->assertStringContainsString('/book?facility_id='.$room->id, $payload['results'][0]['booking_url']);
         $this->assertStringContainsString('guests=2', $payload['results'][0]['booking_url']);
         $this->assertSame(250000, $payload['results'][0]['price_cents']);
         $this->assertGuest();
@@ -122,9 +122,9 @@ class AvailabilitySearchTest extends TestCase
 
         $this->get($result['detail_url'])
             ->assertOk()
-            ->assertSee('Continue to reservation')
-            ->assertSee('/reservation/'.$room->id, false)
-            ->assertSee('availability_checked=1', false);
+            ->assertSee('Add to booking')
+            ->assertSee(route('customer.booking.legacy', $room), false)
+            ->assertSee('check live availability');
     }
 
     public function test_unavailable_selected_service_returns_the_standard_message_and_alternatives(): void
@@ -151,8 +151,8 @@ class AvailabilitySearchTest extends TestCase
         ]);
 
         $this->assertFalse($payload['available']);
-        $this->assertSame('unavailable', $payload['status']);
-        $this->assertSame('Not available on the selected date/time.', $payload['message']);
+        $this->assertSame('fully_booked', $payload['status']);
+        $this->assertSame('Fully booked for the selected period. Not available on the selected date/time.', $payload['message']);
         $this->assertSame([], $payload['results']);
         $this->assertTrue(collect($payload['alternatives'])->contains(fn (array $row): bool => $row['id'] === $hall->id));
     }
@@ -169,7 +169,8 @@ class AvailabilitySearchTest extends TestCase
         ]);
 
         $this->assertFalse($payload['available']);
-        $this->assertSame('Not available on the selected date/time.', $payload['message']);
+        $this->assertSame('unavailable', $payload['status']);
+        $this->assertSame('Unavailable for the selected period. Not available on the selected date/time.', $payload['message']);
     }
 
     public function test_package_is_unavailable_when_a_component_is_booked(): void
@@ -196,7 +197,8 @@ class AvailabilitySearchTest extends TestCase
         ]);
 
         $this->assertFalse($payload['available']);
-        $this->assertSame('Not available on the selected date/time.', $payload['message']);
+        $this->assertSame('fully_booked', $payload['status']);
+        $this->assertSame('Fully booked for the selected period. Not available on the selected date/time.', $payload['message']);
     }
 
     public function test_cottage_search_is_per_session_and_stays_public(): void
@@ -280,7 +282,7 @@ class AvailabilitySearchTest extends TestCase
 
         $this->assertSame('day_use', $payload['period']['preset']);
         $this->assertSame($date.' '.config('resort.stay.day_use_hours.start'), $payload['period']['arrival']);
-        $this->assertStringContainsString('/reservation/'.$room->id, $payload['results'][0]['booking_url']);
+        $this->assertStringContainsString('/book?facility_id='.$room->id, $payload['results'][0]['booking_url']);
         $this->assertSame($room->id, $payload['results'][0]['id']);
     }
 

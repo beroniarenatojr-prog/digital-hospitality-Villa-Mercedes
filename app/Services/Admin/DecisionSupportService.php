@@ -8,6 +8,7 @@ use App\Enums\ReservationStatus;
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Services\PricingService;
+use App\Support\Money;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -180,10 +181,13 @@ class DecisionSupportService
             $explanations[] = 'Nothing else is blocked — this space is not tied to a package or shared hall.';
         } else {
             $names = implode(', ', array_column($frozenResources, 'name'));
+            // A sentence built in PHP cannot hold the Blade money component, so
+            // it takes the same formatter that component uses: the figure in this
+            // dialog and the figure on the report must not differ by a separator.
             $explanations[] = sprintf(
-                'Approving this also blocks %s for the same dates (about ₱%s if those were sold separately).',
+                'Approving this also blocks %s for the same dates (about %s if those were sold separately).',
                 $names,
-                number_format($opportunityCost, 2)
+                Money::of($opportunityCost)
             );
         }
 
@@ -210,31 +214,33 @@ class DecisionSupportService
 
         if ($unpaid > 0) {
             $explanations[] = sprintf(
-                'Guest still owes ₱%s of ₱%s — collect the rest at the resort on arrival.',
-                number_format($unpaid, 2),
-                number_format($reservationValue, 2)
+                'Guest still owes %s of %s — collect the rest at the resort on check in.',
+                Money::of($unpaid),
+                Money::of($reservationValue)
             );
             if ($reservation->deposit_required !== null) {
                 $verified = round($reservationValue - $unpaid, 2);
                 $explanations[] = $verified >= $reservation->requiredDepositAmount()
                     ? 'The required deposit is already verified.'
-                    : 'The required deposit is not fully verified yet — check payments before you confirm.';
+                    : ($reservation->status === ReservationStatus::Approved
+                        ? 'The 50% deposit is not verified yet — the guest pays it by the deadline this booking was approved with.'
+                        : 'Approving this request opens the 50% deposit step; the guest pays after your confirmation, not before it.');
             }
         }
 
         $net = $reservationValue - $opportunityCost;
         $explanations[] = $net >= 0
             ? sprintf(
-                'If you approve: you earn ₱%s from this booking, while about ₱%s of other sellable space stays blocked. Net: +₱%s.',
-                number_format($reservationValue, 2),
-                number_format($opportunityCost, 2),
-                number_format($net, 2)
+                'If you approve: you earn %s from this booking, while about %s of other sellable space stays blocked. Net: +%s.',
+                Money::of($reservationValue),
+                Money::of($opportunityCost),
+                Money::of($net)
             )
             : sprintf(
-                'If you approve: this booking earns ₱%s, but it blocks about ₱%s of space that could be sold separately. Net: -₱%s.',
-                number_format($reservationValue, 2),
-                number_format($opportunityCost, 2),
-                number_format(abs($net), 2)
+                'If you approve: this booking earns %s, but it blocks about %s of space that could be sold separately. Net: -%s.',
+                Money::of($reservationValue),
+                Money::of($opportunityCost),
+                Money::of(abs($net))
             );
 
         return new DecisionImpact(
@@ -251,20 +257,25 @@ class DecisionSupportService
      * Cost and collision consequences of each extra-hour option, so staff can
      * answer "can they stay two more hours?" without opening the calendar.
      *
-     * @return list<array{hours: int, charge: float, collides: bool, collides_with: string|null, blocked_release: string|null}>
+     * Two rules bind before the calendar does. A hall is a same-day venue with
+     * four standard hours inside 9 AM to 10 PM, so nothing else being booked
+     * does not make 11 PM an offer — the shutters close the day either way. And
+     * its extra hours are priced by the hall extension rate, not the late
+     * check-out rate that belongs to rooms.
+     *
+     * @return array{hourly_rate: float|null, rate_name: string, next_claim: OccupancyClaim|null, closes_at: string|null, offerable_hours: int, options: list<array{hours: int, charge: float, collides: bool, verdict: string|null, blocked_release: string|null}>}
      */
     public function extraHourOptions(Reservation $reservation, ?int $maxHours = null): array
     {
         $maxHours ??= (int) config('resort.stay.max_additional_hours', 12);
         $reservation->loadMissing('facility.facilityType');
 
-        $hourlyRate = $this->pricingService->hourlyChargeAmount(
-            $reservation->facility,
-            PricingService::LATE_CHECK_OUT_RATE_NAME
-        );
+        $rateName = $this->extraHourRateName($reservation->facility);
+        $hourlyRate = $this->pricingService->hourlyChargeAmount($reservation->facility, $rateName);
 
         $searchStart = $reservation->occupancyEnd();
         $searchEnd = $searchStart->copy()->addHours($maxHours);
+        $closing = $this->venueClosingTime($reservation);
 
         $facilityIds = $this->coupledFacilityIds($reservation->facility);
 
@@ -274,26 +285,66 @@ class DecisionSupportService
             ->sortBy(fn (OccupancyClaim $claim) => $claim->from->timestamp)
             ->first();
 
+        $minutesToClosing = $closing !== null && $closing->greaterThan($searchStart)
+            ? (int) $searchStart->diffInMinutes($closing)
+            : 0;
+        $offerableHours = $closing === null
+            ? $maxHours
+            : min($maxHours, intdiv($minutesToClosing, 60));
+
+        // One hour past closing is listed so the ceiling has a face; every hour
+        // after it would repeat the same refusal.
+        $listed = $closing === null ? $maxHours : $offerableHours + 1;
+
         $options = [];
 
-        for ($hours = 1; $hours <= $maxHours; $hours++) {
+        for ($hours = 1; $hours <= $listed; $hours++) {
             $releaseAt = $searchStart->copy()->addHours($hours);
-            $collides = $nextClaim !== null && $releaseAt->greaterThan($nextClaim->from);
+            $pastClosing = $closing !== null && $releaseAt->greaterThan($closing);
+            $collides = ! $pastClosing && $nextClaim !== null && $releaseAt->greaterThan($nextClaim->from);
 
             $options[] = [
                 'hours' => $hours,
                 'charge' => $hourlyRate !== null ? $hourlyRate * $hours : 0.0,
-                'collides' => $collides,
-                'collides_with' => $collides ? $nextClaim->label.' on '.$nextClaim->facilityName : null,
+                'collides' => $pastClosing || $collides,
+                'verdict' => match (true) {
+                    $pastClosing => 'Past the hall’s '.$closing->format('g:i A').' closing time',
+                    $collides => 'Collides with '.$nextClaim->label.' on '.$nextClaim->facilityName,
+                    default => null,
+                },
                 'blocked_release' => $releaseAt->format('M d, g:i A'),
             ];
         }
 
         return [
             'hourly_rate' => $hourlyRate,
+            'rate_name' => $rateName,
             'next_claim' => $nextClaim,
+            'closes_at' => $closing?->format('M d, g:i A'),
+            'offerable_hours' => $offerableHours,
             'options' => $options,
         ];
+    }
+
+    /** The rate an hour past the booked stay is charged under on this space. */
+    private function extraHourRateName(Facility $facility): string
+    {
+        return $facility->isFunctionHall()
+            ? PricingService::HALL_EXTENSION_RATE_NAME
+            : PricingService::LATE_CHECK_OUT_RATE_NAME;
+    }
+
+    /**
+     * The moment the space itself shuts for the day of this stay, when it has
+     * one. A hall takes no event past 10 PM, whatever the calendar says.
+     */
+    private function venueClosingTime(Reservation $reservation): ?Carbon
+    {
+        if (! $reservation->facility->isFunctionHall()) {
+            return null;
+        }
+
+        return $reservation->occupancyStart()->copy()->setTimeFromTimeString(config('resort.stay.hall.close'));
     }
 
     /**

@@ -10,8 +10,8 @@ use App\Enums\ReservationSource;
 use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Exceptions\Customer\ReservationOwnershipException;
+use App\Exceptions\Customer\ReservationPolicyException;
 use App\Exceptions\Payment\InvalidPaymentAmountException;
-use App\Exceptions\Reservation\ReservationCancellationException;
 use App\Exceptions\Reservation\ReservationConflictException;
 use App\Models\Facility;
 use App\Models\Rate;
@@ -24,6 +24,7 @@ use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/** Customer-layer compatibility for bookings retaining their historical accepted terms. */
 class CustomerReservationPaymentTest extends TestCase
 {
     use RefreshDatabase;
@@ -42,7 +43,9 @@ class CustomerReservationPaymentTest extends TestCase
     {
         parent::setUp();
 
-        $this->artisan('db:seed');
+        $this->travelTo(Carbon::parse('2026-05-01 00:00:00'));
+        config(['resort.policy.version' => '2026-09-v2']);
+        $this->seedReservationCatalog();
 
         $this->reservationService = app(CustomerReservationService::class);
         $this->paymentService = app(CustomerPaymentService::class);
@@ -111,7 +114,7 @@ class CustomerReservationPaymentTest extends TestCase
         $this->reservationService->getMyReservation($this->otherCustomer, $reservation->id);
     }
 
-    public function test_customer_cannot_cancel_another_customers_reservation(): void
+    public function test_customer_cannot_withdraw_another_customers_reservation(): void
     {
         $reservation = $this->reservationService->createReservation(
             $this->customer,
@@ -123,7 +126,7 @@ class CustomerReservationPaymentTest extends TestCase
 
         $this->expectException(ReservationOwnershipException::class);
 
-        $this->reservationService->cancelReservation($this->otherCustomer, $reservation);
+        $this->reservationService->requestCancellation($this->otherCustomer, $reservation);
     }
 
     public function test_customer_cannot_view_payments_on_another_customers_reservation(): void
@@ -215,32 +218,19 @@ class CustomerReservationPaymentTest extends TestCase
     }
 
     // =========================================================================
-    // CANCELLATION
+    // CANCELLATION IS STAFF-ONLY
     // =========================================================================
 
-    public function test_customer_can_cancel_own_eligible_reservation(): void
+    public function test_the_customer_service_offers_no_cancellation(): void
     {
-        $reservation = $this->reservationService->createReservation(
-            $this->customer,
-            $this->facility,
-            Carbon::parse('2026-10-01 14:00:00'),
-            Carbon::parse('2026-10-03 12:00:00'),
-            2
-        );
-
-        // Pending cannot be cancelled directly per Phase 3C lifecycle.
-        // Must first be Approved, then Cancelled.
-        $admin = User::factory()->create();
-        $admin->assignRole(Role::Administrator->value);
-        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
-        $this->assertEquals(ReservationStatus::Approved, $reservation->refresh()->status);
-
-        $this->reservationService->cancelReservation($this->customer, $reservation, 'Changed plans');
-
-        $this->assertEquals(ReservationStatus::Cancelled, $reservation->refresh()->status);
+        // Guests reschedule; staff cancel. Both the ability and the gate that
+        // fed it are gone, so the policy lives in one place rather than in a
+        // hidden button.
+        $this->assertFalse(method_exists($this->reservationService, 'cancelReservation'));
+        $this->assertFalse(method_exists($this->reservationService, 'canCancel'));
     }
 
-    public function test_customer_cannot_cancel_non_cancellable_reservation(): void
+    public function test_a_rejected_reservation_cannot_be_withdrawn(): void
     {
         $reservation = $this->reservationService->createReservation(
             $this->customer,
@@ -250,17 +240,17 @@ class CustomerReservationPaymentTest extends TestCase
             2
         );
 
-        // Force to Rejected status (non-cancellable)
+        // Force to Rejected status (nothing left to withdraw)
         $admin = User::factory()->create();
         $admin->assignRole(Role::Administrator->value);
         app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Rejected, $admin, 'No availability');
 
-        $this->expectException(ReservationCancellationException::class);
+        $this->expectException(ReservationPolicyException::class);
 
-        $this->reservationService->cancelReservation($this->customer, $reservation);
+        $this->reservationService->requestCancellation($this->customer, $reservation);
     }
 
-    public function test_cancellation_reason_is_persisted(): void
+    public function test_staff_cancellation_persists_the_reason(): void
     {
         $reservation = $this->reservationService->createReservation(
             $this->customer,
@@ -270,14 +260,16 @@ class CustomerReservationPaymentTest extends TestCase
             2
         );
 
-        // Approve first so it becomes cancellable per Phase 3C lifecycle
         $admin = User::factory()->create();
         $admin->assignRole(Role::Administrator->value);
         app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $admin);
 
-        $this->reservationService->cancelReservation($this->customer, $reservation, 'Family emergency');
+        // The resort still cancels a booking from its own side — a no-show, a
+        // duplicate, a dispute — and the record must say why.
+        app(ReservationService::class)->cancel($reservation, $admin, 'Family emergency');
 
         $reservation->refresh();
+        $this->assertEquals(ReservationStatus::Cancelled, $reservation->status);
         $this->assertEquals('Family emergency', $reservation->cancellation_reason);
         $this->assertNotNull($reservation->cancelled_at);
     }

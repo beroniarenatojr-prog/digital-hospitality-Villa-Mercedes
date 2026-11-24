@@ -31,7 +31,7 @@
                         @click="lightbox = {{ $index }}"
                     >
                         <img src="{{ $photo->url() }}" alt="{{ $photo->displayTitle() }}" loading="lazy" class="w-full h-full object-cover transition duration-700 ease-out group-hover:scale-110">
-                        <span class="absolute inset-0 bg-gradient-to-t from-primary-dark/85 via-primary/25 to-transparent transition duration-500 group-hover:from-primary-dark/90" aria-hidden="true"></span>
+                        <span class="absolute inset-0 bg-gradient-to-t from-primary/85 via-primary/25 to-transparent transition duration-500 group-hover:from-primary-dark/90" aria-hidden="true"></span>
                         <span class="absolute inset-x-0 bottom-0 p-4">
                             <span class="block font-semibold text-white text-sm">{{ $photo->displayTitle() }}</span>
                             @if($photo->caption)

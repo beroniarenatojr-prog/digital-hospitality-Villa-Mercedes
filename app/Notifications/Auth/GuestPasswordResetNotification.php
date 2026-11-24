@@ -16,16 +16,6 @@ class GuestPasswordResetNotification extends ResetPassword implements ShouldQueu
         $url = $this->resetUrl($notifiable);
         $minutes = (int) config('auth.passwords.'.config('auth.defaults.passwords').'.expire');
 
-        if ((bool) config('auth.passwords.users.reveal_link', false)) {
-            session()->flash(
-                'password_reset_url',
-                route('password.reset', [
-                    'token' => $this->token,
-                    'email' => $notifiable->getEmailForPasswordReset(),
-                ], false)
-            );
-        }
-
         return (new MailMessage)
             ->subject('Reset your '.config('resort.short_name').' password')
             ->greeting('Hello '.$notifiable->name.',')

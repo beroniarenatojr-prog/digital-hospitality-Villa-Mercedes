@@ -1,7 +1,11 @@
 @if(filled(config('resort.messenger_url')))
     <div data-support-chat>
+        {{-- Where this sits is dock arithmetic, so it lives with the other fixed
+             helpers in `app.css`: it climbs by whatever is pinned to the bottom
+             of the screen, which on the booking wizard is the bar holding the
+             guest's total. --}}
         <button type="button" data-support-chat-open data-chat-launcher
-            class="fixed bottom-5 right-4 z-[70] inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#0866ff] text-white shadow-lg transition hover:bg-[#0759df] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0866ff] focus-visible:ring-offset-2 sm:bottom-6 sm:right-6"
+            class="fixed z-[70] inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#0866ff] text-white shadow-lg transition hover:bg-[#0759df] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0866ff] focus-visible:ring-offset-2"
             aria-label="Open Messenger chat" aria-controls="resort-support-chat" aria-expanded="false">
             <svg data-chat-open-icon class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a8.38 8.38 0 0 1-.9 3.8A8.5 8.5 0 0 1 12 21a8.38 8.38 0 0 1-3.8-.9L3 21l.9-5.2A8.38 8.38 0 0 1 3 12a8.5 8.5 0 0 1 18 0Z" />
@@ -12,7 +16,8 @@
         </button>
 
         <section id="resort-support-chat" data-chat-panel hidden role="dialog" aria-modal="false" aria-labelledby="resort-support-chat-title"
-            class="fixed inset-x-3 bottom-24 z-[70] max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-2xl border border-border bg-white shadow-[0_16px_64px_rgba(0,0,0,0.18)] sm:left-auto sm:right-6 sm:w-80">
+            {{-- Bottom offset is dock arithmetic too; see `[data-chat-panel]` in app.css. --}}
+            class="fixed inset-x-3 z-[70] max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-2xl border border-border bg-white shadow-[0_16px_64px_rgba(0,0,0,0.18)] sm:left-auto sm:right-6 sm:w-80">
             <header class="flex items-center gap-3 border-b border-border px-5 py-4">
                 <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary p-2.5">
                     <img src="{{ asset('images/logo-villa-mercedes-mark.png') }}" alt="" class="h-full w-full object-contain" width="28" height="28">

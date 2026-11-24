@@ -1,7 +1,7 @@
 @props(['count' => 1])
 
 @for($index = 0; $index < $count; $index++)
-    <article class="overflow-hidden rounded-3xl border border-border bg-surface shadow-sm" aria-hidden="true">
+    <article class="overflow-hidden rounded-2xl border border-border bg-surface shadow-none" aria-hidden="true">
         <div class="aspect-[16/10] animate-pulse bg-muted"></div>
         <div class="space-y-3 p-6">
             <div class="h-5 w-2/3 animate-pulse rounded bg-muted"></div>

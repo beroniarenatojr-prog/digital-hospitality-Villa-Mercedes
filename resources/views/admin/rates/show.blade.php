@@ -1,204 +1,115 @@
+@php
+    $facility = $rate->facility;
+    $unit = \App\Enums\RateUnit::normalize($rate->unit);
+@endphp
+
 <x-admin-layout>
-    <x-slot name="header">
-        {{ $rate->name }}
-    </x-slot>
+    <x-slot name="header">{{ $rate->name }}</x-slot>
 
-    <!-- Breadcrumb -->
-    <nav class="mb-6 text-sm text-gray-500">
-        <a href="{{ route('admin.rates.index') }}" class="hover:text-primary">Rates</a>
-        <span class="mx-2">/</span>
-        <span class="text-gray-900">{{ $rate->name }}</span>
-    </nav>
+    <x-admin.page-header
+        title="{{ $rate->name }}"
+        :breadcrumbs="[
+            ['label' => 'Rates', 'url' => route('admin.rates.index')],
+            ['label' => $rate->name],
+        ]"
+    >
+        <x-slot:actions>
+            <x-admin.button variant="secondary" :href="route('admin.rates.edit', $rate)">Edit rate</x-admin.button>
+            <x-admin.button variant="secondary" :href="route('admin.rates.create', ['facility_id' => $rate->facility_id])">Add another rate</x-admin.button>
+        </x-slot:actions>
+    </x-admin.page-header>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Main Info Column -->
-        <div class="lg:col-span-2 space-y-6">
-            <!-- Rate Info Card -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold text-gray-900">Rate Information</h2>
-                    <a href="{{ route('admin.rates.edit', $rate) }}" class="text-sm font-medium text-primary hover:text-primary-dark">Edit</a>
-                </div>
-                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+    <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+        <div class="space-y-6 lg:col-span-2">
+            <x-admin.panel title="Rate details">
+                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Rate Name</dt>
-                        <dd class="mt-1 text-sm text-gray-900 font-semibold">{{ $rate->name }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Rate name</dt>
+                        <dd class="mt-1 text-sm font-semibold text-text">{{ $rate->name }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Facility</dt>
-                        <dd class="mt-1">
-                            <a href="{{ route('admin.facilities.show', $rate->facility) }}" class="text-sm text-primary hover:text-primary-dark">
-                                {{ $rate->facility->name }}
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Facility</dt>
+                        <dd class="mt-1 text-sm">
+                            <a href="{{ route('admin.facilities.show', $facility) }}" class="rounded font-medium text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                {{ $facility->name }}
                             </a>
-                            <span class="block text-xs text-gray-400">{{ $rate->facility->facilityType->name ?? '' }}</span>
+                            <span class="mt-0.5 block text-xs text-text-muted">{{ $facility->facilityType->name ?? '' }}</span>
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Rate Type</dt>
-                        <dd class="mt-1">
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium
-                                {{ $rate->type === \App\Enums\RateType::Base ? 'bg-blue-100 text-blue-800' : '' }}
-                                {{ $rate->type === \App\Enums\RateType::Seasonal ? 'bg-amber-100 text-amber-800' : '' }}
-                                {{ $rate->type === \App\Enums\RateType::AdditionalCharge ? 'bg-purple-100 text-purple-800' : '' }}
-                                {{ $rate->type === \App\Enums\RateType::ExtraPerson ? 'bg-teal-100 text-teal-800' : '' }}
-                            ">
-                                {{ $rate->type->label() }}
-                            </span>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Rate type</dt>
+                        <dd class="mt-1 text-sm text-text">{{ $rate->type->label() }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Amount</dt>
+                        <dd class="mt-1 text-lg font-semibold text-text"><x-amount :value="$rate->amount" /></dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Charged per</dt>
+                        <dd class="mt-1 text-sm text-text">{{ $unit }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Pricing</dt>
+                        <dd class="mt-1 text-sm {{ $rate->is_active ? 'text-success' : 'text-text-muted' }}">
+                            {{ $rate->is_active ? 'Active' : 'Inactive' }}
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Amount</dt>
-                        <dd class="mt-1 text-lg font-bold text-gray-900">₱{{ number_format($rate->amount, 2) }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Effective from</dt>
+                        <dd class="mt-1"><x-admin.date-time :value="$rate->effective_from" format="date" /></dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Unit</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ str_replace('_', ' ', $rate->unit) }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Effective until</dt>
+                        <dd class="mt-1"><x-admin.date-time :value="$rate->effective_until" format="date" /></dd>
                     </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Status</dt>
-                        <dd class="mt-1">
-                            @if($rate->is_active)
-                                <span class="inline-flex items-center text-success text-sm font-medium">
-                                    <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                                    Active
-                                </span>
-                            @else
-                                <span class="inline-flex items-center text-gray-400 text-sm font-medium">Inactive</span>
-                            @endif
-                        </dd>
-                    </div>
-                    @if($rate->effective_from || $rate->effective_until)
-                        <div class="sm:col-span-2">
-                            <dt class="text-sm font-medium text-gray-500">Effective Period</dt>
-                            <dd class="mt-1 text-sm text-gray-900">
-                                @if($rate->effective_from && $rate->effective_until)
-                                    {{ $rate->effective_from->format('M d, Y') }} — {{ $rate->effective_until->format('M d, Y') }}
-                                @elseif($rate->effective_from)
-                                    From {{ $rate->effective_from->format('M d, Y') }}
-                                @endif
-                            </dd>
-                        </div>
-                    @endif
                 </dl>
-            </div>
+            </x-admin.panel>
 
-            <!-- Rate Type Explanation -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-3">How This Rate Works</h2>
-                @switch($rate->type)
-                    @case(\App\Enums\RateType::Base)
-                        <p class="text-sm text-gray-600">
-                            This is a <strong>base rate</strong>. It is the standard rate applied to future reservations for
-                            <strong>{{ $rate->facility->name }}</strong> when no matching seasonal rate is active.
-                        </p>
-                        @break
-                    @case(\App\Enums\RateType::Seasonal)
-                        <p class="text-sm text-gray-600">
-                            This is a <strong>seasonal rate</strong>. It overrides the base rate for
-                            <strong>{{ $rate->facility->name }}</strong> during the configured effective period.
-                            If multiple seasonal rates overlap for the same facility, the pricing engine will reject the configuration.
-                        </p>
-                        @break
-                    @case(\App\Enums\RateType::AdditionalCharge)
-                        <p class="text-sm text-gray-600">
-                            This is an <strong>additional charge</strong> (e.g. early check-in, late check-out) for
-                            <strong>{{ $rate->facility->name }}</strong>. It is applied on top of the base or seasonal rate.
-                        </p>
-                        @break
-                    @case(\App\Enums\RateType::ExtraPerson)
-                        <p class="text-sm text-gray-600">
-                            This is an <strong>extra-person charge</strong> for <strong>{{ $rate->facility->name }}</strong>.
-                            It is applied when the guest count exceeds the facility's standard capacity
-                            ({{ $rate->facility->capacity }} guests) but remains within the maximum capacity
-                            ({{ $rate->facility->effectiveMaxCapacity() }} guests).
-                        </p>
-                        @break
-                @endswitch
-                <p class="text-xs text-gray-400 mt-3">This rate affects future pricing calculations only. Existing reservation prices are not modified.</p>
-            </div>
+            {{-- The one thing the facts above cannot say: a change here cannot
+                 reach back into a stay that was already priced. --}}
+            <p class="max-w-[70ch] text-sm text-text-muted">Changing or deactivating a rate affects future pricing only. Reservations that were already priced keep the amount they were booked at.</p>
         </div>
 
-        <!-- Sidebar Actions Column -->
-        <div class="space-y-6">
-            <!-- Activate / Deactivate -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6" x-data="{ showConfirm: false, action: '' }">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Rate Status</h2>
-
-                @if($rate->is_active)
-                    <p class="text-sm text-gray-600 mb-4">This rate is currently <strong class="text-success">active</strong> and will be used in pricing calculations for future reservations.</p>
-                    <button @click="action = 'deactivate'; showConfirm = true"
-                            class="w-full px-4 py-2 border border-danger rounded-md text-sm font-medium text-danger bg-white hover:bg-danger-light transition">
-                        Deactivate Rate
-                    </button>
-                @else
-                    <p class="text-sm text-gray-600 mb-4">This rate is currently <strong class="text-gray-400">inactive</strong> and will not affect pricing calculations.</p>
-                    <button @click="action = 'activate'; showConfirm = true"
-                            class="w-full px-4 py-2 border border-success rounded-md text-sm font-medium text-success bg-white hover:bg-success-light transition">
-                        Activate Rate
-                    </button>
-                @endif
-
-                <!-- Confirmation Modal -->
-                <div x-show="showConfirm" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
-                    <div class="flex min-h-full items-center justify-center p-4">
-                        <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showConfirm = false"></div>
-                        <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-50">
-                            <h3 class="text-lg font-medium text-gray-900 mb-2" x-text="action === 'activate' ? 'Activate Rate' : 'Deactivate Rate'"></h3>
-                            <template x-if="action === 'deactivate'">
-                                <p class="text-sm text-gray-500 mb-4">
-                                    Deactivating <strong>{{ $rate->name }}</strong> will remove it from future pricing calculations.
-                                    Historical reservations that used this rate are not affected.
-                                </p>
-                            </template>
-                            <template x-if="action === 'activate'">
-                                <p class="text-sm text-gray-500 mb-4">
-                                    Activating <strong>{{ $rate->name }}</strong> will include it in future pricing calculations for
-                                    <strong>{{ $rate->facility->name }}</strong>.
-                                </p>
-                            </template>
-                            <div class="flex justify-end gap-3">
-                                <button type="button" @click="showConfirm = false" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                    Cancel
-                                </button>
-                                <template x-if="action === 'deactivate'">
-                                    <form method="POST" action="{{ route('admin.rates.deactivate', $rate) }}">
-                                        @csrf
-                                        @method('PATCH')
-                                        <button type="submit" class="px-4 py-2 bg-danger border border-transparent rounded-md text-sm font-medium text-white hover:bg-red-700">
-                                            Deactivate
-                                        </button>
-                                    </form>
-                                </template>
-                                <template x-if="action === 'activate'">
-                                    <form method="POST" action="{{ route('admin.rates.activate', $rate) }}">
-                                        @csrf
-                                        @method('PATCH')
-                                        <button type="submit" class="px-4 py-2 bg-success border border-transparent rounded-md text-sm font-medium text-white hover:bg-green-700">
-                                            Activate
-                                        </button>
-                                    </form>
-                                </template>
-                            </div>
-                        </div>
+        <div class="space-y-6 lg:sticky lg:top-24">
+            <x-admin.panel
+                title="Rate status"
+                description="Inactive rates stay on file and are ignored when a booking is priced."
+            >
+                @if ($rate->is_active)
+                    <p class="text-sm text-text-muted">This rate is used whenever a booking for {{ $facility->name }} is priced.</p>
+                    <div class="mt-4">
+                        <x-admin.confirm-action
+                            :action="route('admin.rates.deactivate', $rate)"
+                            method="PATCH"
+                            label="Deactivate rate"
+                            title="Deactivate {{ $rate->name }}?"
+                            :consequence="'Bookings for '.$facility->name.' stop using this rate and fall back to the base rate. Reservations already booked keep their price.'"
+                            confirm="Deactivate rate"
+                        />
                     </div>
-                </div>
-            </div>
+                @else
+                    <p class="text-sm text-text-muted">Pricing ignores this rate while it is inactive.</p>
+                    <div class="mt-4">
+                        <x-admin.confirm-action
+                            :action="route('admin.rates.activate', $rate)"
+                            method="PATCH"
+                            label="Activate rate"
+                            title="Activate {{ $rate->name }}?"
+                            :consequence="'Future bookings for '.$facility->name.' are priced with this rate from the next booking onwards.'"
+                            confirm="Activate rate"
+                            tone="primary"
+                        />
+                    </div>
+                @endif
+            </x-admin.panel>
 
-            <!-- Quick Actions -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Actions</h2>
+            <x-admin.panel title="Actions">
                 <div class="space-y-2">
-                    <a href="{{ route('admin.rates.edit', $rate) }}" class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
-                        Edit Rate
-                    </a>
-                    <a href="{{ route('admin.facilities.show', $rate->facility) }}" class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
-                        View Facility
-                    </a>
-                    <a href="{{ route('admin.rates.create', ['facility_id' => $rate->facility_id]) }}" class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
-                        Add Another Rate
-                    </a>
+                    <x-admin.button variant="secondary" :href="route('admin.rates.edit', $rate)" class="w-full">Edit rate</x-admin.button>
+                    <x-admin.button variant="secondary" :href="route('admin.facilities.show', $facility)" class="w-full">Open {{ $facility->name }}</x-admin.button>
+                    <x-admin.button variant="ghost" :href="route('admin.rates.index')" class="w-full">All rates</x-admin.button>
                 </div>
-            </div>
+            </x-admin.panel>
         </div>
     </div>
 </x-admin-layout>

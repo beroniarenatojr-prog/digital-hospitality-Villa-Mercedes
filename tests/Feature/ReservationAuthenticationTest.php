@@ -50,8 +50,8 @@ class ReservationAuthenticationTest extends TestCase
         $this->get(route('facilities.availability', $room))->assertOk()
             ->assertSee('data-reservation-auth', false)->assertDontSee('Guest information sheet');
         $this->postJson(route('facilities.availability.calculate', $room), [
-            'check_in' => now()->addDays(10)->toDateTimeString(),
-            'check_out' => now()->addDays(11)->toDateTimeString(), 'guestCount' => 2,
+            'check_in' => now()->addDays(10)->setTime(14, 0)->toDateTimeString(),
+            'check_out' => now()->addDays(11)->setTime(12, 0)->toDateTimeString(), 'guestCount' => 2,
         ])->assertOk()->assertJsonPath('success', true);
         $this->getJson(route('resort.cottages.availability', ['date' => now()->addDays(10)->toDateString(), 'session' => 'day']))->assertOk();
         $this->getJson(route('availability.search', [
@@ -90,15 +90,15 @@ class ReservationAuthenticationTest extends TestCase
                 ? ['date' => now()->addDays(10)->toDateString(), 'session' => 'night', 'guests' => 10]
                 : ['arrival' => now()->addDays(10)->setTime(14, 0)->format('Y-m-d H:i'), 'departure' => now()->addDays(11)->setTime(12, 0)->format('Y-m-d H:i'), 'guests' => 3, 'availability_checked' => 1];
             $destination = $this->postJson(route('reservation.intent'), ['facility_id' => $facility->id, ...$selection])->assertOk()->json('redirect');
-            $this->assertStringContainsString('/reservation/'.$facility->id, $destination);
+            $this->assertStringContainsString('/book?facility_id='.$facility->id, $destination);
             $this->postJson(route('login'), ['email' => $customer->email, 'password' => 'wrong'])->assertUnprocessable()
                 ->assertSessionHas('url.intended', $destination);
             $this->postJson(route('login'), ['email' => $customer->email, 'password' => 'password'])->assertOk()->assertJsonPath('redirect', $destination);
             $response = $this->get($destination)->assertOk()->assertSee($facility->name);
             if (! $facility->isCottage()) {
-                $response->assertViewHas('prefill', fn ($prefill) => $prefill['check_in'] === $selection['arrival'] && $prefill['check_out'] === $selection['departure'] && $prefill['guest_count'] === 3 && $prefill['availability_checked'] === true);
+                $response->assertViewHas('initialLines', fn ($lines) => $lines[0]['facility_id'] === $facility->id && $lines[0]['check_in'] === $selection['arrival'] && $lines[0]['check_out'] === $selection['departure'] && $lines[0]['guest_count'] === 3);
             } else {
-                $response->assertViewHas('selectedSession', fn ($session) => $session->slug === 'night')->assertViewHas('visitDate', $selection['date']);
+                $response->assertViewHas('initialLines', fn ($lines) => $lines[0]['facility_id'] === $facility->id && $lines[0]['date'] === $selection['date'] && $lines[0]['session'] === 'night');
             }
             $this->post(route('logout'));
         }
@@ -124,7 +124,7 @@ class ReservationAuthenticationTest extends TestCase
         $room = $this->room();
         $this->postJson(route('reservation.intent'), [
             'facility_id' => $room->id, 'redirect' => 'https://example.com', 'total_price' => 1,
-        ])->assertOk()->assertJsonPath('redirect', route('customer.booking.create', $room));
+        ])->assertOk()->assertJsonPath('redirect', route('customer.grouped-booking.workspace', ['facility_id' => $room->id]));
         $room->update(['is_active' => false]);
         $this->postJson(route('reservation.intent'), ['facility_id' => $room->id])->assertNotFound();
     }

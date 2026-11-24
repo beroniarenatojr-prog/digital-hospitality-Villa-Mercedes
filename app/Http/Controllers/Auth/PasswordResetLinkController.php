@@ -21,27 +21,31 @@ class PasswordResetLinkController extends Controller
     {
         if (! OutboundMail::isConfigured()) {
             return back()->withInput($request->only('email'))
-                ->withErrors(['email' => 'Email sending is not configured yet. Add SMTP credentials in the .env file.']);
+                ->withErrors(['email' => 'Password reset emails are unavailable right now. Please try again later or call the resort.']);
         }
 
         try {
-            $status = Password::sendResetLink(
-                $request->only('email')
+            Password::sendResetLink(
+                $request->only('email'),
+                function ($user, string $token) use ($request): void {
+                    if ((bool) config('auth.passwords.users.reveal_link', false)) {
+                        $request->session()->flash('password_reset_url', route('password.reset', [
+                            'token' => $token,
+                            'email' => $user->getEmailForPasswordReset(),
+                        ], false));
+                    }
+
+                    $user->sendPasswordResetNotification($token);
+                },
             );
         } catch (Throwable $e) {
             report($e);
 
-            return back()->withInput($request->only('email'))
-                ->withErrors(['email' => 'We could not send the reset email. Please try again or call the resort.']);
-        }
-
-        if ($status !== Password::RESET_LINK_SENT) {
-            return back()->withInput($request->only('email'))
-                ->withErrors(['email' => __($status)]);
+            $request->session()->forget('password_reset_url');
         }
 
         return back()
             ->withInput($request->only('email'))
-            ->with('status', 'We emailed a password reset link. Check your inbox and spam folder.');
+            ->with('status', 'If this email belongs to an account, check its inbox and spam folder for a password reset link.');
     }
 }

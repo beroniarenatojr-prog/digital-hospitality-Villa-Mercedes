@@ -56,7 +56,7 @@ class ResortController extends Controller
                 'id' => $cottage->id,
                 'name' => $cottage->name,
                 'available' => $available,
-                'booking_url' => $available ? route('customer.booking.create', ['facility' => $cottage, 'date' => $validated['date'], 'session' => $session->slug]) : null,
+                'booking_url' => $available ? route('facilities.show', ['facility' => $cottage->id, 'date' => $validated['date'], 'session' => $session->slug]) : null,
             ];
         });
 
@@ -68,8 +68,8 @@ class ResortController extends Controller
         $typeId = FacilityTypeModel::query()->where('slug', FacilityType::Cottage->value)->value('id');
 
         return Facility::query()
+            ->listed()
             ->where('facility_type_id', $typeId ?: 0)
-            ->where('is_active', true)
             ->with(['facilityType', 'packageComponents.componentFacility', 'partOfPackages'])
             ->orderBy('sort_order')
             ->get();

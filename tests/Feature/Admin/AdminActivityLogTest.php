@@ -6,6 +6,8 @@ use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Exceptions\Admin\ImmutableActivityLogException;
 use App\Models\ActivityLog;
+use App\Models\Facility;
+use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,7 +57,7 @@ class AdminActivityLogTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.activity-log.index'))
             ->assertOk()
-            ->assertSee('Activity Log')
+            ->assertSee('Staff activity')
             ->assertSee('Staff member')
             ->assertSee('Action type')
             ->assertSee('cannot be edited or deleted');
@@ -141,11 +143,20 @@ class AdminActivityLogTest extends TestCase
     {
         $reservation = Reservation::factory()->create([
             'status' => ReservationStatus::Pending->value,
+            'facility_id' => Facility::whereHas('facilityType', fn ($q) => $q->where('slug', 'room'))->firstOrFail()->id,
+            'check_in' => now()->addDays(10)->setTime(14, 0),
+            'check_out' => now()->addDays(11)->setTime(12, 0),
+            'guest_count' => 1,
+            'total_price' => 1000,
+            'base_price' => 1000,
+            'deposit_required' => 500,
+            'policy_version' => config('resort.policy.confirmed_version'),
         ]);
+        Payment::factory()->create(['reservation_id' => $reservation->id, 'amount' => 500, 'status' => 'verified']);
 
         $this->actingAs($this->admin)
             ->patch(route('admin.reservations.approve', $reservation))
-            ->assertRedirect();
+            ->assertRedirect()->assertSessionMissing('error');
 
         $this->actingAs($this->admin)
             ->get(route('admin.activity-log.index', ['action_type' => 'approve']))
@@ -153,6 +164,90 @@ class AdminActivityLogTest extends TestCase
             ->assertSee('Ana Front Desk')
             ->assertSee('Staff #'.$this->admin->id)
             ->assertSee('to Confirmed');
+    }
+
+    public function test_a_staff_sign_in_and_sign_out_are_recorded_and_listed(): void
+    {
+        $this->post(route('admin.login.store'), [
+            'email' => $this->admin->email,
+            'password' => 'password',
+        ])->assertRedirect(route('admin.dashboard'));
+
+        $this->assertDatabaseHas('activity_log', [
+            'event' => 'staff_signed_in',
+            'causer_type' => (new User)->getMorphClass(),
+            'causer_id' => $this->admin->id,
+        ]);
+
+        $this->post(route('admin.logout'))->assertRedirect(route('admin.login'));
+
+        $this->assertDatabaseHas('activity_log', [
+            'event' => 'staff_signed_out',
+            'causer_id' => $this->admin->id,
+        ]);
+
+        // The shift has two ends, and both read as words on the log screen
+        // rather than as the stored event names.
+        $this->assertSame('Sign in', $this->entry('staff_signed_in')->actionLabel());
+        $this->assertSame('Sign out', $this->entry('staff_signed_out')->actionLabel());
+
+        $this->actingAs($this->secondAdmin)
+            ->get(route('admin.activity-log.index'))
+            ->assertOk()
+            ->assertSee('Ana Front Desk')
+            ->assertSee('Signed in to the back office.')
+            ->assertSee('Signed out of the back office.');
+    }
+
+    public function test_a_sign_out_after_the_page_had_expired_is_still_recorded(): void
+    {
+        // The page was rendered under a session that has since died, so the POST
+        // arrives with a token that matches nothing and nobody to attribute it
+        // to. The shift still ended, and the desk hands over at a fixed time.
+        $this->withCsrfEnforced();
+
+        $this->post(route('admin.logout'))->assertRedirect(route('admin.login'));
+        $this->assertGuest();
+
+        $entry = $this->entry('staff_signed_out');
+
+        $this->assertNull($entry->causer_id);
+        $this->assertSame('session_expired', $entry->properties->get('reason'));
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.activity-log.index'))
+            ->assertOk()
+            // Unattributed, and still on the page rather than hidden behind the
+            // staff filter — a record nobody can read is not a record.
+            ->assertSee('Signed out of the back office after the page had expired.')
+            ->assertSee('System');
+    }
+
+    public function test_sign_ins_are_listed_under_their_own_action_type(): void
+    {
+        activity()->causedBy($this->admin)->event('staff_signed_in')->log('Signed in to the back office.');
+        activity()->causedBy($this->admin)->event('staff_signed_out')->log('Signed out of the back office.');
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.activity-log.index', ['action_type' => 'sign_in']))
+            ->assertOk()
+            ->assertSee('Signed in to the back office.')
+            ->assertDontSee('Signed out of the back office.');
+    }
+
+    public function test_guest_sessions_are_not_recorded_as_staff_shifts(): void
+    {
+        $this->post('/login', [
+            'email' => $this->customer->email,
+            'password' => 'password',
+        ]);
+
+        $this->actingAs($this->customer)->post('/logout')->assertRedirect('/');
+
+        // A guest signing in or out is not a staff shift, and the log is the
+        // place where that distinction has to hold.
+        $this->assertDatabaseMissing('activity_log', ['event' => 'staff_signed_in']);
+        $this->assertDatabaseMissing('activity_log', ['event' => 'staff_signed_out']);
     }
 
     public function test_activity_log_entries_cannot_be_updated(): void
@@ -194,5 +289,20 @@ class AdminActivityLogTest extends TestCase
 
         $this->assertSame('Protected description.', $log->fresh()->description);
         $this->assertTrue(ActivityLog::query()->whereKey($log->id)->exists());
+    }
+
+    private function entry(string $event): ActivityLog
+    {
+        return ActivityLog::query()->where('event', $event)->latest('id')->firstOrFail();
+    }
+
+    /**
+     * Every request in the suite normally skips the CSRF check, so a page that
+     * had already expired can only be produced with the app reporting a
+     * non-testing environment.
+     */
+    private function withCsrfEnforced(): void
+    {
+        $this->app['env'] = 'local';
     }
 }

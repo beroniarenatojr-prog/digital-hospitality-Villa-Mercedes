@@ -7,7 +7,10 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Notifications\Payment\PaymentStatusChangedNotification;
 use App\Notifications\Payment\PaymentSubmittedNotification;
+use App\Support\LayoutBadges;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use Spatie\Permission\Exceptions\RoleDoesNotExist;
 
 class PaymentObserver
 {
@@ -23,13 +26,17 @@ class PaymentObserver
      */
     public function created(Payment $payment): void
     {
+        // A new proof changes the Payment review queue, so its sidebar badge is
+        // recomputed rather than served from the last 45 seconds.
+        LayoutBadges::forgetPendingPayments();
+
         // Notify all administrators about the new payment submission
         try {
             $admins = User::role(Role::Administrator->value)->get();
             if ($admins->isNotEmpty()) {
                 Notification::send($admins, new PaymentSubmittedNotification($payment));
             }
-        } catch (\Spatie\Permission\Exceptions\RoleDoesNotExist $e) {
+        } catch (RoleDoesNotExist $e) {
             // Role may not exist during isolated tests where seeders are not run
         }
     }
@@ -39,13 +46,24 @@ class PaymentObserver
      */
     public function updated(Payment $payment): void
     {
-        \Illuminate\Support\Facades\Log::info('PaymentObserver@updated triggered', ['payment_id' => $payment->id, 'wasChanged' => $payment->wasChanged('status')]);
-        
+        Log::info('PaymentObserver@updated triggered', ['payment_id' => $payment->id, 'wasChanged' => $payment->wasChanged('status')]);
+
         if ($payment->wasChanged('status')) {
-            // Notify the customer (via the reservation relation) about the status change
-            if ($payment->reservation && $payment->reservation->user) {
-                $payment->reservation->user->notify(new PaymentStatusChangedNotification($payment));
+            LayoutBadges::forgetPendingPayments();
+
+            // Notify the customer (via the reservation or group relation) about the status change
+            $user = $payment->reservation?->user ?? $payment->reservationGroup?->user;
+            if ($user) {
+                $user->notify(new PaymentStatusChangedNotification($payment));
             }
         }
+    }
+
+    /**
+     * Handle the Payment "deleted" event.
+     */
+    public function deleted(Payment $payment): void
+    {
+        LayoutBadges::forgetPendingPayments();
     }
 }

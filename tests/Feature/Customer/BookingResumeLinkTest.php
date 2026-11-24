@@ -269,10 +269,10 @@ class BookingResumeLinkTest extends TestCase
 
         // Anything the guest touches on the confirm step counts as arriving again:
         // the party size, the extra hours, a preference.
-        $this->confirmStep(['special_requests' => 'Late arrival, around 9pm.'])->assertOk();
+        $this->confirmStep(['special_requests' => 'Late check in, around 9pm.'])->assertOk();
         $second = (string) $this->pendingToken();
 
-        $this->assertNotSame($first, $second, 'A second arrival at the confirm step reused the first link.');
+        $this->assertNotSame($first, $second, 'A second check in at the confirm step reused the first link.');
 
         $links = app(BookingResumeLink::class);
         Notification::fake();

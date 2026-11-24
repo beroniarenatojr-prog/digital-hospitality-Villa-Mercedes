@@ -18,7 +18,7 @@ final class GuestProfilePrefill
      *   guest_gender: string,
      *   guest_phone: string,
      *   guest_email: string,
-     *   other_guest_names: list<string>
+     *   other_guest_names: list<array{name: string, valid_id: ?string}>|list<string>
      * }
      */
     public static function forUser(?User $user): array

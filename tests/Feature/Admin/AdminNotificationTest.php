@@ -72,6 +72,8 @@ class AdminNotificationTest extends TestCase
         $response->assertSee('Guest requested withdrawal of VM-1001.');
         $response->assertSee(route('admin.notifications.open', $first->id), false);
         $response->assertSee('View all notifications');
+        $response->assertSee('bg-danger', false)
+            ->assertSee('shadow-lg ring-2 ring-surface', false);
     }
 
     public function test_opening_a_notification_marks_it_read_and_opens_the_reservation(): void

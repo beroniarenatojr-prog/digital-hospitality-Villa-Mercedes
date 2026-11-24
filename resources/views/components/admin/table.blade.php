@@ -1,26 +1,16 @@
-@props(['variant' => 'default'])
+@props(['sticky' => false, 'plain' => false])
 
 @php
-    $isFlat = $variant === 'flat';
-    $containerClasses = $isFlat
-        ? 'overflow-hidden rounded-md border border-gray-200'
-        : 'shadow overflow-hidden border-b border-gray-200 sm:rounded-lg';
-    $scrollerClasses = $isFlat
-        ? 'overflow-x-auto'
-        : '-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8';
-    $padClasses = $isFlat
-        ? 'inline-block min-w-full align-middle'
-        : 'inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8';
+    // Horizontal scrolling stays possible, but the bleed/margins that made the
+    // same table look different on every screen are gone: one radius, one
+    // border, one scroll behaviour, everywhere. A table already inside a panel
+    // passes plain so the container border is drawn once, not twice.
+    $headClasses = $sticky ? '[&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10' : '';
+    $shellClasses = $plain ? [] : ['rounded-xl border border-border bg-surface'];
 @endphp
 
-<div class="flex min-w-0 flex-col">
-    <div class="{{ $scrollerClasses }}">
-        <div class="{{ $padClasses }}">
-            <div class="{{ $containerClasses }}">
-                <table class="min-w-full divide-y divide-gray-200">
-                    {{ $slot }}
-                </table>
-            </div>
-        </div>
-    </div>
+<div {{ $attributes->class(['min-w-0 overflow-x-auto', ...$shellClasses]) }}>
+    <table class="min-w-full border-collapse text-sm {{ $headClasses }}">
+        {{ $slot }}
+    </table>
 </div>

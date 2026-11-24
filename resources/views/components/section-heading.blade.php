@@ -1,4 +1,4 @@
-@props(['title', 'eyebrow' => null, 'align' => 'center', 'tone' => 'dark'])
+@props(['title', 'eyebrow' => null, 'align' => 'left', 'tone' => 'dark'])
 
 @php
     $wrap = $align === 'left' ? 'text-left' : 'text-center mx-auto';
@@ -7,13 +7,13 @@
     $ruleColor = $tone === 'light' ? 'bg-white' : 'bg-primary';
 @endphp
 
-<div {{ $attributes->merge(['class' => 'max-w-3xl '.$wrap]) }}>
+<div {{ $attributes->merge(['class' => 'max-w-[62ch] '.$wrap]) }}>
     @if($eyebrow)
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] {{ $tone === 'light' ? 'text-white/70' : 'text-accent' }} mb-3">{{ $eyebrow }}</p>
+        <p class="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] {{ $tone === 'light' ? 'text-white/70' : 'text-accent' }}">{{ $eyebrow }}</p>
     @endif
-    <h2 class="font-heading text-4xl md:text-5xl font-semibold {{ $titleColor }}">{{ $title }}</h2>
-    <span class="mt-4 block h-1 w-16 rounded-full {{ $ruleColor }} {{ $align === 'left' ? '' : 'mx-auto' }}" aria-hidden="true"></span>
+    <h2 class="font-heading text-3xl font-semibold leading-[1.05] tracking-[-0.02em] sm:text-4xl md:text-[2.75rem] {{ $titleColor }}">{{ $title }}</h2>
+    <span class="mt-4 block h-px w-12 {{ $ruleColor }} {{ $align === 'left' ? '' : 'mx-auto' }}" aria-hidden="true"></span>
     @if(isset($slot) && trim($slot) !== '')
-        <p class="mt-5 text-base {{ $bodyColor }} leading-relaxed">{{ $slot }}</p>
+        <p class="mt-4 max-w-[58ch] text-base leading-relaxed {{ $bodyColor }}">{{ $slot }}</p>
     @endif
 </div>

@@ -63,6 +63,8 @@ class CustomerNotificationTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertEquals(2, $this->customer->unreadNotifications()->count());
+        $response->assertSee('bg-danger', false)
+            ->assertSee('shadow-lg ring-2 ring-white', false);
     }
 
     public function test_single_notification_can_be_marked_read()

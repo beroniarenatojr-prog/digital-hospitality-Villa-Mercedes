@@ -46,8 +46,8 @@ class PricingServiceTest extends TestCase
     private function calculateHallPrice(string $hallName): int
     {
         $facility = $this->getFacilityBySlug($hallName);
-        $checkIn = Carbon::now()->startOfDay()->addHours(8); // 8 AM today
-        $checkOut = $checkIn->copy()->addHours(9); // 5 PM today
+        $checkIn = Carbon::now()->startOfDay()->addHours(9);
+        $checkOut = $checkIn->copy()->addHours($hallName === 'Opal Hall' ? 8 : 4);
 
         $breakdown = $this->pricingService->calculate($facility, $checkIn, $checkOut);
 

@@ -17,6 +17,16 @@ enum PaymentStatus: string
         };
     }
 
+    /** @return 'success'|'warning'|'danger'|'info'|'neutral'|'muted' */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Verified => 'success',
+            self::Pending => 'warning',
+            self::Rejected => 'danger',
+        };
+    }
+
     /**
      * @return list<string>
      */

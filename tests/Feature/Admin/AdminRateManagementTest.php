@@ -49,7 +49,7 @@ class AdminRateManagementTest extends TestCase
     {
         $response = $this->actingAs($this->admin)->get(route('admin.rates.index'));
         $response->assertStatus(200);
-        $response->assertSee('Rate Management');
+        $response->assertSee('Rates and pricing');
     }
 
     // --- Listing & Filters ---

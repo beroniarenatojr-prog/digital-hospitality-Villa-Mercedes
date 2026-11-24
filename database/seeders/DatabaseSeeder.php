@@ -11,7 +11,6 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RoleSeeder::class,
             AdminUserSeeder::class,
-            CustomerUserSeeder::class,
             FacilityTypeSeeder::class,
             AmenitySeeder::class,
             FacilitySeeder::class,
@@ -21,11 +20,7 @@ class DatabaseSeeder extends Seeder
             BrochurePhotoSeeder::class,
             FaqCategorySeeder::class,
             FaqSeeder::class,
-            DemoGuestSeeder::class,
         ]);
 
-        if (config('resort.demo_content')) {
-            $this->call(GuestReviewSeeder::class);
-        }
     }
 }

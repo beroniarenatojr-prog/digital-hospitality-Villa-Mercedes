@@ -1,4 +1,4 @@
-<thead class="bg-gray-50">
+<thead class="bg-muted/70">
     <tr>
         {{ $slot }}
     </tr>

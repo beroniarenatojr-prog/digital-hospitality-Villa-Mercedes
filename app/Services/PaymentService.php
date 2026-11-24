@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
+use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Exceptions\Payment\InvalidPaymentAmountException;
 use App\Exceptions\Payment\InvalidPaymentTransitionException;
@@ -11,14 +12,20 @@ use App\Exceptions\Payment\PaymentNotEligibleException;
 use App\Exceptions\Payment\PaymentOwnershipException;
 use App\Exceptions\Payment\UnauthorizedPaymentActionException;
 use App\Models\Payment;
+use App\Models\PaymentDestination;
 use App\Models\Reservation;
 use App\Models\User;
+use App\Notifications\Reservation\DepositUpdateNotification;
+use App\Support\DepositDeadline;
+use App\Support\Money;
+use App\Support\ResortTime;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class PaymentService
 {
     /**
-     * @param string|int|float $amount
+     * @param  string|int|float  $amount
      */
     public function createPayment(
         Reservation $reservation,
@@ -42,24 +49,32 @@ class PaymentService
 
             if (! $isStaff && ! $reservation->canAcceptGuestPayment()) {
                 throw new PaymentNotEligibleException(
-                    config('payments.deposit_workflow') ? 'Online payment is limited to the required deposit before its deadline. Contact staff for expired holds or pay the remaining balance at arrival.' : 'Payment is available after the resort confirms this reservation, and only while a balance remains.'
+                    config('payments.deposit_workflow') ? 'The 50% deposit opens once the resort approves this reservation, and closes at the deadline that approval sets. Contact staff if it has already closed.' : 'Payment is available after the resort confirms this reservation, and only while a balance remains.'
                 );
             }
 
             $deposit = config('payments.deposit_workflow') && ! $isStaff;
             $destination = null;
             if ($deposit) {
-                $destination = \App\Models\PaymentDestination::whereKey($details['payment_destination_id'] ?? 0)
+                $destination = PaymentDestination::whereKey($details['payment_destination_id'] ?? 0)
                     ->where('method', $method->value)->lockForUpdate()->first();
                 if (! $destination || (! $destination->is_active && $destination->updated_at->lt($reservation->created_at)) || ! $proofReference) {
                     throw new PaymentNotEligibleException('Choose the resort receiving account used for this booking and upload proof of payment.');
                 }
             }
-            $balance = $deposit ? $reservation->getDepositAvailableAmount() : $reservation->getAvailablePaymentAmount();
+            $workflow = $reservation->reservationGroup?->booking_workflow ?? $reservation->booking_workflow ?? [];
+            if (! $isStaff && (($workflow['child_charge']['status'] ?? null) === 'disputed' || isset($workflow['refund']))) {
+                throw new PaymentNotEligibleException('This booking is held for staff discussion. Do not transfer another payment.');
+            }
+            $balance = $deposit && $reservation->policy_version !== config('resort.policy.confirmed_version') ? $reservation->getDepositAvailableAmount() : $reservation->getAvailablePaymentAmount();
+            if ($deposit && $reservation->policy_version === config('resort.policy.confirmed_version')
+                && (int) round((float) $amount * 100) < (int) round($reservation->getDepositAvailableAmount() * 100)) {
+                throw new InvalidPaymentAmountException('Submit at least the remaining 50% down payment, or pay the full balance online.');
+            }
 
             if ((int) round((float) $amount * 100) > (int) round($balance * 100)) {
                 throw new InvalidPaymentAmountException(
-                    'Payment amount cannot exceed ₱'.number_format($balance, 2).' after verified payments and pending submissions.'
+                    'Payment amount cannot exceed '.Money::of($balance).' after verified payments and pending submissions.'
                 );
             }
 
@@ -90,7 +105,7 @@ class PaymentService
                 ->log("Payment submitted for reservation {$reservation->reservation_code}");
 
             if ($deposit) {
-                DB::afterCommit(fn () => $reservation->user?->notify(new \App\Notifications\Reservation\DepositUpdateNotification($reservation->id, 'Deposit proof received. Staff will verify the incoming transfer.')));
+                DB::afterCommit(fn () => $reservation->user?->notify(new DepositUpdateNotification($reservation->id, 'Deposit proof received. Staff will verify the incoming transfer.')));
             }
 
             return $payment;
@@ -99,12 +114,14 @@ class PaymentService
 
     public function verifyPayment(Payment $payment, User $verifier, ?string $overpaymentNote = null): void
     {
-        if (!$verifier->hasRole([Role::Administrator->value, 'staff'])) {
+        if (! $verifier->hasRole([Role::Administrator->value, 'staff'])) {
             throw new UnauthorizedPaymentActionException('Only authorized staff can verify payments.');
         }
 
         DB::transaction(function () use ($payment, $verifier, $overpaymentNote) {
-            $reservation = $this->lockReservationLedger($payment->reservation_id);
+            $reservation = $payment->reservation_id ? $this->lockReservationLedger($payment->reservation_id) : null;
+            $group = $payment->reservation_group_id ? \App\Models\ReservationGroup::whereKey($payment->reservation_group_id)->lockForUpdate()->first() : null;
+
             // Lock payment row
             $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->firstOrFail();
 
@@ -112,7 +129,9 @@ class PaymentService
                 throw new InvalidPaymentTransitionException("Cannot verify a payment that is currently {$lockedPayment->status->value}.");
             }
 
-            $excess = $this->overpaymentCents($reservation, $lockedPayment);
+            $remainingBalance = $reservation ? $reservation->getRemainingBalance() : ($group ? $group->outstandingBalance() : 0);
+            $excess = max(0, (int) round((float) $lockedPayment->amount * 100) - (int) round($remainingBalance * 100));
+
             $duplicate = $lockedPayment->reference_number && Payment::where('method', $lockedPayment->method->value)
                 ->where('reference_number', $lockedPayment->reference_number)->where('id', '!=', $lockedPayment->id)
                 ->where('status', PaymentStatus::Verified)->exists();
@@ -130,16 +149,24 @@ class PaymentService
                 'reconciliation_note' => $overpaymentNote,
             ]);
 
-            $reservation->unsetRelation('payments');
-            if ($lockedPayment->source === 'customer_deposit') {
-                if ($reservation->status === \App\Enums\ReservationStatus::Pending && ! $reservation->cancellation_requested_at
-                    && $reservation->getVerifiedTotalPaid() >= $reservation->requiredDepositAmount()) {
-                    app(ReservationService::class)->changeStatus($reservation, \App\Enums\ReservationStatus::Approved, $verifier);
-                } elseif ($reservation->status === \App\Enums\ReservationStatus::Pending && $reservation->getDepositAvailableAmount() > 0) {
-                    $reservation->update(['deposit_due_at' => \App\Support\DepositDeadline::forVisit($reservation->occupancyStart())]);
+            if ($reservation) {
+                $reservation->unsetRelation('payments');
+                if ($lockedPayment->source === 'customer_deposit') {
+                    if ($reservation->status === ReservationStatus::Approved && $reservation->getDepositAvailableAmount() > 0) {
+                        $reservation->update(['deposit_due_at' => DepositDeadline::forReservation($reservation)]);
+                    }
+                    DB::afterCommit(fn () => $reservation->user?->notify(new DepositUpdateNotification($reservation->id, 'Your deposit payment was verified. View the reservation for its current status and any deposit shortfall.')));
                 }
-                DB::afterCommit(fn () => $reservation->user?->notify(new \App\Notifications\Reservation\DepositUpdateNotification($reservation->id, 'Your deposit payment was verified. View the reservation for its current status and any deposit shortfall.')));
             }
+
+            if ($group) {
+                $recipient = $group->user;
+                if ($recipient) {
+                    DB::afterCommit(fn () => $recipient->notify(new \App\Notifications\Reservation\GroupDepositVerifiedMail($group, $lockedPayment)));
+                }
+            }
+
+            $this->queueReceipt($lockedPayment, $reservation?->user ?? $group?->user);
 
             activity()
                 ->performedOn($lockedPayment)
@@ -191,6 +218,8 @@ class PaymentService
                 'verified_at' => now(),
             ]);
 
+            $this->queueReceipt($lockedPayment, $reservation->user);
+
             activity()
                 ->performedOn($lockedPayment)
                 ->event('payment_verified')
@@ -204,12 +233,12 @@ class PaymentService
 
     public function rejectPayment(Payment $payment, User $verifier, string $reason): void
     {
-        if (!$verifier->hasRole([Role::Administrator->value, 'staff'])) {
+        if (! $verifier->hasRole([Role::Administrator->value, 'staff'])) {
             throw new UnauthorizedPaymentActionException('Only authorized staff can reject payments.');
         }
 
         DB::transaction(function () use ($payment, $verifier, $reason) {
-            $reservation = $this->lockReservationLedger($payment->reservation_id);
+            $reservation = $payment->reservation_id ? $this->lockReservationLedger($payment->reservation_id) : null;
             // Lock payment row
             $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->firstOrFail();
 
@@ -220,16 +249,13 @@ class PaymentService
             $lockedPayment->update([
                 'status' => PaymentStatus::Rejected->value,
                 'rejection_reason' => $reason,
-                // Do we set verified_by for rejections? The requirements say:
-                // "verified_by / verifier field should be handled according to existing schema semantics."
-                // I will set verified_by for rejection too, since it tracks who acted on it.
                 'verified_by' => $verifier->id,
                 'verified_at' => now(),
             ]);
 
-            if ($lockedPayment->source === 'customer_deposit') {
-                $reservation->update(['deposit_due_at' => \App\Support\DepositDeadline::forVisit($reservation->occupancyStart())]);
-                DB::afterCommit(fn () => $reservation->user?->notify(new \App\Notifications\Reservation\DepositUpdateNotification($reservation->id, 'Deposit proof needs correction: '.$reason)));
+            if ($reservation && $lockedPayment->source === 'customer_deposit') {
+                $reservation->update(['deposit_due_at' => DepositDeadline::forReservation($reservation)]);
+                DB::afterCommit(fn () => $reservation->user?->notify(new DepositUpdateNotification($reservation->id, 'Deposit proof needs correction: '.$reason)));
             }
 
             activity()
@@ -241,8 +267,19 @@ class PaymentService
         }, 5);
     }
 
+    private function queueReceipt(Payment $payment, ?User $guest): void
+    {
+        if ($guest && ! $guest->hasRole(Role::Administrator->value)) {
+            DB::afterCommit(fn () => $guest->notify(new \App\Notifications\Reservation\VerifiedPaymentReceipt($payment)));
+        }
+    }
+
     private function lockReservationLedger(int $reservationId): Reservation
     {
+        $identity = Reservation::whereKey($reservationId)->firstOrFail();
+        if ($identity->reservation_group_id) {
+            \App\Models\ReservationGroup::whereKey($identity->reservation_group_id)->lockForUpdate()->firstOrFail();
+        }
         $reservation = Reservation::whereKey($reservationId)->lockForUpdate()->firstOrFail();
         $reservation->setRelation('payments', $reservation->payments()->orderBy('id')->lockForUpdate()->get());
 
@@ -251,17 +288,19 @@ class PaymentService
 
     public function requestDepositTopUp(Reservation $reservation, User $actor, string $reason): void
     {
-        if (! $actor->hasRole('Administrator')) throw new UnauthorizedPaymentActionException('Only administrators can request a top-up.');
+        if (! $actor->hasRole('Administrator')) {
+            throw new UnauthorizedPaymentActionException('Only administrators can request a top-up.');
+        }
         DB::transaction(function () use ($reservation, $actor, $reason) {
             $locked = $this->lockReservationLedger($reservation->id);
-            if ($locked->deposit_required === null || $locked->status !== \App\Enums\ReservationStatus::Pending
-                || $locked->getPendingVerificationTotal() > 0 || $locked->getDepositAvailableAmount() <= 0 || \App\Support\DepositDeadline::visitInstant($locked->occupancyStart())->isPast()) {
-                throw new InvalidPaymentAmountException('Resolve pending proofs first. Top-ups require a future, pending booking with a deposit shortfall.');
+            if ($locked->deposit_required === null || ! in_array($locked->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)
+                || $locked->getPendingVerificationTotal() > 0 || $locked->getDepositAvailableAmount() <= 0 || DepositDeadline::forReservation($locked)->lte(now())) {
+                throw new InvalidPaymentAmountException('Resolve pending proofs first. Top-ups require a confirmed booking with a deposit shortfall before its deadline.');
             }
-            $locked->update(['deposit_due_at' => \App\Support\DepositDeadline::forVisit($locked->occupancyStart())]);
-            $message = 'Please submit a deposit top-up of ₱'.number_format($locked->getDepositAvailableAmount(), 2).' by '.$locked->deposit_due_at->copy()->timezone(\App\Support\DepositDeadline::TIMEZONE)->format('M d, Y g:i A').' Philippine time. '.$reason;
+            $locked->update(['deposit_due_at' => DepositDeadline::forReservation($locked)]);
+            $message = 'Please submit a deposit top-up of '.Money::of($locked->getDepositAvailableAmount()).' by '.$locked->deposit_due_at->copy()->timezone(ResortTime::timezone())->format('M d, Y g:i A').' Philippine time. '.$reason;
             activity()->performedOn($locked)->causedBy($actor)->event('deposit_top_up_requested')->withProperties(['reason' => $reason])->log($message);
-            DB::afterCommit(fn () => $locked->user?->notify(new \App\Notifications\Reservation\DepositUpdateNotification($locked->id, $message)));
+            DB::afterCommit(fn () => $locked->user?->notify(new DepositUpdateNotification($locked->id, $message)));
         }, 5);
     }
 
@@ -271,31 +310,65 @@ class PaymentService
             - (int) round($reservation->getRemainingBalance() * 100));
     }
 
+    public function settleGroupBalance(\App\Models\ReservationGroup $group, User $actor, array $data): void
+    {
+        DB::transaction(function () use ($group, $actor, $data) {
+            $group = $group->newQuery()->lockForUpdate()->findOrFail($group->id);
+            if (! $group->isApproved() || isset($group->booking_workflow['refund']) || $group->pendingPaymentsTotal() > 0
+                || ($group->booking_workflow['child_charge']['status'] ?? null) === 'disputed') {
+                throw new InvalidPaymentAmountException('Review the booking and any pending proof before recording payment.');
+            }
+            $due = $group->outstandingBalance();
+            if ($due <= 0 || round($data['amount'] * 100) !== round($due * 100)) {
+                throw new InvalidPaymentAmountException('The group balance has changed. Review the current amount before recording payment.');
+            }
+
+            $lines = $group->reservations()->orderBy('id')->lockForUpdate()->get();
+            $balances = $lines->mapWithKeys(fn ($line) => [$line->id => $line->getRemainingBalance()]);
+            if ((int) round($balances->sum() * 100) !== (int) round($due * 100)) {
+                throw new InvalidPaymentAmountException('Reconcile the service balances before recording this group payment.');
+            }
+            foreach ($lines as $line) {
+                if ($balances[$line->id] > 0) {
+                    $this->recordOnSite($line, $actor, ['amount' => $balances[$line->id]] + $data);
+                }
+            }
+        }, 5);
+    }
+
     public function recordOnSite(Reservation $reservation, User $actor, array $data): Payment
     {
-        if (! $actor->hasRole('Administrator')) throw new UnauthorizedPaymentActionException('Only administrators can record collected payments.');
+        if (! $actor->hasRole('Administrator')) {
+            throw new UnauthorizedPaymentActionException('Only administrators can record collected payments.');
+        }
+
         return DB::transaction(function () use ($reservation, $actor, $data) {
             $locked = $this->lockReservationLedger($reservation->id);
             $amount = (float) $data['amount'];
-            if (! is_finite($amount) || round($amount * 100) < 1) throw new InvalidPaymentAmountException('Enter a positive amount.');
-            if ($locked->getPendingVerificationTotal() > 0) throw new InvalidPaymentAmountException('Resolve pending proofs before recording another payment.');
-            if (($amount > $locked->getRemainingBalance() || $locked->status !== \App\Enums\ReservationStatus::Approved) && blank($data['reconciliation_note'] ?? null)) {
+            if (! is_finite($amount) || round($amount * 100) < 1) {
+                throw new InvalidPaymentAmountException('Enter a positive amount.');
+            }
+            if ($locked->getPendingVerificationTotal() > 0) {
+                throw new InvalidPaymentAmountException('Resolve pending proofs before recording another payment.');
+            }
+            if (($amount > $locked->getRemainingBalance() || $locked->status !== ReservationStatus::Approved) && blank($data['reconciliation_note'] ?? null)) {
                 throw new InvalidPaymentAmountException('Enter a reconciliation note for excess funds or a payment on an unconfirmed reservation.');
             }
             $payment = $locked->payments()->create([
                 'amount' => number_format($amount, 2, '.', ''), 'method' => $data['method'],
                 'reference_number' => isset($data['reference_number']) ? strtoupper(trim($data['reference_number'])) : null,
-                'payment_date' => \Carbon\Carbon::parse($data['collected_at'])->timezone(\App\Support\DepositDeadline::TIMEZONE)->toDateString(),
+                'payment_date' => Carbon::parse($data['collected_at'])->timezone(ResortTime::timezone())->toDateString(),
                 'collected_at' => $data['collected_at'], 'source' => 'onsite', 'status' => PaymentStatus::Verified,
                 'verified_by' => $actor->id, 'verified_at' => now(), 'reconciliation_note' => $data['reconciliation_note'] ?? null,
             ]);
+            $this->queueReceipt($payment, $locked->user);
             activity()->performedOn($payment)->causedBy($actor)->event('onsite_payment_recorded')->log('Payment received at the resort.');
             $locked->unsetRelation('payments');
-            if ($locked->status === \App\Enums\ReservationStatus::Pending && $locked->deposit_required !== null
-                && ! $locked->cancellation_requested_at && $locked->getVerifiedTotalPaid() >= $locked->requiredDepositAmount()) {
-                app(ReservationService::class)->changeStatus($locked, \App\Enums\ReservationStatus::Approved, $actor);
-            }
-            DB::afterCommit(fn () => $locked->user?->notify(new \App\Notifications\Reservation\DepositUpdateNotification($locked->id, 'Staff recorded an on-site payment. Your payment history has been updated.')));
+            // Recording money no longer confirms a booking either: approval is a
+            // decision staff make on the reservation, and it is what tells the
+            // guest the 50% QR step is open. A cash entry is not that decision.
+            DB::afterCommit(fn () => $locked->user?->notify(new DepositUpdateNotification($locked->id, 'Staff recorded an on-site payment. Your payment history has been updated.')));
+
             return $payment;
         }, 5);
     }

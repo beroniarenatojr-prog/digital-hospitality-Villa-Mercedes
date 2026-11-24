@@ -46,7 +46,7 @@ class OnlinePaymentService
     public function startCheckout(User $customer, Reservation $reservation, float $amount, PaymentMethod $method): string
     {
         if (! config('payments.allow_gateway_checkout')) {
-            throw new PaymentNotEligibleException('Use the resort QR deposit instructions. The remaining balance is payable at arrival.');
+            throw new PaymentNotEligibleException('Use the resort QR deposit instructions. The remaining balance is payable at check in.');
         }
         $this->verifyOwnership($customer, $reservation);
 

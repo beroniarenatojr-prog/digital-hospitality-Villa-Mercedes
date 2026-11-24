@@ -28,15 +28,15 @@
                     {{ config('resort.name') }}
                 </h1>
                 <p class="mt-6 text-base sm:text-lg text-white/95 max-w-3xl mx-auto leading-relaxed">
-                    Stay, celebrate, and learn: from cozy rooms and grand function halls to spring-fed pools, resort packages, and TESDA-certified training in housekeeping and barista skills.
+                    Stay, celebrate, and unwind: cozy rooms and cottages, function halls for events, spring-fed pools, and day or overnight resort packages.
                 </p>
                 <div class="mt-9 flex flex-col sm:flex-row justify-center items-center gap-3">
+                    <x-primary-button tag="a" href="{{ route('rooms') }}" class="!px-8 !py-3 !text-base">
+                        Explore services
+                    </x-primary-button>
                     <a href="{{ route('resort.show') }}" class="inline-flex items-center justify-center min-h-[44px] px-8 py-3 rounded-lg border border-white text-white font-semibold hover:bg-white/10">
                         Explore the Resort
                     </a>
-                    <x-primary-button tag="a" href="#availability" class="!px-8 !py-3 !text-base">
-                        Check Availability
-                    </x-primary-button>
                 </div>
             </div>
         </div>
@@ -47,7 +47,7 @@
         {{-- Availability --}}
         <section id="availability" class="relative z-10 -mt-16 sm:-mt-20 px-4 sm:px-6 lg:px-8 scroll-mt-24" x-reveal>
             <div class="max-w-6xl mx-auto animate-hero-desk">
-                <x-availability-bar submit-label="Browse Availability" />
+                <x-availability-bar submit-label="Check Availability" />
             </div>
         </section>
 
@@ -55,81 +55,61 @@
         {{-- Service cards --}}
         <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20" x-reveal>
             <x-section-heading title="What brings you here?" class="mb-12">
-                Rooms, halls, and packages all use the same path: check availability, book, and pay.
+                Choose a space, check dates, and review the reservation requirements.
             </x-section-heading>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                @foreach([
-                    [
-                        'href' => route('rooms'),
-                        'title' => 'Rooms & cottages',
-                        'text' => 'Overnight stays and day-use rooms for couples, families, and groups.',
-                        'points' => ['Hotel rooms and cottages', 'Up to the posted guest capacity', 'Live price when you pick dates'],
-                        'cta' => 'View accommodations',
-                        'icon' => 'home',
-                        'image' => asset('images/rooms & cottage.jpg'),
-                        'image_alt' => 'Wooden guest cottages at Villa Mercedes with peaked roofs along a garden path',
-                    ],
-                    [
-                        'href' => route('halls'),
-                        'title' => 'Event hosting',
-                        'text' => 'Function halls for events, meetings, and celebrations.',
-                        'points' => ['Four bookable halls', 'Capacity shown on each hall', 'Same reservation and payment flow'],
-                        'cta' => 'Plan your event',
-                        'icon' => 'calendar',
-                        'image' => asset('images/event-hosting.jpg'),
-                        'image_alt' => 'Banquet hall at Villa Mercedes with pink table linens, gold chairs, and a red carpet aisle',
-                    ],
-                    [
-                        'href' => route('packages'),
-                        'title' => 'Packages',
-                        'text' => 'Bundled day-use, night-use, and overnight stays at one price. I want a package when I need rooms and grounds together.',
-                        'points' => ['Day, night, and overnight bundles', 'Components reserved together', 'Check dates before you confirm'],
-                        'cta' => 'See packages',
-                        'icon' => 'gift',
-                        'image' => asset('images/resort pakage.jpg'),
-                        'image_alt' => 'Pool and grounds at Villa Mercedes with a slide, rock waterfall, and poolside pavilion',
-                    ],
-                ] as $card)
-                    <article class="group bg-surface rounded-3xl shadow-md overflow-hidden flex flex-col transition duration-500 hover:-translate-y-2 hover:shadow-xl" x-reveal style="--reveal-delay: {{ $loop->index * 100 }}ms">
-                        @if(! empty($card['image']))
-                            <div class="aspect-[16/10] overflow-hidden bg-muted">
-                                <img
-                                    src="{{ $card['image'] }}"
-                                    alt="{{ $card['image_alt'] }}"
-                                    loading="lazy"
-                                    decoding="async"
-                                    class="h-full w-full object-cover transition duration-700 ease-out group-hover:scale-110"
-                                >
-                            </div>
-                        @endif
-                        <div class="p-6 flex flex-col flex-1 transition duration-500 group-hover:-translate-y-0.5">
-                            <span class="mx-auto mb-4 inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary text-white shadow-lg">
-                                @if($card['icon'] === 'home')
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-                                @elseif($card['icon'] === 'calendar')
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                @else
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                                @endif
-                            </span>
-                            <h3 class="text-xl font-bold text-text text-center">{{ $card['title'] }}</h3>
-                            <p class="mt-2 text-sm text-text-muted text-center">{{ $card['text'] }}</p>
-                            <ul class="mt-5 space-y-2 text-sm text-text">
-                                @foreach($card['points'] as $point)
-                                    <li class="flex items-start gap-2">
-                                        <svg class="w-4 h-4 mt-0.5 shrink-0 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                        {{ $point }}
-                                    </li>
-                                @endforeach
-                            </ul>
-                            <a href="{{ $card['href'] }}" class="mt-auto pt-6 inline-flex items-center justify-center gap-1 font-semibold text-primary hover:underline">
-                                {{ $card['cta'] }}
-                                <span aria-hidden="true">&rarr;</span>
-                            </a>
-                        </div>
-                    </article>
-                @endforeach
+            <div class="grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
+                <a href="{{ route('rooms') }}" class="group relative min-h-[28rem] overflow-hidden rounded-2xl bg-primary text-white" x-reveal>
+                    <img
+                        src="{{ asset('images/rooms & cottage.jpg') }}"
+                        alt="Wooden guest cottages at Villa Mercedes with peaked roofs along a garden path"
+                        loading="lazy"
+                        decoding="async"
+                        class="absolute inset-0 h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.03]"
+                    >
+                    <span class="absolute inset-0 bg-gradient-to-t from-primary/90 via-primary/15 to-transparent" aria-hidden="true"></span>
+                    <span class="absolute inset-x-0 bottom-0 p-6 sm:p-8">
+                        <span class="block text-xs font-semibold uppercase tracking-[0.18em] text-accent-light">Stay</span>
+                        <span class="mt-2 block font-heading text-4xl font-semibold leading-none sm:text-5xl">Rooms &amp; cottages</span>
+                        <span class="mt-3 block max-w-md text-sm leading-relaxed text-white/85">Overnight stays and day-use rooms for couples, families, and groups.</span>
+                        <span class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-white group-hover:underline">View accommodations <span aria-hidden="true">&rarr;</span></span>
+                    </span>
+                </a>
+
+                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+                    <a href="{{ route('halls') }}" class="group grid grid-cols-[6.75rem_minmax(0,1fr)] gap-4 border-t border-border py-4 sm:grid-cols-[8rem_minmax(0,1fr)] lg:grid-cols-[7.5rem_minmax(0,1fr)]" x-reveal style="--reveal-delay: 100ms">
+                        <img
+                            src="{{ asset('images/event-hosting.jpg') }}"
+                            alt="Banquet hall at Villa Mercedes with pink table linens, gold chairs, and a red carpet aisle"
+                            loading="lazy"
+                            decoding="async"
+                            class="h-28 w-full rounded-xl object-cover sm:h-32 lg:h-28"
+                        >
+                        <span class="flex min-w-0 flex-col justify-center">
+                            <span class="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Gather</span>
+                            <span class="mt-1 font-heading text-2xl font-semibold leading-tight text-text group-hover:text-primary">Event hosting</span>
+                            <span class="mt-2 text-sm leading-relaxed text-text-muted">Function halls for events, meetings, and celebrations.</span>
+                            <span class="mt-3 text-sm font-semibold text-primary group-hover:underline">Plan your event <span aria-hidden="true">&rarr;</span></span>
+                        </span>
+                    </a>
+
+                    <a href="{{ route('packages') }}" class="group grid grid-cols-[6.75rem_minmax(0,1fr)] gap-4 border-t border-border py-4 sm:grid-cols-[8rem_minmax(0,1fr)] lg:grid-cols-[7.5rem_minmax(0,1fr)]" x-reveal style="--reveal-delay: 200ms">
+                        <img
+                            src="{{ asset('images/resort pakage.jpg') }}"
+                            alt="Pool and grounds at Villa Mercedes with a slide, rock waterfall, and poolside pavilion"
+                            loading="lazy"
+                            decoding="async"
+                            class="h-28 w-full rounded-xl object-cover sm:h-32 lg:h-28"
+                        >
+                        <span class="flex min-w-0 flex-col justify-center">
+                            <span class="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Plan</span>
+                            <span class="mt-1 font-heading text-2xl font-semibold leading-tight text-text group-hover:text-primary">Packages</span>
+                            <span class="mt-2 text-sm leading-relaxed text-text-muted">Day-use, night-use, and overnight bundles for rooms and grounds.</span>
+                            <span class="mt-3 text-sm font-semibold text-primary group-hover:underline">See packages <span aria-hidden="true">&rarr;</span></span>
+                        </span>
+                    </a>
+                </div>
+
             </div>
         </section>
 
@@ -176,34 +156,34 @@
         <section class="bg-background py-20" x-reveal>
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <x-section-heading title="How to reserve your stay" class="mb-12">
-                    Checking dates and prices is free. You only pay after the reservation is confirmed.
+                    Check dates and review the total before submitting a request.
                 </x-section-heading>
 
-                <ol class="grid grid-cols-1 md:grid-cols-5 gap-6">
-                    <li class="relative rounded-3xl border border-border bg-surface p-6 text-center shadow-sm transition duration-500 hover:-translate-y-1 hover:shadow-md">
-                        <span class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary text-white font-heading text-2xl font-semibold">1</span>
-                        <h3 class="mt-5 text-lg font-bold text-text">Check availability</h3>
+                <ol class="grid grid-cols-1 gap-6 md:grid-cols-5">
+                    <li class="border-t border-border pt-5 text-left">
+                        <span class="block text-xs font-semibold tracking-[0.18em] text-accent">01</span>
+                        <h3 class="mt-3 text-lg font-bold text-text">Check availability</h3>
                         <p class="mt-2 text-sm text-text-muted">Pick dates, guests, and a space type, then browse rooms, halls, cottages, or packages.</p>
                     </li>
-                    <li class="relative rounded-3xl border border-border bg-surface p-6 text-center shadow-sm transition duration-500 hover:-translate-y-1 hover:shadow-md">
-                        <span class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary text-white font-heading text-2xl font-semibold">2</span>
-                        <h3 class="mt-5 text-lg font-bold text-text">Sign in</h3>
+                    <li class="border-t border-border pt-5 text-left">
+                        <span class="block text-xs font-semibold tracking-[0.18em] text-accent">02</span>
+                        <h3 class="mt-3 text-lg font-bold text-text">Sign in</h3>
                         <p class="mt-2 text-sm text-text-muted">Create an account or sign in. Your dates and guest count stay with you.</p>
                     </li>
-                    <li class="relative rounded-3xl border border-border bg-surface p-6 text-center shadow-sm transition duration-500 hover:-translate-y-1 hover:shadow-md">
-                        <span class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary text-white font-heading text-2xl font-semibold">3</span>
-                        <h3 class="mt-5 text-lg font-bold text-text">Submit request</h3>
+                    <li class="border-t border-border pt-5 text-left">
+                        <span class="block text-xs font-semibold tracking-[0.18em] text-accent">03</span>
+                        <h3 class="mt-3 text-lg font-bold text-text">Submit request</h3>
                         <p class="mt-2 text-sm text-text-muted">Review the live total and send the reservation request. Nothing is charged yet.</p>
                     </li>
-                    <li class="relative rounded-3xl border border-border bg-surface p-6 text-center shadow-sm transition duration-500 hover:-translate-y-1 hover:shadow-md">
-                        <span class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary text-white font-heading text-2xl font-semibold">4</span>
-                        <h3 class="mt-5 text-lg font-bold text-text">Submit QR deposit</h3>
-                        <p class="mt-2 text-sm text-text-muted">For standard bookings, transfer the saved 50% deposit and upload proof before the payment deadline. Custom halls need staff quotation and approval first.</p>
+                    <li class="border-t border-border pt-5 text-left">
+                        <span class="block text-xs font-semibold tracking-[0.18em] text-accent">04</span>
+                        <h3 class="mt-3 text-lg font-bold text-text">Resort approval</h3>
+                        <p class="mt-2 text-sm text-text-muted">Your request waits under Review pending while the resort reviews it. We email you the answer either way &mdash; no money is due until it is approved.</p>
                     </li>
-                    <li class="relative rounded-3xl border border-border bg-surface p-6 text-center shadow-sm transition duration-500 hover:-translate-y-1 hover:shadow-md">
-                        <span class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary text-white font-heading text-2xl font-semibold">5</span>
-                        <h3 class="mt-5 text-lg font-bold text-text">Confirmation and arrival</h3>
-                        <p class="mt-2 text-sm text-text-muted">Staff verify the transfer to confirm your booking. Pay the remaining reservation balance at the resort upon arrival.</p>
+                    <li class="border-t border-border pt-5 text-left">
+                        <span class="block text-xs font-semibold tracking-[0.18em] text-accent">05</span>
+                        <h3 class="mt-3 text-lg font-bold text-text">Deposit and check in</h3>
+                        <p class="mt-2 text-sm text-text-muted">Once approved, scan the resort QR, transfer the 50% deposit, and upload your proof before the deadline. Staff verify the transfer and issue your check in pass &mdash; the remaining balance is paid at the resort.</p>
                     </li>
                 </ol>
             </div>
@@ -218,30 +198,25 @@
                         alt="Villa Mercedes Nature Farm &amp; Resort entrance sign in front of the lodge"
                         loading="lazy"
                         decoding="async"
-                        class="w-full rounded-3xl object-cover object-[center_78%] aspect-[16/9] lg:aspect-[5/3] shadow-lg"
+                        class="w-full rounded-2xl object-cover object-[center_78%] aspect-[16/9] lg:aspect-[5/3] shadow-none"
                     >
-                    <div class="absolute -bottom-5 right-4 sm:right-8 bg-surface rounded-2xl shadow-md px-5 py-4 flex items-center gap-3">
-                        <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary text-white">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
-                        </span>
-                        <div>
-                            <p class="font-semibold text-text">Heartful hospitality</p>
-                            <p class="text-xs text-text-muted">Nature farm &amp; resort</p>
-                        </div>
+                    <div class="absolute bottom-0 right-4 bg-primary/90 px-4 py-3 text-white sm:right-8">
+                        <p class="font-semibold">Heartful hospitality</p>
+                        <p class="text-xs text-white/70">Nature farm &amp; resort</p>
                     </div>
                 </div>
 
                 <div>
-                    <p class="font-script text-3xl md:text-4xl text-primary leading-snug">
+                    <p class="font-heading text-3xl italic leading-snug text-primary md:text-4xl">
                         A family gathering place in Ilagan that grew into a nature farm and resort — still hosted with the same heartful hospitality.
                     </p>
 
                     <div class="mt-8 grid sm:grid-cols-2 gap-4">
-                        <div class="bg-background rounded-2xl shadow-sm border-l-4 border-primary p-6">
+                        <div class="border-t border-border pt-5">
                             <h2 class="font-bold text-text">Mission</h2>
                             <p class="mt-2 text-sm text-text-muted leading-relaxed">{{ config('resort.mission') }}</p>
                         </div>
-                        <div class="bg-background rounded-2xl shadow-sm border-l-4 border-primary p-6">
+                        <div class="border-t border-border pt-5">
                             <h2 class="font-bold text-text">Vision</h2>
                             <p class="mt-2 text-sm text-text-muted leading-relaxed">{{ config('resort.vision') }}</p>
                         </div>
@@ -275,7 +250,7 @@
                     <button
                         type="button"
                         @class([
-                            'group relative overflow-hidden rounded-[1.5rem] text-left focus:outline-none focus:ring-2 focus:ring-accent',
+                            'group relative overflow-hidden rounded-2xl text-left focus:outline-none focus:ring-2 focus:ring-accent',
                             'col-span-2 aspect-[16/10]' => $index < 2,
                             'aspect-square' => $index >= 2,
                         ])
@@ -285,9 +260,9 @@
                         @click="lightbox = {{ $index }}"
                     >
                         @if(! empty($item['url']))
-                            <img src="{{ $item['url'] }}" alt="{{ $item['title'] }}" loading="lazy" class="w-full h-full object-cover transition duration-700 ease-out group-hover:scale-110">
+                            <img src="{{ $item['url'] }}" alt="{{ $item['title'] }}" loading="lazy" class="h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.04]">
                         @endif
-                        <span class="absolute inset-0 bg-gradient-to-t from-primary-dark/85 via-primary/25 to-transparent transition duration-500 group-hover:from-primary-dark/90" aria-hidden="true"></span>
+                        <span class="absolute inset-0 bg-gradient-to-t from-primary/85 via-primary/25 to-transparent transition duration-500 group-hover:from-primary-dark/90" aria-hidden="true"></span>
                         <span class="absolute inset-x-0 bottom-0 p-4">
                             <span class="block font-semibold text-white text-sm">{{ $item['title'] }}</span>
                             @if(! empty($item['caption']))
@@ -298,17 +273,10 @@
                 @endforeach
             </div>
 
-            <dl class="mt-12 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-                @foreach(config('resort.stats') as $stat)
-                    <div>
-                        <dt class="font-heading text-3xl md:text-4xl font-semibold text-primary">{{ $stat['value'] }}</dt>
-                        <dd class="mt-1 text-xs uppercase tracking-wide text-text-muted">{{ $stat['label'] }}</dd>
-                    </div>
-                @endforeach
-            </dl>
+
 
             <div class="mt-10 text-center">
-                <x-primary-button tag="a" href="{{ route('gallery') }}" class="!px-8 !py-3 !rounded-full">
+                <x-primary-button tag="a" href="{{ route('gallery') }}" class="!rounded-lg !px-8 !py-3">
                     Explore complete gallery
                 </x-primary-button>
             </div>
@@ -365,13 +333,13 @@
                             Questions guests ask
                         </h2>
                         <p class="mt-4 text-sm sm:text-base text-text-muted leading-relaxed">
-                            Still unsure about something? Our front desk answers messages within the hour, seven days a week.
+                            Contact the resort for help with your visit.
                         </p>
                         <div class="mt-8 flex flex-wrap items-center gap-4">
                             <button
                                 type="button"
                                 data-support-chat-open
-                                class="inline-flex items-center justify-center min-h-[44px] rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                                class="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                             >
                                 Message the resort
                             </button>
@@ -399,7 +367,7 @@
                 <div class="space-y-8">
                     <div>
                         <h2 class="font-heading text-4xl font-semibold text-primary">Our hours</h2>
-                        <span class="mt-3 block h-1 w-16 rounded-full bg-primary" aria-hidden="true"></span>
+                        <span class="mt-3 block h-px w-12 bg-accent" aria-hidden="true"></span>
                         <p class="mt-4 text-text-muted">{{ config('resort.hours') }}</p>
                         <dl class="mt-6 space-y-3 text-sm">
                             <div class="flex justify-between gap-4 border-b border-border pb-2">
@@ -421,7 +389,7 @@
                         <x-social-links class="mt-3" />
                     </div>
                 </div>
-                <div class="rounded-3xl overflow-hidden border border-border min-h-[280px] bg-muted">
+                <div class="min-h-[280px] overflow-hidden rounded-2xl border border-border bg-muted">
                     <iframe
                         title="Map of {{ config('resort.name') }}"
                         src="https://maps.google.com/maps?q={{ $mapsQuery }}&amp;z=15&amp;output=embed"
@@ -436,7 +404,7 @@
         {{-- Closing CTA --}}
         <section class="relative overflow-hidden">
             <div class="hero-photo-bg" style="background-image: url('{{ $hero }}')" aria-hidden="true"></div>
-            <div class="absolute inset-0 bg-primary-dark/80" aria-hidden="true"></div>
+            <div class="absolute inset-0 bg-primary/80" aria-hidden="true"></div>
             <div class="relative max-w-3xl mx-auto px-4 py-20 text-center text-white">
                 <h2 class="font-heading text-4xl md:text-5xl font-semibold">Ready for an unforgettable stay?</h2>
                 <p class="mt-4 text-white/90">Check availability and reserve a room, hall, or package at Villa Mercedes.</p>

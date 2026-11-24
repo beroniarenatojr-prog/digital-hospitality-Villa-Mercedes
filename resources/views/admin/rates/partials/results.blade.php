@@ -1,113 +1,132 @@
-<div class="hidden md:block">
-    <x-admin.table>
-        <x-admin.table-head>
-            <x-admin.table-cell :isHeader="true">Facility</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Rate Name</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Type</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Amount</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Unit</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Effective Period</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Active</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Actions</x-admin.table-cell>
-        </x-admin.table-head>
-        <x-admin.table-body>
-            @forelse($rates as $rate)
-                <x-admin.table-row>
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.facilities.show', $rate->facility) }}" class="font-medium text-primary hover:text-primary-dark text-sm">
-                            {{ $rate->facility->name }}
-                        </a>
-                        <span class="block text-xs text-gray-400">{{ $rate->facility->facilityType->name ?? '' }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.rates.show', $rate) }}" class="font-medium text-gray-900 hover:text-primary">
+@php
+    $hasFilters = request()->anyFilled(['search', 'facility_type', 'type', 'active']);
+@endphp
+
+@if ($rates->isEmpty())
+    <div class="rounded-xl border border-border bg-surface">
+        <x-admin.empty
+            icon="rates"
+            title="{{ $hasFilters ? 'No rates match these filters' : 'No rates yet' }}"
+            description="{{ $hasFilters ? 'Clear a filter or search by a different rate or facility name. Inactive rates are hidden when the status filter is set to active only.' : 'A facility can be viewed but not booked until it has a base rate. Add the base rate first, then seasonal or extra-person charges.' }}"
+        >
+            <x-slot:action>
+                @unless ($hasFilters)
+                    <x-admin.button :href="route('admin.rates.create')">Add a rate</x-admin.button>
+                @endunless
+            </x-slot:action>
+        </x-admin.empty>
+    </div>
+@else
+    <div class="hidden lg:block">
+        <x-admin.table>
+            <x-admin.table-head>
+                <x-admin.table-cell :isHeader="true">Rate</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Facility</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Type</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true" numeric>Amount</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Charged</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Effective period</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true">Status</x-admin.table-cell>
+                <x-admin.table-cell :isHeader="true"><span class="sr-only">Actions</span></x-admin.table-cell>
+            </x-admin.table-head>
+            <x-admin.table-body>
+                @foreach ($rates as $rate)
+                    <x-admin.table-row>
+                        <x-admin.table-cell>
+                            <a href="{{ route('admin.rates.show', $rate) }}" class="rounded font-semibold text-text hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                {{ $rate->name }}
+                            </a>
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell>
+                            <a href="{{ route('admin.facilities.show', $rate->facility) }}" class="rounded text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                {{ $rate->facility->name }}
+                            </a>
+                            <span class="mt-0.5 block text-xs text-text-muted">{{ $rate->facility->facilityType->name ?? '' }}</span>
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            {{ $rate->type->label() }}
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell numeric>
+                            <x-amount :value="$rate->amount" />
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            {{ str_replace('_', ' ', $rate->unit) }}
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            @if ($rate->effective_from && $rate->effective_until)
+                                <x-admin.date-range :from="$rate->effective_from" :to="$rate->effective_until" :time="false" />
+                            @elseif ($rate->effective_from)
+                                From <x-admin.date-time :value="$rate->effective_from" format="date" />
+                            @else
+                                <span class="text-text-muted">Any date</span>
+                            @endif
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            @if ($rate->is_active)
+                                <span class="text-sm text-success">Active</span>
+                            @else
+                                <span class="text-sm text-text-muted">Inactive</span>
+                            @endif
+                        </x-admin.table-cell>
+
+                        <x-admin.table-cell nowrap>
+                            <a href="{{ route('admin.rates.show', $rate) }}" class="rounded font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                Open
+                            </a>
+                            <a href="{{ route('admin.rates.edit', $rate) }}" class="ml-3 rounded font-semibold text-text-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                Edit
+                            </a>
+                        </x-admin.table-cell>
+                    </x-admin.table-row>
+                @endforeach
+            </x-admin.table-body>
+        </x-admin.table>
+    </div>
+
+    <ul class="space-y-3 lg:hidden">
+        @foreach ($rates as $rate)
+            <li class="rounded-xl border border-border bg-surface p-4">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <a href="{{ route('admin.rates.show', $rate) }}" class="block truncate font-semibold text-text hover:text-primary">
                             {{ $rate->name }}
                         </a>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                            {{ $rate->type === \App\Enums\RateType::Base ? 'bg-blue-100 text-blue-800' : '' }}
-                            {{ $rate->type === \App\Enums\RateType::Seasonal ? 'bg-amber-100 text-amber-800' : '' }}
-                            {{ $rate->type === \App\Enums\RateType::AdditionalCharge ? 'bg-purple-100 text-purple-800' : '' }}
-                            {{ $rate->type === \App\Enums\RateType::ExtraPerson ? 'bg-teal-100 text-teal-800' : '' }}
-                        ">
-                            {{ $rate->type->label() }}
-                        </span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="font-semibold">₱{{ number_format($rate->amount, 2) }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm text-gray-600">{{ str_replace('_', ' ', $rate->unit) }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        @if($rate->effective_from && $rate->effective_until)
-                            <span class="text-sm text-gray-600">
-                                {{ $rate->effective_from->format('M d') }} – {{ $rate->effective_until->format('M d, Y') }}
-                            </span>
-                        @elseif($rate->effective_from)
-                            <span class="text-sm text-gray-600">From {{ $rate->effective_from->format('M d, Y') }}</span>
-                        @else
-                            <span class="text-xs text-gray-400">—</span>
-                        @endif
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        @if($rate->is_active)
-                            <span class="inline-flex items-center text-success text-xs font-medium">
-                                <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                                Active
-                            </span>
-                        @else
-                            <span class="inline-flex items-center text-gray-400 text-xs font-medium">Inactive</span>
-                        @endif
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.rates.show', $rate) }}" class="text-primary hover:text-primary-dark text-sm font-medium">View</a>
-                        <a href="{{ route('admin.rates.edit', $rate) }}" class="text-gray-600 hover:text-gray-900 text-sm font-medium ml-3">Edit</a>
-                    </x-admin.table-cell>
-                </x-admin.table-row>
-            @empty
-                <x-admin.table-row>
-                    <x-admin.table-cell colspan="8" class="text-center py-8 text-gray-500">
-                        No rates found matching your criteria.
-                    </x-admin.table-cell>
-                </x-admin.table-row>
-            @endforelse
-        </x-admin.table-body>
-    </x-admin.table>
-</div>
+                        <p class="truncate text-sm text-text-muted">{{ $rate->facility->name }}</p>
+                    </div>
+                    <span class="shrink-0 text-right">
+                        <x-amount :value="$rate->amount" class="font-semibold" />
+                        <span class="mt-0.5 block text-xs text-text-muted">{{ str_replace('_', ' ', $rate->unit) }}</span>
+                    </span>
+                </div>
 
-<div class="md:hidden space-y-4">
-    @forelse($rates as $rate)
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div class="flex items-center justify-between mb-2">
-                <a href="{{ route('admin.rates.show', $rate) }}" class="font-semibold text-gray-900 hover:text-primary">
-                    {{ $rate->name }}
-                </a>
-                @if($rate->is_active)
-                    <span class="text-success text-xs font-medium">Active</span>
-                @else
-                    <span class="text-gray-400 text-xs font-medium">Inactive</span>
-                @endif
-            </div>
-            <div class="text-sm text-gray-600 space-y-1">
-                <p><span class="font-medium">Facility:</span> {{ $rate->facility->name }}</p>
-                <p><span class="font-medium">Type:</span> {{ $rate->type->label() }}</p>
-                <p><span class="font-medium">Amount:</span> <span class="font-semibold">₱{{ number_format($rate->amount, 2) }}</span> {{ str_replace('_', ' ', $rate->unit) }}</p>
-                @if($rate->effective_from && $rate->effective_until)
-                    <p><span class="font-medium">Period:</span> {{ $rate->effective_from->format('M d') }} – {{ $rate->effective_until->format('M d, Y') }}</p>
-                @endif
-            </div>
-            <div class="mt-3 flex gap-3">
-                <a href="{{ route('admin.rates.show', $rate) }}" class="text-primary hover:text-primary-dark text-sm font-medium">View</a>
-                <a href="{{ route('admin.rates.edit', $rate) }}" class="text-gray-600 hover:text-gray-900 text-sm font-medium">Edit</a>
-            </div>
+                <dl class="mt-3 space-y-1.5 text-sm">
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-xs text-text-muted">Type</dt>
+                        <dd class="text-right text-text">{{ $rate->type->label() }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <dt class="text-xs text-text-muted">Status</dt>
+                        <dd class="text-right text-text">{{ $rate->is_active ? 'Active' : 'Inactive' }}</dd>
+                    </div>
+                </dl>
+
+                <div class="mt-4 flex items-center gap-2 border-t border-border pt-3">
+                    <x-admin.button variant="secondary" size="sm" :href="route('admin.rates.show', $rate)" class="flex-1">Open</x-admin.button>
+                    <x-admin.button variant="ghost" size="sm" :href="route('admin.rates.edit', $rate)" class="flex-1">Edit</x-admin.button>
+                </div>
+            </li>
+        @endforeach
+    </ul>
+
+    @if ($rates->hasPages())
+        <div class="mt-6">
+            {{ $rates->withQueryString()->links() }}
         </div>
-    @empty
-        <p class="text-center text-gray-500 py-8">No rates found.</p>
-    @endforelse
-</div>
-
-<div class="mt-6">
-    {{ $rates->withQueryString()->links() }}
-</div>
+    @endif
+@endif

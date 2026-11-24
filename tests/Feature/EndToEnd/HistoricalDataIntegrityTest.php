@@ -28,8 +28,8 @@ class HistoricalDataIntegrityTest extends TestCase
         $rate = $facility->rates()->where('type', 'base')->first();
 
         // 1. Create Reservation A well clear of demo-seeded stays
-        $checkInA = Carbon::now()->addDays(40)->format('Y-m-d');
-        $checkOutA = Carbon::now()->addDays(42)->format('Y-m-d');
+        $checkInA = Carbon::now()->addDays(40)->setTime(14, 0)->format('Y-m-d H:i:s');
+        $checkOutA = Carbon::now()->addDays(42)->setTime(12, 0)->format('Y-m-d H:i:s');
 
         $this->actingAs($customer)->post(route('customer.reservations.store'), [
             'facility_id' => $facility->id,
@@ -56,8 +56,8 @@ class HistoricalDataIntegrityTest extends TestCase
         $this->assertEquals($newAmount, $rate->fresh()->amount);
 
         // 3. Create Reservation B
-        $checkInB = Carbon::now()->addDays(50)->format('Y-m-d');
-        $checkOutB = Carbon::now()->addDays(52)->format('Y-m-d');
+        $checkInB = Carbon::now()->addDays(50)->setTime(14, 0)->format('Y-m-d H:i:s');
+        $checkOutB = Carbon::now()->addDays(52)->setTime(12, 0)->format('Y-m-d H:i:s');
 
         $this->actingAs($customer)->post(route('customer.reservations.store'), [
             'facility_id' => $facility->id,

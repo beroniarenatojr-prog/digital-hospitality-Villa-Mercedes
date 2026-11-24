@@ -90,6 +90,67 @@ class FacilityQueryService
     }
 
     /**
+     * The order the picker offers the spaces that are free: by what the guest
+     * asked for, rather than by name.
+     *
+     * A list sorted A–Z is sorted by the one thing the guest did not mention. So
+     * the three things they did mention decide the order between them, in the order
+     * they would be raised:
+     *
+     *  1. **Party size.** A space that takes the whole party inside its included
+     *     count leads, because the rate on its card is then the rate they pay; one
+     *     that would add an extra-person charge follows, however cheap it looks.
+     *     A space that publishes no included count (a hall, a cottage) is not
+     *     treated as charging for one.
+     *  2. **Rate** — the published starting rate the card prints, cheapest first.
+     *     A space with no published rate cannot be compared with one that has, so
+     *     it goes last rather than pretending to be free.
+     *  3. **Photos** — a card a guest can look at before one they cannot.
+     *
+     * The name is the last word on purpose: pagination is a promise that page two
+     * follows page one, so two spaces that are equal on every signal they offered
+     * must still come back in the same order every time.
+     *
+     * @param  Collection<int, Facility>|SupportCollection<int, Facility>  $facilities
+     * @return SupportCollection<int, Facility>
+     */
+    public function rankForGuests(Collection|SupportCollection $facilities, ?int $guests): SupportCollection
+    {
+        return collect($facilities->all())
+            ->sort(fn (Facility $a, Facility $b): int => $this->rankAgainst($a, $b, $guests))
+            ->values();
+    }
+
+    private function rankAgainst(Facility $a, Facility $b, ?int $guests): int
+    {
+        return $this->includedFitRank($a, $guests) <=> $this->includedFitRank($b, $guests)
+            ?: $this->listingPrice($a) <=> $this->listingPrice($b)
+            ?: $this->photoRank($a) <=> $this->photoRank($b)
+            ?: strcasecmp($a->name, $b->name);
+    }
+
+    /** 0 when the party fits what this space includes, 1 when it would be charged for. */
+    private function includedFitRank(Facility $facility, ?int $guests): int
+    {
+        $included = $facility->capacity;
+
+        if ($guests === null || $included === null) {
+            return 0;
+        }
+
+        return $guests <= (int) $included ? 0 : 1;
+    }
+
+    /** 0 when the card shows a photo, 1 when it has none to show. */
+    private function photoRank(Facility $facility): int
+    {
+        // The picker eager-loads the gallery, and this order is only asked for
+        // there; `relationLoaded` keeps a missing relation from turning one sort
+        // into a query per comparison.
+        return $facility->relationLoaded('galleryImages') && $facility->galleryImages->isNotEmpty() ? 0 : 1;
+    }
+
+    /**
      * Group comparable room units by shared listing category
      * (e.g. "Superior" from "Superior (Room 01)").
      *
@@ -159,8 +220,8 @@ class FacilityQueryService
                 }
 
                 $facility = Facility::query()
+                    ->listed()
                     ->where('facility_type_id', $typeId)
-                    ->where('is_active', true)
                     ->select('id')
                     ->selectSub($this->coverImagePathSubquery(), 'cover_image_path')
                     ->orderBy('sort_order')
@@ -208,8 +269,8 @@ class FacilityQueryService
                 ->selectSub($this->coverImagePathSubquery(), 'cover_image_path')
                 ->selectSub($this->baseRateSubquery('amount'), 'base_rate_amount')
                 ->selectSub($this->baseRateSubquery('unit'), 'base_rate_unit')
+                ->listed()
                 ->where('facility_type_id', $typeId)
-                ->where('is_active', true)
                 ->where('status', FacilityStatus::Available->value)
                 ->orderByRaw(
                     'CASE WHEN slug IN (?, ?, ?) THEN 0 ELSE 1 END, FIELD(slug, ?, ?, ?), sort_order, id',
@@ -237,6 +298,14 @@ class FacilityQueryService
     }
 
     /**
+     * The published catalog of one facility type.
+     *
+     * Everything this class hands to a guest goes through here, so the
+     * catalog contract lives in one name rather than in each caller's memory:
+     * `Facility::listed()` — active and listed. Filtering on `is_active` alone
+     * put the inventory-only Private Function Hall in front of guests as a
+     * bookable card of its own.
+     *
      * @return Builder<Facility>
      */
     private function activeByType(string $typeSlug): Builder
@@ -244,8 +313,8 @@ class FacilityQueryService
         $typeId = $this->facilityTypeId($typeSlug);
 
         return Facility::query()
+            ->listed()
             ->where('facility_type_id', $typeId ?? 0)
-            ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('id');
     }
@@ -292,8 +361,13 @@ class FacilityQueryService
             'amenities',
             // Detail-first cards still show package composition where relevant.
             'packageComponents',
+            // Both rates the card can print. Loading only the base rate made the
+            // loaded relation an incomplete answer, so Facility::extraPersonRate()
+            // found nothing in it and every listing card silently hid the
+            // extra-person fee a guest is charged at check-in.
             'rates' => function ($query) {
-                $query->where('type', RateType::Base->value)->where('is_active', true);
+                $query->whereIn('type', [RateType::Base->value, RateType::ExtraPerson->value])
+                    ->where('is_active', true);
             },
         ];
     }

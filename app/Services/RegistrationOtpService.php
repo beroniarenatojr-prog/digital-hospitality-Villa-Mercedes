@@ -6,6 +6,7 @@ use App\Models\EmailOtpVerification;
 use App\Models\User;
 use App\Notifications\Auth\RegistrationOtpNotification;
 use App\Support\OutboundMail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
@@ -25,7 +26,7 @@ class RegistrationOtpService
 
     public const SESSION_OTP_SENT_AT = 'registration.otp_sent_at';
 
-    public const ELIGIBLE_STATUS = 'We sent a verification code to your email.';
+    public const ELIGIBLE_STATUS = 'Your verification code is being sent. Check your inbox, spam, and existing Villa Mercedes email conversations.';
 
     public const EMAIL_TAKEN = 'This email already has an account.';
 
@@ -69,33 +70,38 @@ class RegistrationOtpService
         }
 
         $code = $this->generateCode();
-
         try {
-            Notification::route('mail', $email)->notify(new RegistrationOtpNotification(
-                $code,
-                (int) config('otp.expire_minutes'),
-            ));
+            DB::transaction(function () use ($email, $existing, $code): void {
+                EmailOtpVerification::query()->updateOrCreate(
+                    ['email' => $email],
+                    [
+                        'otp_hash' => Hash::make($code),
+                        'expires_at' => now()->addMinutes((int) config('otp.expire_minutes')),
+                        'attempt_count' => 0,
+                        'send_count' => ($existing?->send_count ?? 0) + 1,
+                        'last_sent_at' => now(),
+                        'verified_at' => null,
+                        'consumed_at' => null,
+                    ],
+                );
+
+                Notification::route('mail', $email)->notify(new RegistrationOtpNotification(
+                    $code,
+                    (int) config('otp.expire_minutes'),
+                ));
+            });
         } catch (Throwable $e) {
             report($e);
 
             throw ValidationException::withMessages([
-                'email' => 'We could not send the verification email. Please try again shortly.',
+                'email' => 'We could not queue the verification email. Please try again shortly.',
             ]);
         }
 
-        EmailOtpVerification::query()->updateOrCreate(
-            ['email' => $email],
-            [
-                'otp_hash' => Hash::make($code),
-                'expires_at' => now()->addMinutes((int) config('otp.expire_minutes')),
-                'attempt_count' => 0,
-                'send_count' => ($existing?->send_count ?? 0) + 1,
-                'last_sent_at' => now(),
-                'verified_at' => null,
-                'consumed_at' => null,
-            ],
-        );
-
+        // A newly issued challenge gets a fresh verification budget. Otherwise
+        // a guest who requests a replacement code can remain locked out by the
+        // attempts made against the code that was just invalidated.
+        $this->clearVerifyLimiters($email, $ip);
         $this->forgetVerifiedState();
         $this->rememberPendingEmail($email);
     }
@@ -132,6 +138,8 @@ class RegistrationOtpService
         $record->forceFill([
             'verified_at' => now(),
         ])->save();
+
+        $this->clearVerifyLimiters($email, $ip);
 
         session([
             self::SESSION_EMAIL => $email,
@@ -308,13 +316,29 @@ class RegistrationOtpService
 
     private function hitVerifyLimiters(string $email, string $ip): void
     {
-        RateLimiter::hit($this->verifyEmailKey($email), 3600);
-        RateLimiter::hit($this->verifyIpKey($ip), 3600);
+        $decaySeconds = max(60, (int) config('otp.verify_decay_seconds', 300));
+
+        RateLimiter::hit($this->verifyEmailKey($email), $decaySeconds);
+        RateLimiter::hit($this->verifyIpKey($ip), $decaySeconds);
+    }
+
+    private function clearVerifyLimiters(string $email, string $ip): void
+    {
+        RateLimiter::clear($this->verifyEmailKey($email));
+        RateLimiter::clear($this->verifyIpKey($ip));
     }
 
     private function throwThrottle(string $field, string $key): never
     {
         $seconds = RateLimiter::availableIn($key);
+
+        if ($field === 'otp') {
+            $minutes = max(1, (int) ceil($seconds / 60));
+
+            throw ValidationException::withMessages([
+                $field => "Too many verification attempts. Request a new code or try again in about {$minutes} ".($minutes === 1 ? 'minute.' : 'minutes.'),
+            ]);
+        }
 
         throw ValidationException::withMessages([
             $field => trans('auth.throttle', [
@@ -336,11 +360,12 @@ class RegistrationOtpService
 
     private function verifyEmailKey(string $email): string
     {
-        return 'otp-verify-email:'.$email;
+        // v2 intentionally leaves behind the former one-hour limiter keys.
+        return 'otp-verify-v2-email:'.$email;
     }
 
     private function verifyIpKey(string $ip): string
     {
-        return 'otp-verify-ip:'.$ip;
+        return 'otp-verify-v2-ip:'.$ip;
     }
 }

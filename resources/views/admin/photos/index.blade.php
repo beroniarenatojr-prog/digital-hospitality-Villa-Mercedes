@@ -1,118 +1,126 @@
 <x-admin-layout>
-    <x-slot name="header">
-        Photos — {{ $collection->label() }}
-    </x-slot>
+    <x-slot name="header">Photos — {{ $collection->label() }}</x-slot>
 
-    <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <p class="text-sm text-gray-500 max-w-2xl">
-            These photos appear on the public {{ $collection->label() }} page. Upload JPEG, PNG, or WEBP files (max 5MB each).
-            You can keep up to {{ $collection->maxCount() }} photos here.
-        </p>
-        <div class="inline-flex rounded-md border border-gray-200 bg-white p-1">
-            @foreach(\App\Enums\PagePhotoCollection::cases() as $tab)
-                <a href="{{ route('admin.photos.index', ['collection' => $tab->value]) }}"
-                   class="px-3 py-1.5 text-xs font-semibold uppercase tracking-widest rounded {{ $collection === $tab ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-50' }}">
-                    {{ $tab->label() }}
-                </a>
-            @endforeach
+    <x-admin.page-header
+        title="Photos — {{ $collection->label() }}"
+    >
+        <x-slot:actions>
+            <div class="inline-flex rounded-lg border border-border bg-surface p-1">
+                @foreach (\App\Enums\PagePhotoCollection::cases() as $tab)
+                    <a
+                        href="{{ route('admin.photos.index', ['collection' => $tab->value]) }}"
+                        @if ($collection === $tab) aria-current="page" @endif
+                        class="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 {{ $collection === $tab ? 'bg-primary text-white' : 'text-text-muted hover:bg-muted hover:text-text' }}"
+                    >
+                        {{ $tab->label() }}
+                    </a>
+                @endforeach
+            </div>
+        </x-slot:actions>
+    </x-admin.page-header>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3 items-start">
+        <div class="space-y-4 lg:col-span-2">
+            @forelse ($photos as $photo)
+                <x-admin.panel :padding="false">
+                    <div class="flex flex-col gap-4 p-4 sm:flex-row sm:p-5">
+                        <img src="{{ $photo->url() }}" alt="{{ $photo->displayTitle() }}" class="h-32 w-full shrink-0 rounded-lg bg-muted object-cover sm:w-40">
+
+                        <div class="min-w-0 flex-1">
+                            <form method="POST" action="{{ route('admin.photos.update', $photo) }}" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                @csrf
+                                @method('PATCH')
+
+                                <div class="sm:col-span-2">
+                                    <label for="title-{{ $photo->id }}" class="admin-label">Title</label>
+                                    <input type="text" id="title-{{ $photo->id }}" name="title" value="{{ old('title', $photo->title) }}" maxlength="120"
+                                           class="admin-input mt-1">
+                                </div>
+
+                                <div class="sm:col-span-2">
+                                    <label for="caption-{{ $photo->id }}" class="admin-label">Caption</label>
+                                    <input type="text" id="caption-{{ $photo->id }}" name="caption" value="{{ old('caption', $photo->caption) }}" maxlength="255"
+                                           class="admin-input mt-1">
+                                </div>
+
+                                <div>
+                                    <label for="sort-order-{{ $photo->id }}" class="admin-label">Position</label>
+                                    <input type="number" id="sort-order-{{ $photo->id }}" name="sort_order" value="{{ old('sort_order', $photo->sort_order) }}" min="0"
+                                           class="admin-input mt-1">
+                                    <p class="admin-help">Lower numbers appear first.</p>
+                                </div>
+
+                                <div class="flex items-end">
+                                    <x-admin.button type="submit" class="w-full sm:w-auto">Save changes</x-admin.button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-border px-4 py-3 sm:px-5">
+                        <x-admin.confirm-action
+                            :action="route('admin.photos.destroy', $photo)"
+                            method="DELETE"
+                            label="Delete this photo"
+                            title="Delete this photo?"
+                            :consequence="$photo->displayTitle().' disappears from the public '.strtolower($collection->label()).' page immediately. This cannot be undone.'"
+                            confirm="Delete photo"
+                            size="sm"
+                        />
+                    </div>
+                </x-admin.panel>
+            @empty
+                <div class="rounded-xl border border-border bg-surface">
+                    <x-admin.empty
+                        icon="photos"
+                        title="No photos yet"
+                        description="Upload photos so guests see the real {{ strtolower($collection->label()) }} instead of placeholders. Aim for a wide shot, a detail shot, and one that shows scale."
+                    />
+                </div>
+            @endforelse
         </div>
-    </div>
 
-    <div class="grid lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-1">
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-1">Upload photos</h2>
-                <p class="text-sm text-gray-500 mb-4">
-                    {{ $photos->count() }} of {{ $collection->maxCount() }} used.
-                </p>
-
-                @if($photos->count() < $collection->maxCount())
+        <div class="space-y-6 sticky top-24 self-start">
+            <x-admin.panel
+                title="Upload photos"
+                :badge="$photos->count().' / '.$collection->maxCount()"
+                description="Upload several at once, then title each one from the list."
+            >
+                @if ($photos->count() < $collection->maxCount())
                     <form method="POST" action="{{ route('admin.photos.store') }}" enctype="multipart/form-data" class="space-y-4">
                         @csrf
                         <input type="hidden" name="collection" value="{{ $collection->value }}">
 
                         <div>
-                            <label for="images" class="block text-sm font-medium text-gray-700">Photos</label>
-                            <input type="file" id="images" name="images[]" multiple accept="image/jpeg,image/png,image/jpg,image/webp" required
-                                   class="mt-1 block w-full text-sm text-gray-500
-                                          file:mr-4 file:py-2 file:px-4
-                                          file:rounded-md file:border-0
-                                          file:text-sm file:font-semibold
-                                          file:bg-primary-light file:text-primary
-                                          hover:file:bg-primary-light/80">
+                            <label for="images" class="admin-label">Photos <span class="text-danger" aria-hidden="true">*</span></label>
+                            <input type="file" id="images" name="images[]" multiple accept="image/jpeg,image/png,image/jpg,image/webp" required aria-required="true"
+                                   class="mt-1 block w-full text-sm text-text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-primary-light file:px-4 file:py-2 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary-light/80">
+                            <p class="admin-help">JPEG, PNG, JPG, or WEBP. Max 5MB each. {{ $collection->maxCount() - $photos->count() }} slots left.</p>
                         </div>
 
                         <div>
-                            <label for="title" class="block text-sm font-medium text-gray-700">Title (optional)</label>
+                            <label for="title" class="admin-label">Title</label>
                             <input type="text" id="title" name="title" value="{{ old('title') }}" maxlength="120"
-                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                                   placeholder="Pool by day">
-                            <p class="mt-1 text-xs text-gray-500">Used when you upload a single photo. Edit titles after a batch upload.</p>
+                                   placeholder="Pool by day"
+                                   class="admin-input mt-1">
+                            <p class="admin-help">Used when you upload a single photo. Edit titles after a batch upload.</p>
                         </div>
 
                         <div>
-                            <label for="caption" class="block text-sm font-medium text-gray-700">Caption (optional)</label>
+                            <label for="caption" class="admin-label">Caption</label>
                             <input type="text" id="caption" name="caption" value="{{ old('caption') }}" maxlength="255"
-                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm"
-                                   placeholder="Nature-framed swimming for all ages.">
+                                   placeholder="Nature-framed swimming for all ages."
+                                   class="admin-input mt-1">
                         </div>
 
-                        <button type="submit" class="w-full inline-flex justify-center items-center px-4 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition">
-                            Upload
-                        </button>
+                        <x-admin.button type="submit" class="w-full">Upload photos</x-admin.button>
                     </form>
                 @else
-                    <p class="text-sm text-gray-500">This page is full. Delete a photo before adding another.</p>
+                    <x-admin.notice variant="warning" title="This page is full" :dismissible="false">
+                        {{ $collection->label() }} holds {{ $collection->maxCount() }} photos. Delete one before adding another.
+                    </x-admin.notice>
                 @endif
-            </div>
-        </div>
-
-        <div class="lg:col-span-2 space-y-4">
-            @forelse($photos as $photo)
-                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-4 sm:p-5">
-                    <div class="flex flex-col sm:flex-row gap-4">
-                        <img src="{{ $photo->url() }}" alt="{{ $photo->displayTitle() }}" class="w-full sm:w-40 h-32 object-cover rounded-md shrink-0 bg-gray-100">
-                        <form method="POST" action="{{ route('admin.photos.update', $photo) }}" class="flex-1 grid sm:grid-cols-2 gap-3">
-                            @csrf
-                            @method('PATCH')
-                            <div class="sm:col-span-2">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Title</label>
-                                <input type="text" name="title" value="{{ old('title', $photo->title) }}" maxlength="120"
-                                       class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            </div>
-                            <div class="sm:col-span-2">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Caption</label>
-                                <input type="text" name="caption" value="{{ old('caption', $photo->caption) }}" maxlength="255"
-                                       class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Order</label>
-                                <input type="number" name="sort_order" value="{{ old('sort_order', $photo->sort_order) }}" min="0"
-                                       class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            </div>
-                            <div class="flex items-end gap-2">
-                                <button type="submit" class="inline-flex items-center px-3 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition">
-                                    Save
-                                </button>
-                                <button type="submit" form="delete-photo-{{ $photo->id }}"
-                                        class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest hover:bg-gray-50"
-                                        onclick="return confirm('Delete this photo?')">
-                                    Delete
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-                <form id="delete-photo-{{ $photo->id }}" method="POST" action="{{ route('admin.photos.destroy', $photo) }}" class="hidden">
-                    @csrf
-                    @method('DELETE')
-                </form>
-            @empty
-                <div class="bg-white shadow-sm rounded-lg border border-dashed border-gray-300 p-10 text-center">
-                    <p class="text-sm font-medium text-gray-900">No photos yet</p>
-                    <p class="mt-1 text-sm text-gray-500">Upload photos so guests see the real {{ strtolower($collection->label()) }} instead of placeholders.</p>
-                </div>
-            @endforelse
+            </x-admin.panel>
         </div>
     </div>
 </x-admin-layout>

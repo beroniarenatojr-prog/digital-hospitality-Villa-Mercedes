@@ -1,55 +1,57 @@
 <x-admin-layout>
-    <x-slot name="header">
-        Customer Management
-    </x-slot>
+    <x-slot name="header">Customers</x-slot>
 
     @php
         $hasCustomerFilters = request()->anyFilled(['search', 'has_reservations', 'registered_from', 'registered_until']);
     @endphp
-    <div data-live-filter data-live-filter-url="{{ route('admin.customers.index') }}">
-    <!-- Filters -->
-    <div class="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-        <form method="GET" action="{{ route('admin.customers.index') }}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
-            <!-- Search -->
-            <div>
-                <label for="search" class="block text-xs font-medium text-gray-700 mb-1">Search</label>
-                <input type="text" name="search" id="search" value="{{ request('search') }}" placeholder="Name, Email, Phone"
-                       autocomplete="off"
-                       class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-            </div>
+    <x-admin.page-header title="Customers" />
 
-            <!-- Has Reservations -->
-            <div>
-                <label for="has_reservations" class="block text-xs font-medium text-gray-700 mb-1">Reservations</label>
-                <select name="has_reservations" id="has_reservations" class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                    <option value="">All Customers</option>
-                    <option value="1" {{ request('has_reservations') === '1' ? 'selected' : '' }}>With Reservations</option>
-                    <option value="0" {{ request('has_reservations') === '0' ? 'selected' : '' }}>Without Reservations</option>
-                </select>
-            </div>
+    <x-admin.live-filter :action="route('admin.customers.index')">
+        <x-admin.filter-form
+            :action="route('admin.customers.index')"
+            :active="$hasCustomerFilters"
+            label="Search customers"
+        >
+            <label for="search" class="admin-label">Search customers</label>
+            <p class="admin-help mb-2">Matches a name, email address, or phone number.</p>
+            <input
+                type="search"
+                name="search"
+                id="search"
+                value="{{ request('search') }}"
+                placeholder="Maria Santos, maria@example.com, or 0917 555 0100"
+                autocomplete="off"
+                enterkeyhint="search"
+                class="admin-input"
+            >
 
-            <!-- Registration From -->
-            <div>
-                <label for="registered_from" class="block text-xs font-medium text-gray-700 mb-1">Registered From</label>
-                <input type="date" name="registered_from" id="registered_from" value="{{ request('registered_from') }}"
-                       class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-            </div>
+            <x-slot:more>
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div>
+                        <label for="has_reservations" class="admin-label">Bookings</label>
+                        <select name="has_reservations" id="has_reservations" class="admin-input mt-1">
+                            <option value="">Any guest</option>
+                            <option value="1" @selected(request('has_reservations') === '1')>Has booked at least once</option>
+                            <option value="0" @selected(request('has_reservations') === '0')>Has never booked</option>
+                        </select>
+                    </div>
 
-            <!-- Registration Until -->
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <div class="min-w-0 flex-1">
-                    <label for="registered_until" class="block text-xs font-medium text-gray-700 mb-1">Registered Until</label>
-                    <input type="date" name="registered_until" id="registered_until" value="{{ request('registered_until') }}"
-                           class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
+                    <div>
+                        <label for="registered_from" class="admin-label">Registered from</label>
+                        <input type="date" name="registered_from" id="registered_from" value="{{ request('registered_from') }}" class="admin-input mt-1">
+                    </div>
+
+                    <div>
+                        <label for="registered_until" class="admin-label">Registered until</label>
+                        <input type="date" name="registered_until" id="registered_until" value="{{ request('registered_until') }}" class="admin-input mt-1">
+                    </div>
                 </div>
-                <x-admin.live-filter-reset :visible="$hasCustomerFilters" />
-            </div>
-        </form>
-    </div>
+            </x-slot:more>
+        </x-admin.filter-form>
 
-    <x-admin.live-filter-results>
-        @include('admin.customers.partials.results')
-    </x-admin.live-filter-results>
-    </div>
+        <x-admin.live-filter-results>
+            @include('admin.customers.partials.results')
+        </x-admin.live-filter-results>
+    </x-admin.live-filter>
 </x-admin-layout>

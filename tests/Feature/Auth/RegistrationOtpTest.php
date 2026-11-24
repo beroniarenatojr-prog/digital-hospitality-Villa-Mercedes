@@ -5,12 +5,18 @@ namespace Tests\Feature\Auth;
 use App\Enums\Role;
 use App\Models\EmailOtpVerification;
 use App\Models\User;
+use App\Notifications\Auth\RegistrationOtpNotification;
 use App\Services\RegistrationOtpService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Contracts\Notifications\Dispatcher;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\SendQueuedNotifications;
+use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use RuntimeException;
 use Tests\TestCase;
@@ -25,7 +31,7 @@ class RegistrationOtpTest extends TestCase
 
         $this->seed(RoleSeeder::class);
         RateLimiter::clear('otp-send-ip:127.0.0.1');
-        RateLimiter::clear('otp-verify-ip:127.0.0.1');
+        RateLimiter::clear('otp-verify-v2-ip:127.0.0.1');
     }
 
     public function test_valid_email_sends_otp_without_exposing_the_code(): void
@@ -173,6 +179,57 @@ class RegistrationOtpTest extends TestCase
             ->assertSessionHas('status', 'Email verified.');
     }
 
+    public function test_otp_email_is_queued_and_old_or_expired_codes_are_not_delivered(): void
+    {
+        Queue::fake();
+        config(['otp.resend_cooldown_seconds' => 0]);
+
+        $this->post(route('register.otp.send'), ['email' => 'queued@example.com'])
+            ->assertSessionHas('status', RegistrationOtpService::ELIGIBLE_STATUS);
+
+        Queue::assertPushed(SendQueuedNotifications::class, 1);
+        $first = Queue::pushed(SendQueuedNotifications::class)->first();
+        $this->assertInstanceOf(RegistrationOtpNotification::class, $first->notification);
+        $this->assertInstanceOf(ShouldBeEncrypted::class, $first->notification);
+        $this->assertSame(3, $first->tries);
+        $this->assertSame([15, 45], $first->backoff());
+        $this->assertTrue($first->notification->shouldSend($first->notifiables->first(), 'mail'));
+
+        $this->post(route('register.otp.send'), ['email' => 'queued@example.com']);
+
+        Queue::assertPushed(SendQueuedNotifications::class, 2);
+        $second = Queue::pushed(SendQueuedNotifications::class)->last();
+        $this->assertFalse($first->notification->shouldSend($first->notifiables->first(), 'mail'));
+        $this->assertTrue($second->notification->shouldSend($second->notifiables->first(), 'mail'));
+
+        EmailOtpVerification::query()->where('email', 'queued@example.com')
+            ->update(['expires_at' => now()->subMinute()]);
+
+        $this->assertFalse($second->notification->shouldSend($second->notifiables->first(), 'mail'));
+    }
+
+    public function test_database_worker_delivers_a_current_otp(): void
+    {
+        config(['queue.default' => 'database']);
+
+        $this->post(route('register.otp.send'), ['email' => 'worker@example.com'])
+            ->assertSessionHas('status', RegistrationOtpService::ELIGIBLE_STATUS);
+
+        $this->assertDatabaseCount('jobs', 1);
+        $sent = [];
+        Event::listen(NotificationSent::class, function (NotificationSent $event) use (&$sent): void {
+            $sent[] = $event;
+        });
+        $job = Queue::connection('database')->pop();
+        $this->assertNotNull($job);
+        $job->fire();
+        $job->delete();
+
+        $this->assertCount(1, $sent);
+        $this->assertSame('mail', $sent[0]->channel);
+        $this->assertDatabaseCount('jobs', 0);
+    }
+
     public function test_verified_otp_for_one_email_cannot_register_another(): void
     {
         $this->verifyRegistrationEmail('one@example.com');
@@ -234,6 +291,41 @@ class RegistrationOtpTest extends TestCase
                 'otp' => $code,
             ])
             ->assertSessionHasErrors('otp');
+    }
+
+    public function test_new_code_clears_verification_lockout_and_uses_a_short_helpful_wait_message(): void
+    {
+        Notification::fake();
+        config([
+            'otp.max_verifies_per_email' => 1,
+            'otp.verify_decay_seconds' => 300,
+            'otp.resend_cooldown_seconds' => 0,
+        ]);
+
+        $this->post(route('register.otp.send'), ['email' => 'retry@example.com']);
+        $firstCode = $this->lastRegistrationOtp();
+
+        $this->post(route('register.otp.verify'), [
+            'email' => 'retry@example.com',
+            'otp' => $firstCode === '000000' ? '111111' : '000000',
+        ])->assertSessionHasErrors('otp');
+
+        $this->from(route('register'))
+            ->post(route('register.otp.verify'), [
+                'email' => 'retry@example.com',
+                'otp' => $firstCode,
+            ])
+            ->assertSessionHasErrors([
+                'otp' => 'Too many verification attempts. Request a new code or try again in about 5 minutes.',
+            ]);
+
+        $this->post(route('register.otp.send'), ['email' => 'retry@example.com']);
+        $replacementCode = $this->lastRegistrationOtp();
+
+        $this->post(route('register.otp.verify'), [
+            'email' => 'retry@example.com',
+            'otp' => $replacementCode,
+        ])->assertSessionHas('status', 'Email verified.');
     }
 
     public function test_ip_send_throttling_is_enforced(): void
@@ -311,7 +403,7 @@ class RegistrationOtpTest extends TestCase
         $user = User::query()->where('email', 'jane@example.com')->first();
 
         $this->assertNotNull($user);
-        $this->assertSame('0917 123 4567', $user->phone);
+        $this->assertSame('09171234567', $user->phone);
         $this->assertNotNull($user->email_verified_at);
         $this->assertTrue($user->hasRole(Role::Customer->value));
         $this->assertFalse($user->hasRole(Role::Administrator->value));
@@ -333,7 +425,7 @@ class RegistrationOtpTest extends TestCase
         Notification::assertNothingSent();
     }
 
-    public function test_failed_mail_delivery_consumes_send_limit_and_creates_nothing(): void
+    public function test_failed_queue_dispatch_consumes_send_limit_and_creates_nothing(): void
     {
         config([
             'otp.max_sends_per_email' => 1,
@@ -341,7 +433,7 @@ class RegistrationOtpTest extends TestCase
         ]);
 
         $this->mock(Dispatcher::class, function ($mock): void {
-            $mock->shouldReceive('send')->once()->andThrow(new RuntimeException('SMTP down'));
+            $mock->shouldReceive('send')->once()->andThrow(new RuntimeException('Queue down'));
         });
 
         $this->from(route('register'))
@@ -364,5 +456,20 @@ class RegistrationOtpTest extends TestCase
             ->assertSee('name="_token"', false)
             ->assertSee('Create your account')
             ->assertSee('Already have an account?');
+    }
+
+    public function test_otp_form_accepts_paste_and_mobile_autofill_as_one_complete_code(): void
+    {
+        Notification::fake();
+
+        $this->post(route('register.otp.send'), ['email' => 'paste@example.com']);
+
+        $this->get(route('register'))
+            ->assertOk()
+            ->assertSee("@paste.prevent=\"fillCode(\$event.clipboardData?.getData('text') || '')\"", false)
+            ->assertSee('@input="enterDigit($event, 0)"', false)
+            ->assertSee('autocomplete="one-time-code"', false)
+            ->assertSee('autocomplete="off"', false)
+            ->assertSee('aria-label="Verification code digit 1 of 6"', false);
     }
 }

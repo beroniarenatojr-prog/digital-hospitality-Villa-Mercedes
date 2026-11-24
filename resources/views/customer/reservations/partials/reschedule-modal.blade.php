@@ -4,14 +4,16 @@
     checkOut: '{{ $reservation->check_out->format('Y-m-d\TH:i') }}',
     guestCount: {{ $reservation->guest_count }},
     earlyCheckInHours: {{ $reservation->early_check_in_hours }},
-    lateCheckOutHours: {{ $reservation->late_check_out_hours }},
+    lateCheckOutHours: 0,
+    previewAttempt: 0,
+    previewTimer: null,
     previewLoading: false,
     previewError: null,
     previewData: null,
 
     open() {
         this.show = true;
-        this.$nextTick(() => this.$refs.checkIn.focus());
+        this.$nextTick(() => this.$refs.dialog.querySelector('input[type=date]')?.focus());
     },
     close() {
         this.show = false;
@@ -31,7 +33,9 @@
         }
     },
 
+
     async calculatePreview() {
+        const attempt = ++this.previewAttempt;
         this.previewLoading = true;
         this.previewError = null;
         this.previewData = null;
@@ -55,19 +59,20 @@
             });
 
             const data = await response.json();
+            if (attempt !== this.previewAttempt) return;
 
             if (data.success) {
                 this.previewData = data.data;
             } else {
-                this.previewError = data.message || 'Error calculating preview.';
+                this.previewError = Object.values(data.errors || {}).flat()[0] || data.message || 'Error calculating preview.';
             }
         } catch (e) {
             this.previewError = 'An error occurred while calculating the preview.';
         } finally {
-            this.previewLoading = false;
+            if (attempt === this.previewAttempt) this.previewLoading = false;
         }
     }
-}" x-init="calculatePreview(); $watch('show', value => document.body.classList.toggle('overflow-y-hidden', value))" @keydown.escape.window="if (show) close()">
+}" x-init="$watch('show', value => document.body.classList.toggle('overflow-y-hidden', value))" @keydown.escape.window="if (show) close()">
     <x-secondary-button x-ref="trigger" @click="open()" type="button" class="w-full">
         Reschedule
     </x-secondary-button>
@@ -91,35 +96,24 @@
                         </h3>
                         <p class="mt-2 text-sm text-text-muted">
                             Update your dates or guest count. Changes are subject to availability and may change the total.
-                            Online reschedule stays open until {{ (int) config('resort.policy.reschedule_cutoff_hours', 48) }} hours before check-in.
+                            New-policy bookings may request rescheduling without a notice deadline until physical check-in; staff confirm availability and the accepted quote. Historical bookings retain their accepted terms.
                         </p>
 
-                        <div class="mt-6 grid grid-cols-1 gap-y-5 gap-x-4 sm:grid-cols-2">
-                            <div>
-                                <x-input-label for="check_in" value="New check-in" />
-                                <x-text-input type="datetime-local" x-model="checkIn" @change="calculatePreview" name="check_in" id="check_in" x-ref="checkIn" required class="mt-1 block w-full" />
-                            </div>
-
-                            <div>
-                                <x-input-label for="check_out" value="New check-out" />
-                                <x-text-input type="datetime-local" x-model="checkOut" @change="calculatePreview" name="check_out" id="check_out" required class="mt-1 block w-full" />
-                            </div>
-
-                            <div class="sm:col-span-2">
-                                <x-input-label for="guestCount" value="New guest count" />
-                                <x-text-input type="number" x-model="guestCount" @input.debounce.500ms="calculatePreview" name="guestCount" id="guestCount" min="1" required class="mt-1 block w-full" />
-                            </div>
-
-                            <div>
-                                <x-input-label for="early_check_in_hours" value="Early check-in (hours)" />
-                                <x-text-input type="number" x-model.number="earlyCheckInHours" @input.debounce.500ms="calculatePreview" name="early_check_in_hours" id="early_check_in_hours" min="0" max="12" class="mt-1 block w-full" />
-                            </div>
-                            <div>
-                                <x-input-label for="late_check_out_hours" value="Late check-out (hours)" />
-                                <x-text-input type="number" x-model.number="lateCheckOutHours" @input.debounce.500ms="calculatePreview" name="late_check_out_hours" id="late_check_out_hours" min="0" max="12" class="mt-1 block w-full" />
-                            </div>
+                        <div class="mt-6" @schedule-changed="checkIn = $event.detail.check_in; checkOut = $event.detail.check_out; earlyCheckInHours = $event.detail.early_check_in_hours; calculatePreview()">
+                            <x-reservation-schedule :facility="$reservation->facility" :initial="['check_in' => $reservation->check_in->format('Y-m-d H:i'), 'check_out' => $reservation->check_out->format('Y-m-d H:i'), 'early_check_in_hours' => $reservation->early_check_in_hours, 'late_check_out_hours' => $reservation->late_check_out_hours]" prefix="reschedule" error-expression="previewError" />
+                        </div>
+                        <input type="hidden" name="check_in" x-model="checkIn">
+                        <input type="hidden" name="check_out" x-model="checkOut">
+                        <input type="hidden" name="early_check_in_hours" x-model="earlyCheckInHours">
+                        <div class="mt-5">
+                            <x-input-label for="guestCount" value="New guest count" />
+                            <x-text-input type="number" x-model.number="guestCount" @input="previewData = null; previewAttempt++; clearTimeout(previewTimer); previewTimer = setTimeout(() => calculatePreview(), 500)" name="guestCount" id="guestCount" min="1" required class="mt-1 block w-full" />
                         </div>
 
+                        <div class="mt-5">
+                            <x-input-label for="reschedule-notes" value="Notes and additional requests" />
+                            <textarea id="reschedule-notes" name="special_requests" maxlength="1000" rows="3" class="mt-2 block w-full rounded-lg border-border bg-surface text-text focus:border-primary focus:ring-primary" placeholder="Late check out requests require staff approval and may incur an additional fee.">{{ old('special_requests', $reservation->special_requests) }}</textarea>
+                        </div>
                         <div class="mt-8 border-t border-border pt-6">
                             <h4 class="font-semibold text-text mb-4">Preview changes</h4>
 
@@ -141,7 +135,7 @@
                                         </div>
                                         <div class="flex justify-between pt-2 mt-2 border-t border-border">
                                             <dt class="font-medium text-text">Total</dt>
-                                            <dd class="font-bold text-text">₱{{ number_format($reservation->total_price, 2) }}</dd>
+                                            <dd class="font-bold text-text"><x-amount :value="$reservation->total_price" /></dd>
                                         </div>
                                     </dl>
                                 </div>
@@ -157,6 +151,7 @@
                                     </div>
 
                                     <dl class="space-y-1 text-sm">
+                                        <div x-show="previewData && previewData.hall_extension_charge > 0" class="flex justify-between"><dt>Hall extension</dt><dd x-text="pesosFromCents(previewData?.hall_extension_charge || 0)"></dd></div>
                                         <div class="flex justify-between">
                                             <dt class="text-text-muted">Check-in</dt>
                                             <dd class="text-text" x-text="checkIn ? new Date(checkIn).toLocaleString() : '...'"></dd>
@@ -174,7 +169,7 @@
                                             <div class="flex justify-between pt-2 mt-2 border-t border-primary/20">
                                                 <dt class="font-medium text-text">Total</dt>
                                                 <dd class="font-bold text-primary">
-                                                    ₱<span x-text="(Number(previewData.total_amount) / 100).toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                                                    <span x-text="pesosFromCents(previewData.total_amount)"></span>
                                                 </dd>
                                             </div>
                                         </template>
@@ -190,6 +185,7 @@
 
                     <div class="mt-8 flex flex-col-reverse sm:flex-row gap-3">
                         <x-secondary-button @click="close()" type="button" class="w-full sm:w-auto">
+                            {{-- vocabulary-guard: closes the reschedule dialog; it cancels nothing --}}
                             Cancel
                         </x-secondary-button>
                         <x-primary-button

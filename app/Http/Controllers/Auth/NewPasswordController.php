@@ -16,8 +16,16 @@ use Illuminate\View\View;
 
 class NewPasswordController extends Controller
 {
-    public function create(Request $request, string $token): View
+    public function create(Request $request, string $token): View|RedirectResponse
     {
+        $email = $request->query('email');
+        if (is_string($email) && $email !== '') {
+            $user = Password::getUser(['email' => $email]);
+            if (! $user || ! Password::tokenExists($user, $token)) {
+                return $this->requestNewLink();
+            }
+        }
+
         return view('auth.reset-password', [
             'token' => $token,
             'email' => $request->query('email', ''),
@@ -43,8 +51,7 @@ class NewPasswordController extends Controller
         );
 
         if ($status !== Password::PASSWORD_RESET) {
-            return back()->withInput($request->only('email'))
-                ->withErrors(['email' => __($status)]);
+            return $this->requestNewLink();
         }
 
         if ($resetUser instanceof User && $resetUser->needsContactDetails()) {
@@ -56,5 +63,11 @@ class NewPasswordController extends Controller
         }
 
         return redirect()->route('login')->with('status', __($status));
+    }
+
+    private function requestNewLink(): RedirectResponse
+    {
+        return redirect()->route('password.request')
+            ->withErrors(['email' => 'This reset link is invalid or has expired. Enter your email to request a new link.']);
     }
 }

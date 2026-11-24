@@ -19,7 +19,7 @@ enum GuestPaymentState: string
             self::ReceiptPending => 'Receipt awaiting verification',
             self::FullyPaid => 'Fully paid',
             self::Closed => 'Payment closed',
-            self::OnSiteBalance => 'Balance payable at arrival',
+            self::OnSiteBalance => 'Balance payable at check in',
         };
     }
 

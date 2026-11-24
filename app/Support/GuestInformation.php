@@ -6,6 +6,7 @@ use App\Enums\GuestGender;
 use App\Enums\GuestIdType;
 use App\Models\Facility;
 use App\Rules\PhilippineMobileNumber;
+use App\Rules\PersonName;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -58,16 +59,17 @@ final class GuestInformation
         $sensitive = $fullSheet ? 'required' : 'nullable';
 
         return [
-            'guest_name' => ['required', 'string', 'max:255'],
+            'guest_name' => ['required', 'string', 'max:255', new PersonName],
             'guest_place_of_origin' => [$sensitive, 'string', 'max:255'],
-            'guest_nationality' => [$sensitive, 'string', 'max:100'],
+            'guest_nationality' => [$sensitive, 'string', 'max:100', new PersonName],
             'guest_company' => ['nullable', 'string', 'max:255'],
             'guest_valid_id' => [$sensitive, Rule::enum(GuestIdType::class)],
             'guest_gender' => [$sensitive, Rule::enum(GuestGender::class)],
-            'guest_phone' => ['required', 'string', 'max:32', new PhilippineMobileNumber],
+            'guest_phone' => ['required', 'string', 'size:11', new PhilippineMobileNumber],
             'guest_email' => [$emailRequired ? 'required' : 'nullable', 'email', 'max:255'],
             'other_guest_names' => $otherGuestRules,
-            'other_guest_names.*' => ['nullable', 'string', 'max:255'],
+            'other_guest_names.*.name' => ['required', 'string', 'max:255', new PersonName],
+            'other_guest_names.*.valid_id' => ['nullable', Rule::enum(GuestIdType::class)],
         ];
     }
 
@@ -86,7 +88,8 @@ final class GuestInformation
             'guest_phone' => 'contact #',
             'guest_email' => 'email address',
             'other_guest_names' => 'other guest names',
-            'other_guest_names.*' => 'other guest name',
+            'other_guest_names.*.name' => 'other guest name',
+            'other_guest_names.*.valid_id' => 'other guest valid ID type',
         ];
     }
 
@@ -104,9 +107,9 @@ final class GuestInformation
             'guest_nationality' => isset($data['guest_nationality']) ? trim((string) $data['guest_nationality']) : null,
             'guest_company' => filled($data['guest_company'] ?? null) ? trim((string) $data['guest_company']) : null,
             'guest_valid_id' => filled($data['guest_valid_id'] ?? null) ? trim((string) $data['guest_valid_id']) : null,
-            'guest_phone' => isset($data['guest_phone']) ? trim((string) $data['guest_phone']) : null,
+            'guest_phone' => isset($data['guest_phone']) ? PhilippineMobileNumber::normalize(trim((string) $data['guest_phone'])) : null,
             'guest_email' => $email !== '' ? $email : null,
-            'other_guest_names' => self::normalizeOtherGuestNames($data['other_guest_names'] ?? []),
+            'other_guest_names' => self::normalizeOtherGuests($data['other_guest_names'] ?? []),
         ];
     }
 
@@ -121,7 +124,7 @@ final class GuestInformation
      *   guest_gender: ?string,
      *   guest_phone: ?string,
      *   guest_email: ?string,
-     *   other_guest_names: list<string>
+     *   other_guest_names: list<array{name: string, valid_id: ?string}>
      * }
      */
     public static function fromValidated(array $validated): array
@@ -145,16 +148,16 @@ final class GuestInformation
             'guest_gender' => is_string($gender) && $gender !== '' ? $gender : null,
             'guest_phone' => $validated['guest_phone'] ?? null,
             'guest_email' => $validated['guest_email'] ?? null,
-            'other_guest_names' => self::normalizeOtherGuestNames($validated['other_guest_names'] ?? []),
+            'other_guest_names' => self::normalizeOtherGuests($validated['other_guest_names'] ?? []),
         ];
     }
 
     /**
-     * @param  list<string>|array<int, mixed>  $otherNames
+     * @param  list<array{name: string, valid_id: ?string}>|list<string>|array<int, mixed>  $otherNames
      */
     public static function syncGuestCount(int $guestCount, array $otherNames, ?int $maxCapacity): int
     {
-        $namedCompanions = count(self::normalizeOtherGuestNames($otherNames));
+        $namedCompanions = count(self::normalizeOtherGuests($otherNames));
 
         $count = max($guestCount, 1 + $namedCompanions, 1);
 
@@ -167,7 +170,7 @@ final class GuestInformation
             return;
         }
 
-        $named = count(self::normalizeOtherGuestNames($validator->getData()['other_guest_names'] ?? []));
+        $named = count(self::normalizeOtherGuests($validator->getData()['other_guest_names'] ?? []));
         $allowed = self::companionLimit($maxCapacity);
 
         if ($named > $allowed) {
@@ -181,14 +184,62 @@ final class GuestInformation
     }
 
     /**
+     * Companion records for filing: name plus optional valid ID type.
+     *
+     * Accepts legacy plain-string lists and the newer `{name, valid_id}` shape.
+     *
+     * @return list<array{name: string, valid_id: ?string}>
+     */
+    public static function normalizeOtherGuests(mixed $entries, bool $keepEmpty = false): array
+    {
+        $guests = collect(is_array($entries) ? $entries : [])
+            ->map(function ($entry): array {
+                if (is_string($entry)) {
+                    return [
+                        'name' => trim($entry),
+                        'valid_id' => null,
+                    ];
+                }
+
+                if (! is_array($entry)) {
+                    return ['name' => '', 'valid_id' => null];
+                }
+
+                $validId = $entry['valid_id'] ?? $entry['valid_id_type'] ?? null;
+                if ($validId instanceof GuestIdType) {
+                    $validId = $validId->value;
+                }
+
+                return [
+                    'name' => isset($entry['name']) ? trim((string) $entry['name']) : '',
+                    'valid_id' => filled($validId) ? trim((string) $validId) : null,
+                ];
+            });
+
+        if (! $keepEmpty) {
+            $guests = $guests->filter(fn (array $guest): bool => $guest['name'] !== '');
+        }
+
+        return $guests
+            ->map(function (array $guest): array {
+                $idType = $guest['valid_id'] !== null
+                    ? GuestIdType::tryFrom($guest['valid_id'])
+                    : null;
+
+                return [
+                    'name' => $guest['name'],
+                    'valid_id' => $idType?->value,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
      * @return list<string>
      */
     public static function normalizeOtherGuestNames(mixed $names): array
     {
-        return collect(is_array($names) ? $names : [])
-            ->map(fn ($name) => is_string($name) ? trim($name) : '')
-            ->filter()
-            ->values()
-            ->all();
+        return array_column(self::normalizeOtherGuests($names), 'name');
     }
 }

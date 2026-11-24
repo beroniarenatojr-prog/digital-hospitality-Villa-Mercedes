@@ -24,15 +24,18 @@ class PaymentStatusChangedNotification extends Notification implements ShouldQue
     {
         $statusValue = $this->payment->status->value;
         $reason = $statusValue === \App\Enums\PaymentStatus::Rejected->value ? $this->payment->rejection_reason : null;
+        $code = $this->payment->reservation?->reservation_code
+            ?? $this->payment->reservationGroup?->group_code
+            ?? 'Unknown';
 
         return [
             'payment_id' => $this->payment->id,
             'reservation_id' => $this->payment->reservation_id,
-            'reservation_code' => $this->payment->reservation->reservation_code ?? 'Unknown',
+            'reservation_code' => $code,
             'new_status' => $statusValue,
             'amount' => $this->payment->amount,
             'reason' => $reason,
-            'message' => "Your payment of {$this->payment->amount} for reservation {$this->payment->reservation->reservation_code} was {$statusValue}.",
+            'message' => "Your payment of {$this->payment->amount} for reservation {$code} was {$statusValue}.",
         ];
     }
 }

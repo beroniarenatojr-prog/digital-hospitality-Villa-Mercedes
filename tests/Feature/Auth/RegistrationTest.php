@@ -43,6 +43,8 @@ class RegistrationTest extends TestCase
             ->assertSee('data-password-meter', false)
             ->assertSee('Use at least 8 characters.')
             ->assertSee('Mobile number')
+            ->assertSee('Sex')
+            ->assertDontSee('Gender')
             ->assertSee('Date of birth')
             ->assertSee('Valid ID type')
             ->assertSee('Terms of Use')

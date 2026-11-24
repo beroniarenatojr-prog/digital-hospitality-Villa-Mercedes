@@ -1,143 +1,125 @@
 <x-admin-layout>
-    <x-slot name="header">
-        FAQ Categories
-    </x-slot>
+    <x-slot name="header">FAQ categories</x-slot>
 
-    <!-- Header & Action -->
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4" x-data="{ showCreateModal: false }">
-        <h2 class="text-lg font-semibold text-gray-900">Manage FAQ Categories</h2>
-        
-        <button @click="showCreateModal = true" class="inline-flex items-center px-4 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition shadow-sm">
-            <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Add Category
-        </button>
+    <x-admin.page-header
+        title="FAQ categories"
+    >
+        <x-slot:actions>
+            <x-admin.button variant="secondary" :href="route('admin.faqs.index')">Manage questions</x-admin.button>
+        </x-slot:actions>
+    </x-admin.page-header>
 
-        <!-- Create Modal -->
-        <div x-show="showCreateModal" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
-            <div class="flex min-h-full items-center justify-center p-4">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="showCreateModal = false"></div>
-                <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-50">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-medium text-gray-900">New FAQ Category</h3>
-                        <button @click="showCreateModal = false" class="text-gray-400 hover:text-gray-500">
-                            <span class="sr-only">Close</span>
-                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-                    <form method="POST" action="{{ route('admin.faq-categories.store') }}">
-                        @csrf
-                        <div class="space-y-4">
-                            <div>
-                                <label for="name" class="block text-sm font-medium text-gray-700">Name <span class="text-danger">*</span></label>
-                                <input type="text" name="name" id="name" required
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            </div>
-                            <div>
-                                <label for="slug" class="block text-sm font-medium text-gray-700">Slug <span class="text-danger">*</span></label>
-                                <input type="text" name="slug" id="slug" required placeholder="e.g. general-questions"
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                            </div>
-                            <div>
-                                <label for="sort_order" class="block text-sm font-medium text-gray-700">Sort Order</label>
-                                <input type="number" name="sort_order" id="sort_order" value="0" min="0"
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                                <p class="mt-1 text-xs text-gray-500">Lower numbers appear first.</p>
-                            </div>
-                        </div>
-                        <div class="mt-6 flex justify-end gap-3">
-                            <button type="button" @click="showCreateModal = false" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
-                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-dark">Create Category</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
+    <section  class="mb-6 overflow-hidden rounded-xl border border-border bg-surface">
+        <div class="px-4 py-3 text-sm font-semibold text-text">
+            Add a new category
         </div>
-    </div>
 
-    <!-- Categories List -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <ul role="list" class="divide-y divide-gray-200">
-            @forelse($categories as $category)
-                <li class="p-4 sm:p-6 hover:bg-gray-50 transition" x-data="{ showEditModal: false }">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div class="flex-1">
-                            <div class="flex items-center gap-3">
-                                <h4 class="text-sm font-semibold text-gray-900">{{ $category->name }}</h4>
-                                @if($category->is_active)
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
-                                @else
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Inactive</span>
-                                @endif
-                            </div>
-                            <p class="mt-1 text-xs text-gray-500 font-mono">{{ $category->slug }}</p>
-                            <p class="mt-1 text-xs text-gray-400">Sort Order: {{ $category->sort_order }}</p>
-                        </div>
-                        
-                        <div class="flex items-center gap-3 shrink-0">
-                            <!-- Toggle Status Form -->
-                            <form method="POST" action="{{ route('admin.faq-categories.status', $category) }}">
-                                @csrf
-                                @method('PATCH')
-                                <button type="submit" class="text-xs font-medium {{ $category->is_active ? 'text-amber-600 hover:text-amber-800' : 'text-success hover:text-green-800' }}">
-                                    {{ $category->is_active ? 'Deactivate' : 'Activate' }}
-                                </button>
-                            </form>
-                            
-                            <span class="text-gray-300">|</span>
-                            
-                            <button @click="showEditModal = true" class="text-xs font-medium text-primary hover:text-primary-dark">
-                                Edit
-                            </button>
-                        </div>
+        <div class="border-t border-border p-5">
+            <p class="mb-4 text-sm text-text-muted">The slug is the address fragment used by the public page; keep it short and lowercase.</p>
+
+            <form method="POST" action="{{ route('admin.faq-categories.store') }}">
+                @csrf
+
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div>
+                        <label for="new_category_name" class="admin-label">Name <span class="text-danger" aria-hidden="true">*</span></label>
+                        <input type="text" name="name" id="new_category_name" value="{{ old('name') }}" required aria-required="true"
+                               @error('name') aria-invalid="true" @enderror class="admin-input mt-1">
+                        <x-input-error class="mt-1" :messages="$errors->get('name')" />
                     </div>
 
-                    <!-- Edit Modal -->
-                    <div x-show="showEditModal" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
-                        <div class="flex min-h-full items-center justify-center p-4">
-                            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="showEditModal = false"></div>
-                            <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-50">
-                                <div class="flex justify-between items-center mb-4">
-                                    <h3 class="text-lg font-medium text-gray-900">Edit FAQ Category</h3>
-                                    <button @click="showEditModal = false" class="text-gray-400 hover:text-gray-500">
-                                        <span class="sr-only">Close</span>
-                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
+                    <div>
+                        <label for="new_category_slug" class="admin-label">Slug <span class="text-danger" aria-hidden="true">*</span></label>
+                        <input type="text" name="slug" id="new_category_slug" value="{{ old('slug') }}" required aria-required="true" placeholder="e.g. general-questions"
+                               @error('slug') aria-invalid="true" @enderror class="admin-input mt-1">
+                        <x-input-error class="mt-1" :messages="$errors->get('slug')" />
+                    </div>
+
+                    <div>
+                        <label for="new_category_sort_order" class="admin-label">Position</label>
+                        <input type="number" name="sort_order" id="new_category_sort_order" value="{{ old('sort_order', 0) }}" min="0" class="admin-input mt-1">
+                        <p class="admin-help">Lower numbers appear first.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 flex flex-wrap items-center justify-end gap-2">
+                    <x-admin.button type="submit">Create category</x-admin.button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    @if ($categories->isEmpty())
+        <div class="rounded-xl border border-border bg-surface">
+            <x-admin.empty
+                icon="faqs"
+                title="No FAQ categories yet"
+                description="Categories are the headings guests read on the help page. Create one to start grouping questions."
+            />
+        </div>
+    @else
+        <div class="space-y-4">
+            @foreach ($categories as $category)
+                <x-admin.panel :padding="false">
+                    <div x-data="{ editing: false }">
+                        <div class="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h2 class="text-sm font-semibold text-text">{{ $category->name }}</h2>
+                                    @if ($category->is_active)
+                                        <span class="rounded-sm border border-current px-2 py-0.5 text-xs font-semibold text-success">Published</span>
+                                    @else
+                                        <span class="rounded-sm border border-current px-2 py-0.5 text-xs font-semibold text-text-muted">Hidden</span>
+                                    @endif
                                 </div>
-                                <form method="POST" action="{{ route('admin.faq-categories.update', $category) }}">
+                                <p class="mt-1 font-mono text-xs text-text-muted">{{ $category->slug }}</p>
+                                <p class="mt-1 text-xs text-text-muted">Position {{ $category->sort_order }}</p>
+                            </div>
+
+                            <div class="flex shrink-0 items-center gap-2">
+                                <form method="POST" action="{{ route('admin.faq-categories.status', $category) }}">
                                     @csrf
-                                    @method('PUT')
-                                    <div class="space-y-4">
-                                        <div>
-                                            <label for="name_{{ $category->id }}" class="block text-sm font-medium text-gray-700">Name <span class="text-danger">*</span></label>
-                                            <input type="text" name="name" id="name_{{ $category->id }}" value="{{ $category->name }}" required
-                                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                                        </div>
-                                        <div>
-                                            <label for="slug_{{ $category->id }}" class="block text-sm font-medium text-gray-700">Slug <span class="text-danger">*</span></label>
-                                            <input type="text" name="slug" id="slug_{{ $category->id }}" value="{{ $category->slug }}" required
-                                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                                        </div>
-                                        <div>
-                                            <label for="sort_order_{{ $category->id }}" class="block text-sm font-medium text-gray-700">Sort Order</label>
-                                            <input type="number" name="sort_order" id="sort_order_{{ $category->id }}" value="{{ $category->sort_order }}" min="0"
-                                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary text-sm">
-                                        </div>
-                                    </div>
-                                    <div class="mt-6 flex justify-end gap-3">
-                                        <button type="button" @click="showEditModal = false" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
-                                        <button type="submit" class="px-4 py-2 bg-primary text-white rounded-md text-sm font-semibold hover:bg-primary-dark">Save Changes</button>
-                                    </div>
+                                    @method('PATCH')
+                                    <x-admin.button type="submit" :variant="$category->is_active ? 'secondary' : 'primary'" size="sm">
+                                        {{ $category->is_active ? 'Hide from guests' : 'Publish' }}
+                                    </x-admin.button>
                                 </form>
+
+                                <x-admin.button type="button" variant="ghost" size="sm" @click="editing = ! editing">
+                                    <span x-text="editing ? 'Close' : 'Edit'">Edit</span>
+                                </x-admin.button>
                             </div>
                         </div>
+
+                        <form x-show="editing" x-cloak method="POST" action="{{ route('admin.faq-categories.update', $category) }}" class="border-t border-border p-5">
+                            @csrf
+                            @method('PUT')
+
+                            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                <div>
+                                    <label for="name_{{ $category->id }}" class="admin-label">Name</label>
+                                    <input type="text" name="name" id="name_{{ $category->id }}" value="{{ $category->name }}" class="admin-input mt-1">
+                                </div>
+
+                                <div>
+                                    <label for="slug_{{ $category->id }}" class="admin-label">Slug</label>
+                                    <input type="text" name="slug" id="slug_{{ $category->id }}" value="{{ $category->slug }}" class="admin-input mt-1">
+                                </div>
+
+                                <div>
+                                    <label for="sort_order_{{ $category->id }}" class="admin-label">Position</label>
+                                    <input type="number" name="sort_order" id="sort_order_{{ $category->id }}" value="{{ $category->sort_order }}" min="0" class="admin-input mt-1">
+                                </div>
+                            </div>
+
+                            <div class="mt-4 flex flex-wrap items-center justify-end gap-2">
+                                <x-admin.button type="button" variant="secondary" size="sm" @click="editing = false">Cancel</x-admin.button>
+                                <x-admin.button type="submit" size="sm">Save changes</x-admin.button>
+                            </div>
+                        </form>
                     </div>
-                </li>
-            @empty
-                <li class="p-8 text-center text-gray-500">
-                    <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                    <p class="mt-4 text-sm">No FAQ categories found.</p>
-                </li>
-            @endforelse
-        </ul>
-    </div>
+                </x-admin.panel>
+            @endforeach
+        </div>
+    @endif
 </x-admin-layout>

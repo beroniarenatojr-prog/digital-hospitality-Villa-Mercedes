@@ -10,10 +10,12 @@ use App\Notifications\Reservation\ReservationCreatedMail;
 use App\Notifications\Reservation\ReservationCreatedNotification;
 use App\Notifications\Reservation\ReservationStatusChangedMail;
 use App\Notifications\Reservation\ReservationStatusChangedNotification;
+use App\Services\ReviewInvitationService;
 use App\Support\LayoutBadges;
 use App\Support\OutboundMail;
 use Illuminate\Notifications\Notification as NotificationContract;
 use Illuminate\Support\Facades\Notification;
+use App\Enums\GuestPaymentState;
 use Spatie\Permission\Exceptions\RoleDoesNotExist;
 
 class ReservationObserver
@@ -38,7 +40,7 @@ class ReservationObserver
             LayoutBadges::forgetUnread($reservation->user->id);
         }
 
-        $this->emailGuest($reservation, new ReservationCreatedMail($reservation));
+        $this->emailGuestSafely($reservation, new ReservationCreatedMail($reservation));
 
         // 2. Notify all administrators in-app
         try {
@@ -58,17 +60,19 @@ class ReservationObserver
     public function updated(Reservation $reservation): void
     {
         if ($reservation->wasChanged(['status', 'checked_out_at']) && $reservation->canReview()) {
-            app(\App\Services\ReviewInvitationService::class)->invite($reservation);
+            app(ReviewInvitationService::class)->invite($reservation);
         }
         if ($reservation->wasChanged('status')) {
             LayoutBadges::forgetPendingReservations();
 
-            if ($reservation->user) {
-                $reservation->user->notify(new ReservationStatusChangedNotification($reservation));
-                LayoutBadges::forgetUnread($reservation->user->id);
+            $account = $reservation->user;
+
+            if ($account) {
+                $account->notify(new ReservationStatusChangedNotification($reservation));
+                LayoutBadges::forgetUnread($account->id);
             }
 
-            $this->emailGuest($reservation, new ReservationStatusChangedMail($reservation));
+            $this->emailGuestSafely($reservation, new ReservationStatusChangedMail($reservation));
         }
     }
 
@@ -77,26 +81,64 @@ class ReservationObserver
         LayoutBadges::forgetPendingReservations();
     }
 
+    /**
+     * Email is a secondary side effect. A transport or queue failure must not
+     * turn a successfully committed reservation change into an HTTP 500.
+     */
+    private function emailGuestSafely(Reservation $reservation, NotificationContract $mail): void
+    {
+        OutboundMail::safely(
+            'Reservation email could not be dispatched.',
+            fn () => $this->emailGuest($reservation, $mail),
+            [
+                'reservation_id' => $reservation->id,
+                'notification' => $mail::class,
+            ],
+        );
+    }
+
     private function emailGuest(Reservation $reservation, NotificationContract $mail): void
     {
         if (! OutboundMail::isConfigured()) {
             return;
         }
 
+        $targetEmail = $this->resolveGuestEmail($reservation);
+
+        if (! filled($targetEmail)) {
+            return;
+        }
+
+        Notification::route('mail', $targetEmail)->notify($mail);
+
+        return;
+    }
+
+    /**
+     * The email address that should receive guest-facing reservation mail.
+     */
+    private function resolveGuestEmail(Reservation $reservation): ?string
+    {
         if ($reservation->reservation_source === ReservationSource::WalkIn) {
             $guestEmail = $reservation->guest_email;
 
             if (! filled($guestEmail) || $reservation->user?->email === $guestEmail) {
-                return;
+                return $reservation->user?->email;
             }
 
-            Notification::route('mail', $guestEmail)->notify($mail);
-
-            return;
+            return $guestEmail;
         }
 
         if ($reservation->user instanceof User) {
-            $reservation->user->notify($mail);
+            $bookingEmail = $reservation->guest_email;
+
+            if (filled($bookingEmail) && $bookingEmail !== $reservation->user->email) {
+                return $bookingEmail;
+            }
+
+            return $reservation->user->email;
         }
+
+        return null;
     }
 }

@@ -85,7 +85,10 @@ class ResortPackagesRedesignTest extends TestCase
         ]))
             ->assertOk()
             ->assertSee('Sapphire Hall')
-            ->assertSee('Continue to reserve');
+            // The card's own words, which are the same button a room carries.
+            // "Continue to reserve" was never on any page — it came from the design
+            // mock this assertion was written against.
+            ->assertSee('View details');
     }
 
     public function test_package_ii_blocks_sapphire_hall_with_exact_message(): void

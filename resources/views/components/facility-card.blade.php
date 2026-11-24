@@ -1,20 +1,29 @@
-@props(['facility', 'showImage' => true])
+@props(['facility', 'showImage' => true, 'query' => null, 'available' => false, 'showDescription' => true])
 
 @php
     $baseRates = $facility->rates
         ->filter(fn ($rate) => $rate->type === \App\Enums\RateType::Base && $rate->is_active)
         ->sortBy(fn ($rate) => (float) $rate->amount);
     $baseRate = $baseRates->first() ?? $facility->rates->first();
+    $roomUnit = $facility->isRoom() ? $facility->unitLabel() : null;
     $cardTitle = $facility->isFlyerPackage()
         ? ($facility->stay_category?->label() ?? $facility->name)
-        : $facility->name;
+        : ($roomUnit ? $facility->listingCategory() : $facility->name);
     $photoCount = $facility->gallery_photo_count
         ?? ($facility->relationLoaded('galleryImages') ? $facility->galleryImages->count() : 0);
     $coverUrl = $facility->cover_image_path
         ? \Illuminate\Support\Facades\Storage::disk('public')->url($facility->cover_image_path)
         : ($facility->relationLoaded('galleryImages') ? $facility->galleryImages->first()?->url() : null);
-    // Dates chosen on the availability bar follow the guest into the booking wizard.
-    $stayQuery = array_filter(request()->only(['check_in', 'check_out', 'guests']));
+    // Dates from the availability bar or reservation picker follow into the detail page.
+    $stayQuery = array_filter(
+        is_array($query)
+            ? $query
+            : array_merge(
+                \App\Support\StayQuery::parameters(request()),
+                array_filter(request()->only(['date', 'arrival', 'departure']), fn ($value) => filled($value)),
+            ),
+        fn ($value) => $value !== null && $value !== '',
+    );
     $detailRoute = \App\Support\CustomerNav::isCustomer()
         ? 'customer.facilities.show'
         : 'facilities.show';
@@ -23,10 +32,10 @@
         : '';
 @endphp
 
-<x-card class="group relative flex flex-col h-full overflow-hidden transition duration-500 hover:-translate-y-2 hover:shadow-xl hover:border-primary/40 focus-within:border-primary">
+<x-card class="group relative flex h-full flex-col overflow-hidden transition-colors duration-200 hover:border-primary/50 focus-within:border-primary">
     <div class="relative w-full aspect-[16/10] bg-muted flex items-center justify-center text-text-muted overflow-hidden">
         @if($showImage && $coverUrl)
-            <img src="{{ $coverUrl }}" alt="{{ $facility->name }}" loading="lazy" decoding="async" class="w-full h-full object-cover transition duration-700 ease-out group-hover:scale-110" />
+            <img src="{{ $coverUrl }}" alt="{{ $facility->name }}" loading="lazy" decoding="async" class="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.03]" />
         @else
             <svg class="w-12 h-12 opacity-20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
         @endif
@@ -37,9 +46,9 @@
             </span>
         @endif
 
-        @if($facility->facilityType)
+        @if($roomUnit || $facility->facilityType)
             <span class="absolute top-3 left-3 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-surface/95 text-text shadow-sm">
-                {{ $facility->isFlyerPackage() ? 'Package' : $facility->facilityType->name }}
+                {{ $roomUnit ?? ($facility->isFlyerPackage() ? 'Package' : $facility->facilityType->name) }}
             </span>
         @endif
     </div>
@@ -53,13 +62,15 @@
         </h3>
         @if($facility->isFlyerPackage() && $facility->stayScheduleLabel())
             <p class="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ $facility->stayScheduleLabel() }}</p>
-        @elseif($facility->unitLabel() && $facility->listingCategory() !== $facility->name)
+        @elseif(! $roomUnit && $facility->unitLabel() && $facility->listingCategory() !== $facility->name)
             <p class="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ $facility->listingCategory() }} · {{ $facility->unitLabel() }}</p>
         @endif
 
-        <p class="text-sm text-text-muted mt-2 line-clamp-2">
-            {{ $facility->description }}
-        </p>
+        @if($showDescription && filled($facility->description))
+            <p class="text-sm text-text-muted mt-2 line-clamp-2">
+                {{ $facility->description }}
+            </p>
+        @endif
 
         <div class="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm text-text-muted">
             @if($facility->bedSetupSummary())
@@ -83,7 +94,7 @@
             @php $extraPersonRate = $facility->extraPersonRate(); @endphp
             @if($extraPersonRate)
                 <span class="flex items-center gap-1.5">
-                    Extra person ₱{{ number_format((float) $extraPersonRate->amount, 0) }}
+                    Extra person <x-amount :value="$extraPersonRate->amount" />
                 </span>
             @endif
 
@@ -95,12 +106,21 @@
             @endif
         </div>
 
+        @if($available)
+            <p class="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-success">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Free for your dates
+            </p>
+        @endif
+
         <div class="mt-auto pt-4 border-t border-border flex items-end justify-between gap-3">
             <div>
                 @if($baseRate)
                     <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">From</p>
                     <p class="flex items-baseline gap-1">
-                        <x-price-display :amount="$baseRate->amount" class="font-heading text-3xl font-semibold text-primary" />
+                        <x-amount :value="$baseRate->amount" class="font-heading text-3xl font-semibold text-primary" />
                         <span class="text-sm text-text-muted">{{ $rateUnit }}</span>
                     </p>
                 @else
@@ -110,14 +130,12 @@
 
             @if($facility->isOnlineBookable())
                 <a href="{{ route($detailRoute, ['facility' => $facility, ...$stayQuery]) }}"
-                   class="relative z-10 inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition">
+                   class="relative z-10 inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.1em] text-white hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition">
                     View details
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </a>
             @else
-                <span class="relative inline-flex items-center gap-1 text-sm font-semibold text-primary group-hover:underline">
+                <span class="relative inline-flex items-center text-xs font-semibold uppercase tracking-[0.1em] text-primary group-hover:underline">
                     View details
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </span>
             @endif
         </div>

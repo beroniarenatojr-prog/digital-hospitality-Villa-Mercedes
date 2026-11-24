@@ -50,7 +50,7 @@ class ProfileController extends Controller
     public function destroy(Request $request): RedirectResponse
     {
         $request->validateWithBag('userDeletion', [
-            'password' => ['required', 'current_password'],
+            'password' => ['required', 'string', 'max:255', 'current_password'],
         ]);
 
         $user = $request->user();
@@ -60,7 +60,7 @@ class ProfileController extends Controller
 
             if ($lockedUser->reservations()->exists() || $lockedUser->inquiries()->exists()) {
                 throw ValidationException::withMessages([
-                    'account' => 'This account has reservation or inquiry history and cannot be deleted here. Please contact the resort for help with your account.',
+                    'account' => 'This account has reservation or other retained history and cannot be deleted here. Please contact the resort for help with your account.',
                 ])->errorBag('userDeletion');
             }
 

@@ -17,6 +17,16 @@ enum FacilityStatus: string
         };
     }
 
+    /** @return 'success'|'warning'|'danger'|'info'|'neutral'|'muted' */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Available => 'success',
+            self::Unavailable => 'danger',
+            self::Maintenance => 'muted',
+        };
+    }
+
     /**
      * @return list<string>
      */

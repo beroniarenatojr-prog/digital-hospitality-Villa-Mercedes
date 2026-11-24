@@ -23,7 +23,7 @@
             <li>Technical data needed to run the service (for example session and security logs).</li>
         </ul>
         <p>
-            We collect a valid <em>ID type</em> for arrival verification. Present the physical ID at the front desk; do not upload ID images through this site unless staff later provide a controlled process.
+            We collect a valid <em>ID type</em> for check in verification. Present the physical ID at the front desk; do not upload ID images through this site unless staff later provide a controlled process.
         </p>
     </section>
 
@@ -32,7 +32,7 @@
         <ul class="list-disc pl-5 space-y-2">
             <li>Create and secure your account</li>
             <li>Process reservation requests, deposits, and status updates</li>
-            <li>Contact you about your stay and verify guests at arrival</li>
+            <li>Contact you about your stay and verify guests at check in</li>
             <li>Improve service quality and meet legal or accounting duties</li>
         </ul>
         <p>

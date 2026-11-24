@@ -1,4 +1,4 @@
-<x-guest-layout>
+<x-guest-layout :wide="$step === 'details'">
     <x-reservation-selection />
     <x-slot name="photo">
         <div class="relative flex flex-1 flex-col justify-between gap-8 p-5 sm:p-6 lg:p-10 xl:p-14 text-white">
@@ -32,12 +32,12 @@
         </div>
     </x-slot>
 
-    <div class="mb-8">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+    <div @class(['mb-8' => $step !== 'details', 'mb-2' => $step === 'details'])>
+        <p @class(['font-semibold uppercase tracking-[0.2em] text-accent', 'text-[0.7rem]' => $step === 'details', 'text-xs' => $step !== 'details'])>
             {{ $step === 'details' ? 'Step 2 of 2' : 'Create account' }}
         </p>
-        <span class="mt-2 block h-px w-10 bg-accent/70" aria-hidden="true"></span>
-        <h2 class="mt-4 font-heading text-3xl sm:text-4xl font-semibold text-text">
+        <span @class(['block h-px w-10 bg-accent/70', 'mt-1' => $step === 'details', 'mt-2' => $step !== 'details']) aria-hidden="true"></span>
+        <h2 @class(['font-heading font-semibold text-text', 'mt-1 text-3xl' => $step === 'details', 'mt-4 text-3xl sm:text-4xl' => $step !== 'details'])>
             @if ($step === 'otp')
                 Enter your verification code
             @elseif ($step === 'details')
@@ -46,9 +46,9 @@
                 Create your account
             @endif
         </h2>
-        <p class="mt-3 text-sm text-text-muted">
+        <p @class(['text-text-muted', 'mt-1 text-sm' => $step === 'details', 'mt-3 text-sm' => $step !== 'details'])>
             @if ($step === 'details')
-                Choose a name, contact details, and password for this verified email.
+                Add your details and a password for your verified email.
             @elseif ($step === 'otp')
                 Enter the code we sent to your email.
             @else
@@ -95,7 +95,30 @@
                   digits: {{ $otpDigits }},
                   values: Array({{ $otpDigits }}).fill(''),
                   isSubmitting: false,
-                  get otp() { return this.values.join(''); }
+                  get otp() { return this.values.join(''); },
+                  fillCode(raw) {
+                      const code = String(raw || '').replace(/\D/g, '').slice(0, this.digits);
+                      if (!code) return;
+
+                      this.values = Array.from({ length: this.digits }, (_, index) => code[index] || '');
+                      this.$nextTick(() => {
+                          const inputs = this.$refs.codeInputs.querySelectorAll('input');
+                          inputs[Math.min(code.length, this.digits) - 1]?.focus();
+                      });
+                  },
+                  enterDigit(event, index) {
+                      const entered = String(event.target.value || '').replace(/\D/g, '');
+
+                      if (entered.length > 1) {
+                          this.fillCode(entered);
+                          return;
+                      }
+
+                      this.values[index] = entered.slice(-1);
+                      if (this.values[index] && index < this.digits - 1) {
+                          this.$nextTick(() => event.target.nextElementSibling?.focus());
+                      }
+                  }
               }"
               @submit="isSubmitting = true">
             @csrf
@@ -108,18 +131,21 @@
 
             <div>
                 <x-input-label :value="__('Verification code')" class="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted" />
-                <div class="mt-2 flex justify-between gap-2" data-otp-inputs>
+                <div class="mt-2 flex justify-between gap-2"
+                     data-otp-inputs
+                     x-ref="codeInputs"
+                     @paste.prevent="fillCode($event.clipboardData?.getData('text') || '')">
                     @for ($i = 0; $i < $otpDigits; $i++)
                         <input type="text"
                                inputmode="numeric"
                                maxlength="1"
-                               autocomplete="one-time-code"
+                               pattern="[0-9]"
+                               required
+                               autocomplete="{{ $i === 0 ? 'one-time-code' : 'off' }}"
+                               aria-label="Verification code digit {{ $i + 1 }} of {{ $otpDigits }}"
                                class="h-12 w-11 rounded-xl border-border bg-surface text-center text-lg font-semibold text-text shadow-sm focus:border-primary focus:ring-primary"
                                x-model="values[{{ $i }}]"
-                               @input="
-                                   values[{{ $i }}] = ($event.target.value || '').replace(/\D/g, '').slice(-1);
-                                   if (values[{{ $i }}] && {{ $i }} < digits - 1) $event.target.nextElementSibling?.focus();
-                               "
+                               @input="enterDigit($event, {{ $i }})"
                                @keydown.backspace="if (!values[{{ $i }}] && {{ $i }} > 0) $event.target.previousElementSibling?.focus()">
                     @endfor
                 </div>
@@ -157,11 +183,11 @@
             </form>
         </div>
     @else
-        <div class="mb-6 rounded-xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-text">
+        <div class="mb-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-text">
             Email verified: <span class="font-semibold">{{ $verifiedEmail }}</span>
         </div>
 
-        <form method="POST" action="{{ route('register') }}" class="space-y-5"
+        <form method="POST" action="{{ route('register') }}" class="registration-details space-y-2"
               x-data="{
                   password: '',
                   isSubmitting: false,
@@ -193,13 +219,14 @@
             @csrf
             <input type="hidden" name="email" value="{{ $verifiedEmail }}">
 
+            <div class="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-2">
             <div>
                 <x-input-label for="name" :value="__('Full name')" class="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted" />
                 <div class="relative mt-2">
                     <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-text-muted">
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20 21a8 8 0 10-16 0" /><circle cx="12" cy="7" r="4" /></svg>
                     </span>
-                    <x-text-input id="name" class="block w-full rounded-xl ps-11" type="text" name="name" :value="old('name')" required autofocus autocomplete="name" placeholder="Juan Dela Cruz" />
+                    <x-text-input id="name" class="block w-full rounded-xl ps-11" type="text" name="name" :value="old('name')" required autofocus autocomplete="name" placeholder="Juan Dela Cruz" maxlength="255" oninput="this.value = this.value.replace(/[^\p{L}\p{M} .'’\-]/gu, '')" />
                 </div>
                 <x-input-error :messages="$errors->get('name')" class="mt-2" />
             </div>
@@ -210,13 +237,13 @@
                     <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-text-muted">
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.95.68l1.5 4.5a1 1 0 01-.5 1.21l-2.26 1.13a11.04 11.04 0 005.52 5.52l1.13-2.26a1 1 0 011.21-.5l4.5 1.5a1 1 0 01.68.95V19a2 2 0 01-2 2h-1C9.72 21 3 14.28 3 6V5z" /></svg>
                     </span>
-                    <x-text-input id="phone" class="block w-full rounded-xl ps-11" type="tel" name="phone" :value="old('phone')" required autocomplete="tel" placeholder="0917 123 4567" />
+                    <x-text-input id="phone" class="block w-full rounded-xl ps-11" type="tel" name="phone" :value="old('phone')" required autocomplete="tel" inputmode="numeric" pattern="09[0-9]{9}" minlength="11" maxlength="11" placeholder="09171234567" title="Enter exactly 11 digits beginning with 09." oninput="this.value = this.value.replace(/\D/g, '').slice(0, 11)" />
                 </div>
                 <x-input-error :messages="$errors->get('phone')" class="mt-2" />
             </div>
 
             <div>
-                <x-input-label for="gender" :value="__('Gender')" class="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted" />
+                <x-input-label for="gender" :value="__('Sex')" class="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted" />
                 <select id="gender" name="gender" required class="mt-2 block w-full rounded-xl border-border bg-surface text-text shadow-sm focus:border-primary focus:ring-primary">
                     <option value="">Select</option>
                     @foreach(\App\Enums\GuestGender::cases() as $gender)
@@ -240,7 +267,7 @@
 
             <div>
                 <x-input-label for="nationality" :value="__('Nationality')" class="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted" />
-                <x-text-input id="nationality" class="mt-2 block w-full rounded-xl" type="text" name="nationality" :value="old('nationality')" required maxlength="100" />
+                <x-text-input id="nationality" class="mt-2 block w-full rounded-xl" type="text" name="nationality" :value="old('nationality')" required maxlength="100" placeholder="Filipino" oninput="this.value = this.value.replace(/[^\p{L}\p{M} .'’\-]/gu, '')" />
                 <x-input-error :messages="$errors->get('nationality')" class="mt-2" />
             </div>
 
@@ -275,7 +302,7 @@
                                     placeholder="At least 8 characters"
                                     x-model="password" />
                     <button type="button"
-                            class="absolute inset-y-0 right-0 px-3 text-text-muted hover:text-primary"
+                            class="absolute inset-y-0 right-0 bg-transparent px-3 text-text-muted hover:text-primary"
                             @click="show = ! show"
                             :aria-pressed="show.toString()"
                             :aria-label="show ? 'Hide password' : 'Show password'">
@@ -310,8 +337,9 @@
                 </div>
                 <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
             </div>
+            </div>
 
-            <div class="rounded-xl border border-border bg-background/60 px-4 py-3">
+            <div class="rounded-xl border border-border bg-background/60 px-3 py-2">
                 <div class="flex items-start gap-3 text-sm text-text">
                     <input id="terms_accepted" type="checkbox" name="terms_accepted" value="1" @checked(old('terms_accepted')) required
                            class="mt-1 rounded border-border text-primary focus:ring-primary">
@@ -378,7 +406,7 @@
             </div>
         </form>
 
-        <form method="POST" action="{{ route('register.otp.reset') }}" class="mt-6">
+        <form method="POST" action="{{ route('register.otp.reset') }}" class="mt-1">
             @csrf
             <input type="hidden" name="email" value="{{ $verifiedEmail }}">
             <button type="submit" class="text-sm text-text-muted hover:text-primary">Change email</button>

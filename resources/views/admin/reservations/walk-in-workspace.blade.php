@@ -342,12 +342,12 @@
                                         <template x-if="isRoom(line.facility_id)">
                                             <div class="contents">
                                                 <div>
-                                                    <label class="admin-label">Arrival date (2:00 PM)</label>
-                                                    <input type="date" :value="datePart(line.check_in)" @change="line.check_in = $event.target.value + ' 14:00'; onInputChanged()" :min="today" class="admin-input mt-1">
+                                                    <label class="admin-label">Check in date (2:00 PM)</label>
+                                                    <input type="date" :value="datePart(line.check_in)" @input="line.check_in = $event.target.value + ' 14:00'; onInputChanged()" :min="today" class="admin-input mt-1">
                                                 </div>
                                                 <div>
-                                                    <label class="admin-label">Departure date (12:00 PM)</label>
-                                                    <input type="date" :value="datePart(line.check_out)" @change="line.check_out = $event.target.value + ' 12:00'; onInputChanged()" :min="datePart(line.check_in) || today" class="admin-input mt-1">
+                                                    <label class="admin-label">Check out date (12:00 PM)</label>
+                                                    <input type="date" :value="datePart(line.check_out)" @input="line.check_out = $event.target.value + (datePart(line.check_in) === $event.target.value ? ' 17:00' : ' 12:00'); if (datePart(line.check_in) === $event.target.value) { line.check_in = $event.target.value + ' 09:00'; line.early_check_in_hours = 0; } onInputChanged()" :min="datePart(line.check_in) || today" class="admin-input mt-1">
                                                 </div>
                                             </div>
                                         </template>
@@ -384,7 +384,7 @@
                                         <template x-if="isPackage(line.facility_id)">
                                             <div class="contents">
                                                 <div>
-                                                    <label class="admin-label">Package arrival date</label>
+                                                    <label class="admin-label">Package check in date</label>
                                                     <input type="date" :value="datePart(line.check_in)" @change="setPackageDate(line, $event.target.value); onInputChanged()" :min="today" class="admin-input mt-1">
                                                 </div>
                                                 <div class="flex items-center text-xs text-text-muted pt-4">
@@ -408,17 +408,24 @@
                                         </template>
 
                                         <div>
+                                            <label class="admin-label">Infants under one (room/package; free and excluded from guest count)<input type="number" min="0" x-model.number="line.infants_count" @change="onInputChanged()" class="admin-input"></label>
+                                            <label class="admin-label">Older children (included in guest count)<input type="number" min="0" :max="line.guest_count" x-model.number="line.children_count" @change="onInputChanged()" class="admin-input"></label>
                                             <label class="admin-label">Party / Guest count</label>
                                             <input type="number" x-model.number="line.guest_count" @change="onInputChanged()" min="1" :max="maxCapacity(line.facility_id)" class="admin-input mt-1">
                                         </div>
 
                                         <template x-if="isRoom(line.facility_id)">
-                                            <div>
-                                                <label class="admin-label">Early arrival (hours)</label>
+                                            <div>                                                    <div x-show="datePart(line.check_in) === datePart(line.check_out)">
+                                                        <label class="admin-label">Same-day check in<input type="time" :value="line.check_in.slice(11,16)" @input="line.check_in = datePart(line.check_in) + ' ' + $event.target.value; line.early_check_in_hours = 0; onInputChanged()" class="admin-input"></label>
+                                                        <label class="admin-label">Same-day check out<input type="time" :value="line.check_out.slice(11,16)" @input="line.check_out = datePart(line.check_in) + ' ' + $event.target.value; onInputChanged()" class="admin-input"></label>
+                                                        <p class="text-xs">One full room base rate, no automatic early or late fee.</p>
+                                                    </div>
+                                                    <label class="admin-label">Staff-arranged early check in (hours)</label>
                                                 <select x-model.number="line.early_check_in_hours" @change="onInputChanged()" class="admin-input mt-1">
                                                     <option value="0">Standard (None)</option>
                                                     <option value="1">1 hour</option>
                                                     <option value="2">2 hours</option>
+                                                    <template x-for="hours in [3,4,5,6,7,8,9,10,11,12]" :key="hours"><option :value="hours" x-text="hours + ' hours (staff arrangement)'"></option></template>
                                                 </select>
                                             </div>
                                         </template>
@@ -504,6 +511,7 @@
 
                     {{-- Staff Notes --}}
                     <div>
+                        <label class="block text-sm"><input type="checkbox" x-model="petsIncluded"> Pets included: <x-amount :value="500" /> once per booking; diapers and cage or leash required; no pool entry.</label>
                         <label class="admin-label">Internal front desk notes</label>
                         <textarea x-model="adminNotes" rows="2" class="admin-input mt-1 text-xs" placeholder="Onsite remarks, early check-in justifications, payment details…"></textarea>
                     </div>
@@ -573,7 +581,7 @@
                     </div>
                     <div class="flex justify-between text-xs text-text-muted">
                         <span>Required 50% Deposit</span>
-                        <span class="font-semibold text-text" x-text="formatPesos(totalEstimate / 2)"></span>
+                        <span class="font-semibold text-text" x-text="formatPesos(Math.ceil(Math.round(totalEstimate * 100) / 2) / 100)"></span>
                     </div>
                 </div>
 
@@ -609,6 +617,7 @@
                 submitting: false,
                 errorMessage: '',
                 adminNotes: '',
+                petsIncluded: false,
                 overrideReason: '',
                 creationAction: 'approve',
                 guest: {
@@ -667,6 +676,8 @@
                         session: this.config.sessions[0]?.slug || '',
                         hall_slot: '09:00|13:00',
                         guest_count: 1,
+                        infants_count: 0,
+                        children_count: 0,
                         early_check_in_hours: 0,
                         late_check_out_hours: 0,
                     });
@@ -741,7 +752,7 @@
                 },
 
                 get totalEstimate() {
-                    return this.evaluation ? this.evaluation.total_estimate : 0;
+                    return this.evaluation ? this.evaluation.total_estimate + (this.petsIncluded ? 500 : 0) : 0;
                 },
 
                 get overallStayLabel() {
@@ -760,7 +771,7 @@
                 lineStatusText(index) {
                     const l = this.evaluation?.lines?.[index];
                     if (!l) return 'Checking…';
-                    return l.is_available ? 'Available' : (l.reason || 'Unavailable');
+                    return l.is_available ? 'Available' : ((l.status || 'Unavailable') + ': ' + (l.reason || 'Choose a different period.'));
                 },
 
                 lineCardBorderClass(index) {
@@ -822,6 +833,7 @@
                             body: JSON.stringify({
                                 lines: this.lines,
                                 admin_notes: this.adminNotes,
+                                pets_included: this.petsIncluded,
                                 override_reason: this.overrideReason,
                                 creation_action: this.creationAction,
                                 ...this.guest,

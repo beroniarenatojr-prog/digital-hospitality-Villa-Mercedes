@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Notifications\Auth\GuestPasswordResetNotification;
+use App\Notifications\Auth\QueuedEmailVerificationNotification;
 use App\Enums\GuestGender;
 use App\Enums\GuestIdType;
 use App\Traits\LogsModelActivity;
@@ -115,6 +116,11 @@ class User extends Authenticatable
     public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
     {
         $this->notify(new GuestPasswordResetNotification($token));
+    }
+
+    public function sendEmailVerificationNotification(): void
+    {
+        $this->notify(new QueuedEmailVerificationNotification);
     }
 
     public function getActivitylogOptions(): LogOptions

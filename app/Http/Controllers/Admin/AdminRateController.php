@@ -4,8 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\RateType;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\StoreRateRequest;
-use App\Http\Requests\Admin\UpdateRateRequest;
+use App\Http\Requests\Admin\SaveRateRequest;
 use App\Models\Facility;
 use App\Models\FacilityType;
 use App\Models\Rate;
@@ -96,7 +95,7 @@ class AdminRateController extends Controller
         return view('admin.rates.edit', compact('rate', 'facilities'));
     }
 
-    public function store(StoreRateRequest $request, Facility $facility): RedirectResponse
+    public function store(SaveRateRequest $request, Facility $facility): RedirectResponse
     {
         $data = $request->validated();
         $data['facility_id'] = $facility->id;
@@ -112,7 +111,7 @@ class AdminRateController extends Controller
             ->with('success', 'Rate created successfully.');
     }
 
-    public function update(UpdateRateRequest $request, Rate $rate): RedirectResponse
+    public function update(SaveRateRequest $request, Rate $rate): RedirectResponse
     {
         $data = $request->validated();
         $data['type'] = RateType::from($data['type']);

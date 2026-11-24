@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\FacilityType;
 use App\Services\Admin\DecisionSupportService;
 use Carbon\Carbon;
+use App\Support\ResortTime;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -25,7 +26,7 @@ class AdminDecisionBoardController extends Controller
 
         $from = isset($validated['from'])
             ? Carbon::parse($validated['from'])->startOfDay()
-            : now()->startOfDay();
+            : ResortTime::databaseNow()->startOfDay();
 
         $to = isset($validated['to'])
             ? Carbon::parse($validated['to'])->endOfDay()
@@ -44,8 +45,6 @@ class AdminDecisionBoardController extends Controller
             'to' => $to,
             'facilityTypeSlug' => $facilityTypeSlug,
             'facilityTypes' => FacilityType::where('is_active', true)->orderBy('name')->get(),
-            'summary' => $this->service->summary($from, $to),
-            'queue' => $this->service->pendingQueue(),
             'rows' => $this->service->timeline($from, $to, $facilityTypeSlug),
             'days' => $this->dayColumns($from, $to),
         ]);

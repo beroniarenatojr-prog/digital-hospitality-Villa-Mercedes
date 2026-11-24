@@ -8,18 +8,18 @@
     $panelId = $answerId ?? 'faq-answer-'.$id;
 @endphp
 
-<div {{ $attributes->merge(['class' => 'rounded-2xl bg-surface shadow-sm overflow-hidden']) }}>
+<div {{ $attributes->merge(['class' => 'overflow-hidden border-t border-border bg-transparent']) }}>
     <h3 class="m-0">
         <button
             type="button"
-            class="w-full px-5 py-4 text-left flex justify-between items-start gap-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+            class="flex w-full items-start justify-between gap-4 px-0 py-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
             @click="active = (active === {{ $id }} ? null : {{ $id }})"
             :aria-expanded="active === {{ $id }}"
             aria-controls="{{ $panelId }}"
         >
             <span class="font-semibold text-text pr-2">{{ $faq->question }}</span>
             <span
-                class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors duration-300 ease-out"
+                class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors duration-300 ease-out"
                 :class="active === {{ $id }} ? 'bg-accent text-white' : 'border border-accent/40 text-accent bg-transparent'"
                 aria-hidden="true"
             >
@@ -44,7 +44,7 @@
         x-collapse.duration.300ms
         class="overflow-hidden"
     >
-        <div class="px-5 pb-5 text-sm text-text-muted whitespace-pre-line leading-relaxed">
+        <div class="pb-5 text-sm leading-relaxed text-text-muted whitespace-pre-line">
             {{ $faq->answer }}
         </div>
     </div>

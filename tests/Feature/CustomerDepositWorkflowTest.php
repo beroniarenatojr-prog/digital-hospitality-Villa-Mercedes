@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Enums\{FacilityStatus, PaymentMethod, PaymentStatus, ReservationSource, ReservationStatus};
+use App\Enums\{FacilityStatus, GuestPaymentState, PaymentMethod, PaymentStatus, ReservationSource, ReservationStatus};
 use App\Exceptions\Payment\{InvalidPaymentAmountException, PaymentNotEligibleException};
 use App\Exceptions\Reservation\{InvalidReservationTransitionException, ReservationConflictException};
 use App\Models\{Facility, FacilityType, Payment, PaymentDestination, Reservation, User};
@@ -13,6 +13,13 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\{Http, Notification, Storage};
 use Tests\TestCase;
 
+/**
+ * The deposit workflow, in the order the resort actually runs it: a guest submits
+ * a request, staff approve it, and only then does the 50% QR deposit open. Every
+ * test here starts from that order — money is never the thing that confirms a
+ * booking, and approval is never something a transfer performs on the guest's
+ * behalf.
+ */
 class CustomerDepositWorkflowTest extends TestCase
 {
     use RefreshDatabase;
@@ -25,7 +32,8 @@ class CustomerDepositWorkflowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['payments.deposit_workflow' => true, 'payments.allow_gateway_checkout' => false]);
+        // These fixtures exercise the historical approval-before-deposit contract; new published practices have their own regression suite.
+        config(['payments.deposit_workflow' => true, 'payments.allow_gateway_checkout' => false, 'resort.policy.version' => '2026-09-v2']);
         Notification::fake();
         Http::preventStrayRequests();
         Storage::fake('uploads');
@@ -42,10 +50,20 @@ class CustomerDepositWorkflowTest extends TestCase
         Storage::disk('uploads')->put('test.png', 'test-only');
     }
 
+    /** A submitted request: Review pending until a person answers it. */
     protected function booking(): Reservation
     {
         return app(ReservationService::class)->createReservation($this->room, $this->customer,
             now()->addDays(4)->setTime(14, 0), now()->addDays(5)->setTime(12, 0), ReservationSource::Online, 2);
+    }
+
+    /** Staff approve the request. This is what opens the 50% step. */
+    protected function approved(): Reservation
+    {
+        $reservation = $this->booking();
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+
+        return $reservation->refresh();
     }
 
     protected function proof(Reservation $reservation, ?float $amount = null, ?string $reference = null): Payment
@@ -59,17 +77,57 @@ class CustomerDepositWorkflowTest extends TestCase
             PaymentMethod::GCash, 'proof.png', $details);
     }
 
-    public function test_saved_quote_rounds_deposit_up_and_blocks_competing_booking(): void
+    public function test_a_submitted_request_waits_for_review_and_pays_nothing_yet(): void
     {
         $this->freezeTime();
         $reservation = $this->booking();
         $this->assertSame('3000.01', $reservation->total_price);
         $this->assertSame('1500.01', $reservation->deposit_required);
-        $this->assertSame(now()->addHours(24)->toDateTimeString(), $reservation->deposit_due_at->toDateTimeString());
-        $this->assertTrue($reservation->canAcceptGuestPayment());
+        $this->assertSame(now()->addHours(24)->toDateTimeString(), $reservation->deposit_due_at->toDateTimeString(), 'The review window is the hold.');
+        $this->assertSame(ReservationStatus::Pending, $reservation->status);
+        $this->assertFalse($reservation->canAcceptGuestPayment(), 'Nothing is payable before the resort answers.');
+        $this->assertSame(GuestPaymentState::AwaitingApproval, $reservation->guestPaymentState());
         $this->assertFalse($reservation->canShowArrivalPass());
         $this->expectException(ReservationConflictException::class);
         $this->booking();
+    }
+
+    public function test_confirming_a_request_lands_on_its_review_pending_tab(): void
+    {
+        $this->actingAs($this->customer);
+
+        $response = $this->post(route('customer.reservations.store'), [
+            'facility_id' => $this->room->id,
+            'check_in' => now()->addDays(4)->setTime(14, 0)->toDateTimeString(),
+            'check_out' => now()->addDays(5)->setTime(12, 0)->toDateTimeString(),
+            'guestCount' => 2,
+        ] + $this->guestInformationPayload());
+
+        // The request is not a booking, so the guest is left where its state is.
+        $response->assertRedirect(route('customer.reservations.index', ['tab' => 'pending']));
+        $response->assertSessionHas('success', fn (string $message) => str_contains($message, 'Review pending'));
+
+        $this->assertSame(ReservationStatus::Pending, Reservation::latest('id')->firstOrFail()->status);
+        $this->get(route('customer.reservations.index', ['tab' => 'pending']))->assertOk()->assertSee('Review pending');
+    }
+
+    public function test_approval_opens_the_deposit_window_and_survives_the_review_deadline(): void
+    {
+        $this->freezeTime();
+        $reservation = $this->booking();
+        $this->travel(5)->hours();
+
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+        $reservation->refresh();
+
+        $this->assertSame(ReservationStatus::Approved, $reservation->status);
+        $this->assertNotNull($reservation->approved_at);
+        // A fresh window from the moment the guest is told, not the review window
+        // they were never asked to pay inside.
+        $this->assertSame(now()->addHours(24)->toDateTimeString(), $reservation->deposit_due_at->toDateTimeString());
+        $this->assertSame(GuestPaymentState::PaymentAvailable, $reservation->guestPaymentState());
+        $this->assertTrue($reservation->canAcceptGuestPayment());
+        $this->assertFalse($reservation->canShowArrivalPass(), 'The pass is still earned by the verified deposit.');
     }
 
     public function test_no_active_destination_creates_no_unpayable_hold(): void
@@ -80,34 +138,24 @@ class CustomerDepositWorkflowTest extends TestCase
         $this->assertDatabaseCount('reservations', 0);
     }
 
-    public function test_deadline_is_capped_at_visit_start(): void
+    public function test_review_window_is_capped_at_visit_start(): void
     {
         $this->freezeTime();
+
+        // A visit that begins sooner than the hold window: the space is needed
+        // before the window runs out, so the visit's own start is the deadline.
+        // The resort's 2 PM check-in is fixed, so the date moves, not the hour.
+        $arrival = now('Asia/Manila')->startOfDay()->addHours(14);
+        if ($arrival->lessThanOrEqualTo(now('Asia/Manila'))) {
+            $arrival->addDay();
+        }
+
         $reservation = app(ReservationService::class)->createReservation($this->room, $this->customer,
-            now('Asia/Manila')->addHours(6)->shiftTimezone(config('app.timezone')), now('Asia/Manila')->addHours(30)->shiftTimezone(config('app.timezone')), ReservationSource::Online, 2);
+            $arrival->copy()->shiftTimezone(config('app.timezone')), $arrival->copy()->addDay()->subHours(2)->shiftTimezone(config('app.timezone')), ReservationSource::Online, 2);
         $this->assertTrue($reservation->deposit_due_at->equalTo(\App\Support\DepositDeadline::visitInstant($reservation->check_in)));
     }
 
-    public function test_timely_proof_survives_deadline_and_verification_confirms_booking(): void
-    {
-        $reservation = $this->booking();
-        $payment = $this->proof($reservation);
-        $this->assertSame(PaymentStatus::Pending, $payment->status);
-        $this->travel(25)->hours();
-        $this->artisan('reservations:expire-unpaid')->assertSuccessful();
-        $this->assertSame(ReservationStatus::Pending, $reservation->fresh()->status);
-        app(PaymentService::class)->verifyPayment($payment, $this->admin);
-        $reservation->refresh();
-        $this->assertSame(ReservationStatus::Approved, $reservation->status);
-        $this->assertSame(1500.0, $reservation->getRemainingBalance());
-        $this->assertFalse($reservation->canAcceptGuestPayment());
-        $this->assertTrue($reservation->canShowArrivalPass());
-        $explanations = app(\App\Services\Admin\DecisionSupportService::class)->analyze($reservation)->explanations;
-        $this->assertContains('The required deposit is already verified.', $explanations);
-        $this->assertStringNotContainsString('not fully verified yet', implode(' ', $explanations));
-    }
-
-    public function test_expiry_only_releases_new_unpaid_holds_and_late_proof_is_refused(): void
+    public function test_unreviewed_request_expires_and_a_late_proof_is_refused(): void
     {
         $reservation = $this->booking();
         $legacy = Reservation::factory()->create(['user_id' => $this->customer->id, 'status' => ReservationStatus::Pending]);
@@ -120,32 +168,85 @@ class CustomerDepositWorkflowTest extends TestCase
         $this->proof($reservation);
     }
 
+    public function test_an_approved_booking_without_its_deposit_is_released_after_the_deadline(): void
+    {
+        $reservation = $this->approved();
+        $this->travel(23)->hours();
+        $this->assertTrue($reservation->fresh()->canAcceptGuestPayment(), 'The window approval set is the guest\'s to use.');
+        $this->travel(2)->hours();
+        $this->assertFalse($reservation->fresh()->canAcceptGuestPayment());
+        $this->artisan('reservations:expire-unpaid')->assertSuccessful();
+        $this->assertSame(ReservationStatus::Expired, $reservation->fresh()->status);
+        $this->assertTrue(app(AvailabilityService::class)->isAvailable($this->room, $reservation->check_in, $reservation->check_out)->isAvailable,
+            'An unpaid confirmation must go back on the market.');
+    }
+
+    public function test_a_stay_that_has_begun_is_never_released_by_the_payment_deadline(): void
+    {
+        // Approved hours before arrival, so the deposit window is capped at the
+        // visit's own start: the deadline passes while the guest is on site, and
+        // the desk settles it rather than a timer releasing an occupied space.
+        $arrival = now('Asia/Manila')->startOfDay()->addHours(14);
+        if ($arrival->lessThan(now('Asia/Manila')->addHours(2))) {
+            $arrival->addDay();
+        }
+
+        $reservation = app(ReservationService::class)->createReservation($this->room, $this->customer,
+            $arrival->copy()->shiftTimezone(config('app.timezone')), $arrival->copy()->addDay()->subHours(2)->shiftTimezone(config('app.timezone')), ReservationSource::Online, 2);
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+
+        $this->travelTo($reservation->check_in->copy()->addHour());
+        $this->artisan('reservations:expire-unpaid')->assertSuccessful();
+
+        $this->assertSame(ReservationStatus::Approved, $reservation->fresh()->status);
+    }
+
+    public function test_timely_proof_survives_the_deadline_and_verification_records_the_transfer(): void
+    {
+        $reservation = $this->approved();
+        $payment = $this->proof($reservation);
+        $this->assertSame(PaymentStatus::Pending, $payment->status);
+        $this->travel(25)->hours();
+        $this->artisan('reservations:expire-unpaid')->assertSuccessful();
+        $this->assertSame(ReservationStatus::Approved, $reservation->fresh()->status, 'A submitted proof keeps the booking held while staff check it.');
+        app(PaymentService::class)->verifyPayment($payment, $this->admin);
+        $reservation->refresh();
+        $this->assertSame(ReservationStatus::Approved, $reservation->status, 'Verifying money records money — it does not confirm a booking.');
+        $this->assertSame(1500.0, $reservation->getRemainingBalance());
+        $this->assertFalse($reservation->canAcceptGuestPayment());
+        $this->assertTrue($reservation->canShowArrivalPass());
+        $explanations = app(\App\Services\Admin\DecisionSupportService::class)->analyze($reservation)->explanations;
+        $this->assertContains('The required deposit is already verified.', $explanations);
+        $this->assertStringNotContainsString('not fully verified yet', implode(' ', $explanations));
+    }
+
     public function test_partial_verification_requests_only_the_deposit_shortfall(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $payment = $this->proof($reservation, 500);
         app(PaymentService::class)->verifyPayment($payment, $this->admin);
-        $this->assertSame(ReservationStatus::Pending, $reservation->fresh()->status);
+        $this->assertSame(ReservationStatus::Approved, $reservation->fresh()->status);
         $this->assertSame(1000.01, $reservation->fresh()->getDepositAvailableAmount());
         $this->travel(25)->hours();
         $this->artisan('reservations:expire-unpaid')->assertSuccessful();
-        $this->assertSame(ReservationStatus::Pending, $reservation->fresh()->status, 'Received funds must be reconciled before release');
+        $this->assertSame(ReservationStatus::Approved, $reservation->fresh()->status, 'Received funds must be reconciled before release');
     }
 
-    public function test_rejected_proof_can_be_corrected_before_new_deadline(): void
+    public function test_rejected_proof_can_be_corrected_before_a_new_deadline(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $payment = $this->proof($reservation);
         app(PaymentService::class)->rejectPayment($payment, $this->admin, 'Reference not received in the account. Check the recipient.');
         $this->assertTrue($reservation->fresh()->canAcceptGuestPayment());
         $replacement = $this->proof($reservation, null, 'CORRECTED');
         app(PaymentService::class)->verifyPayment($replacement, $this->admin);
         $this->assertSame(ReservationStatus::Approved, $reservation->fresh()->status);
+        $this->assertTrue($reservation->fresh()->canShowArrivalPass());
     }
 
     public function test_verified_duplicate_reference_requires_reconciliation_note(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $one = $this->proof($reservation, 500, 'DUPLICATE');
         $two = $this->proof($reservation, 500, 'duplicate');
         app(PaymentService::class)->verifyPayment($one, $this->admin);
@@ -155,7 +256,7 @@ class CustomerDepositWorkflowTest extends TestCase
 
     public function test_pending_proof_prevents_admin_cancellation(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $this->proof($reservation);
         $this->expectException(InvalidReservationTransitionException::class);
         app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Rejected, $this->admin, 'Cancel');
@@ -163,7 +264,7 @@ class CustomerDepositWorkflowTest extends TestCase
 
     public function test_customer_balance_post_is_blocked_and_staff_balance_enables_check_in(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         app(PaymentService::class)->verifyPayment($this->proof($reservation), $this->admin);
         $this->actingAs($this->customer)->post(route('customer.payments.store', $reservation), [
             'amount' => 1500, 'payment_method' => 'gcash', 'payment_destination_id' => $this->destination->id,
@@ -180,10 +281,17 @@ class CustomerDepositWorkflowTest extends TestCase
         $this->assertDatabaseHas('payments', ['source' => 'onsite', 'verified_by' => $this->admin->id, 'amount' => 1500]);
     }
 
-    public function test_gateway_checkout_is_disabled_even_for_confirmed_booking(): void
+    public function test_recording_an_on_site_payment_does_not_confirm_a_request(): void
     {
         $reservation = $this->booking();
-        $reservation->update(['status' => ReservationStatus::Approved]);
+        app(PaymentService::class)->recordOnSite($reservation, $this->admin, ['amount' => 1500.01, 'method' => 'cash',
+            'collected_at' => now()->subMinute()->toDateTimeString(), 'reconciliation_note' => 'Collected at the desk while the request waits for approval.']);
+        $this->assertSame(ReservationStatus::Pending, $reservation->fresh()->status, 'Money is not the approval.');
+    }
+
+    public function test_gateway_checkout_is_disabled_even_for_confirmed_booking(): void
+    {
+        $reservation = $this->approved();
         $this->actingAs($this->customer)->post(route('customer.payments.checkout', $reservation), ['amount' => 100, 'payment_method' => 'gcash'])->assertSessionHas('error');
         $this->assertDatabaseCount('payments', 0);
     }
@@ -191,15 +299,81 @@ class CustomerDepositWorkflowTest extends TestCase
     public function test_customer_pages_render_and_admin_tools_are_protected(): void
     {
         $reservation = $this->booking();
-        $this->actingAs($this->customer)->get(route('customer.reservations.new'))->assertOk()->assertSee('New reservation')->assertSee('My Inquiries');
-        $this->get(route('customer.payments.index', $reservation))->assertOk()->assertSee('Download QR')->assertSee('1,500.01');
+        $this->actingAs($this->customer)->get(route('customer.reservations.new'))->assertOk()->assertSee('Choose a space')->assertDontSee('My inquiries');
+        // While the request is under review the page explains the wait and offers
+        // no QR to scan.
+        $this->get(route('customer.payments.index', $reservation))->assertOk()->assertSee('Review pending')->assertDontSee('Download QR');
         $this->get(route('customer.reservations.show', $reservation))->assertOk()->assertDontSee('Rate your experience');
         $this->get(route('admin.payment-destinations.index'))->assertRedirect(route('admin.login'));
         $this->actingAs($this->admin)->get(route('admin.payment-destinations.index'))->assertOk();
-        $this->get(route('admin.reservations.show', $reservation))->assertOk()->assertSee('Record on-site payment');
+        $this->get(route('admin.reservations.show', $reservation))
+            ->assertOk()
+            ->assertDontSee('Record remaining reservation balance')
+            ->assertSee('Approve reservation');
+
+        $walkIn = Reservation::factory()->create([
+            'user_id' => $this->admin->id,
+            'facility_id' => $this->room->id,
+            'reservation_source' => ReservationSource::WalkIn->value,
+            'status' => ReservationStatus::Approved->value,
+            'total_price' => 3000.01,
+            'check_in' => now()->addDays(10)->setTime(14, 0),
+            'check_out' => now()->addDays(11)->setTime(12, 0),
+        ]);
+
+        $this->get(route('admin.reservations.show', $walkIn))
+            ->assertOk()
+            ->assertSee('Record remaining reservation balance')
+            ->assertSee('Remaining balance collected');
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+        $this->actingAs($this->customer);
+        $this->get(route('customer.payments.index', $reservation))->assertOk()->assertSee('Download QR')->assertSee('1,500.01');
         $payment = $this->proof($reservation);
+        $this->actingAs($this->admin);
         $this->get(route('admin.payments.show', $payment))->assertOk()->assertSee('Deposit review');
         $this->get(route('admin.payments.index'))->assertOk();
+    }
+
+    public function test_front_desk_preparation_controls_only_show_during_arrival_preparation(): void
+    {
+        $reservation = $this->approved();
+        $this->actingAs($this->admin)
+            ->get(route('admin.reservations.show', $reservation))
+            ->assertOk()
+            ->assertDontSee('Download guest sheet')
+            ->assertDontSee('Check in guest');
+
+        app(PaymentService::class)->verifyPayment($this->proof($reservation), $this->admin);
+
+        $this->get(route('admin.reservations.show', $reservation->fresh()))
+            ->assertOk()
+            ->assertSee('Awaiting check-in')
+            ->assertSee('Record remaining reservation balance')
+            ->assertSee('Remaining reservation balance:')
+            ->assertSee('Remaining balance collected')
+            ->assertSee('Record balance payment')
+            ->assertSee('Download guest sheet')
+            ->assertSee('Print guest sheet')
+            ->assertDontSee('Check in guest');
+
+        $reservation->update(['checked_in_at' => now()]);
+
+        $this->get(route('admin.reservations.show', $reservation->fresh()))
+            ->assertOk()
+            ->assertDontSee('Download guest sheet')
+            ->assertDontSee('Check in guest')
+            ->assertSee('Check out early');
+
+        $reservation->update([
+            'status' => ReservationStatus::Completed->value,
+            'checked_out_at' => now(),
+        ]);
+
+        $this->get(route('admin.reservations.show', $reservation->fresh()))
+            ->assertOk()
+            ->assertDontSee('Download guest sheet')
+            ->assertDontSee('Check in guest')
+            ->assertDontSee('Check out early');
     }
 
     public function test_admin_can_upload_disable_and_reactivate_verified_qr(): void
@@ -209,27 +383,53 @@ class CustomerDepositWorkflowTest extends TestCase
             'verified_account' => 1, 'qr' => UploadedFile::fake()->image('qr.png'),
         ])->assertSessionHas('success');
         $new = PaymentDestination::latest('id')->first();
-        $this->get(route('payment-destinations.image', $new))->assertOk();
-        $this->patch(route('admin.payment-destinations.toggle', $new), ['is_active' => 0])->assertSessionHas('success');
+        $this->actingAs($this->customer)->get(route('payment-destinations.image', $new))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+        $this->get(route('payment-destinations.image', [$new, 'download' => 1]))
+            ->assertDownload('villa-mercedes-gcash-qr.png');
+        $this->get(route('customer.grouped-booking.workspace'))->assertOk()->assertSee('qr_download_url');
+        $this->actingAs($this->admin)->patch(route('admin.payment-destinations.toggle', $new), ['is_active' => 0])->assertSessionHas('success');
         $this->assertFalse($new->fresh()->is_active);
+        $this->actingAs($this->customer)->get(route('payment-destinations.image', [$new, 'download' => 1]))->assertNotFound();
+        $this->actingAs($this->admin);
         $this->patch(route('admin.payment-destinations.toggle', $new), ['is_active' => 1])->assertSessionHasErrors('verified_account');
         $this->patch(route('admin.payment-destinations.toggle', $new), ['is_active' => 1, 'verified_account' => 1])->assertSessionHas('success');
     }
 
     public function test_deposit_review_requires_explicit_account_reconciliation(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $payment = $this->proof($reservation);
         $this->actingAs($this->admin)->patch(route('admin.payments.verify', $payment))->assertSessionHasErrors('funds_received');
         $this->patch(route('admin.payments.reject', $payment), ['reason' => 'Unclear image'])->assertSessionHasErrors('funds_not_received');
         $this->assertSame(PaymentStatus::Pending, $payment->fresh()->status);
         $this->patch(route('admin.payments.verify', $payment), ['funds_received' => 1])->assertSessionHas('success');
         $this->assertSame(ReservationStatus::Approved, $reservation->fresh()->status);
+        $this->assertTrue($reservation->fresh()->canShowArrivalPass());
+    }
+
+    public function test_approval_can_be_refused_while_a_withdrawal_request_waits(): void
+    {
+        $reservation = $this->booking();
+        app(\App\Services\Customer\CustomerReservationService::class)->requestCancellation($this->customer, $reservation, 'Change of plans.');
+        $this->expectException(InvalidReservationTransitionException::class);
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+    }
+
+    public function test_approval_does_not_wait_for_the_deposit(): void
+    {
+        $reservation = $this->booking();
+        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
+        $reservation->refresh();
+        $this->assertSame(ReservationStatus::Approved, $reservation->status);
+        $this->assertSame(0.0, $reservation->getVerifiedTotalPaid());
+        $this->assertTrue($reservation->canAcceptGuestPayment(), 'The guest is told to pay, not asked to pay first.');
     }
 
     public function test_top_up_reopens_only_a_shortfall_and_preserves_account_snapshot(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $payment = $this->proof($reservation, 500);
         app(PaymentService::class)->verifyPayment($payment, $this->admin);
         $snapshot = $payment->fresh()->destination_snapshot;
@@ -253,7 +453,7 @@ class CustomerDepositWorkflowTest extends TestCase
         $this->assertSame(1500.01, $reservation->fresh()->getVerifiedTotalPaid());
     }
 
-    public function test_rescheduling_unpaid_hold_requotes_without_restarting_deadline(): void
+    public function test_rescheduling_an_unanswered_request_requotes_without_restarting_its_window(): void
     {
         $reservation = $this->booking();
         $deadline = $reservation->deposit_due_at->toDateTimeString();
@@ -263,21 +463,17 @@ class CustomerDepositWorkflowTest extends TestCase
         $this->assertSame($deadline, $reservation->fresh()->deposit_due_at->toDateTimeString());
     }
 
-    public function test_direct_approval_cannot_skip_deposit_verification(): void
-    {
-        $reservation = $this->booking();
-        $this->expectException(InvalidReservationTransitionException::class);
-        app(ReservationService::class)->changeStatus($reservation, ReservationStatus::Approved, $this->admin);
-    }
-
     public function test_deposit_proof_requires_only_amount_destination_and_proof(): void
     {
         $this->freezeTime();
-        $reservation = $this->booking();
-        $this->actingAs($this->customer)->post(route('customer.payments.store', $reservation), [
+        $reservation = $this->approved();
+        $response = $this->actingAs($this->customer)->post(route('customer.payments.store', $reservation), [
             'amount' => 1500.01, 'payment_method' => 'gcash', 'payment_destination_id' => $this->destination->id,
             'proof' => UploadedFile::fake()->image('proof.png'),
-        ])->assertSessionHas('success');
+        ]);
+        $response
+            ->assertRedirect(route('customer.reservations.index', ['tab' => 'upcoming']))
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, 'The admin will review the transfer'));
         $this->assertDatabaseHas('payments', [
             'reservation_id' => $reservation->id,
             'reference_number' => null,
@@ -285,11 +481,22 @@ class CustomerDepositWorkflowTest extends TestCase
             'amount' => 1500.01,
             'source' => 'customer_deposit',
         ]);
+        $this->get(route('customer.reservations.index', ['tab' => 'upcoming']))
+            ->assertOk()
+            ->assertSeeInOrder([
+                'Verified paid',
+                '0.00',
+                'Under review',
+                '1,500.01',
+                'Balance if verified',
+                '1,500.00',
+            ])
+            ->assertSee('Receipt awaiting verification');
     }
 
     public function test_retiring_an_account_does_not_discard_proof_of_an_existing_transfer(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $this->travel(1)->minutes();
         $this->destination->update(['is_active' => false]);
         $payment = $this->proof($reservation);
@@ -300,7 +507,7 @@ class CustomerDepositWorkflowTest extends TestCase
 
     public function test_other_customer_cannot_upload_proof_or_record_staff_payments(): void
     {
-        $reservation = $this->booking();
+        $reservation = $this->approved();
         $other = User::factory()->create();
         $this->actingAs($other)->post(route('customer.payments.store', $reservation), [
             'amount' => 1500.01, 'payment_method' => 'gcash', 'payment_destination_id' => $this->destination->id,

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\FacilityStatus;
 use Database\Factories\FacilityFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +24,9 @@ class Facility extends Model
         'name',
         'slug',
         'description',
+        'exclusions',
+        'cleaning_required_at',
+        'cleaning_completed_at',
         'capacity',
         'max_capacity',
         'status',
@@ -42,6 +46,8 @@ class Facility extends Model
     protected function casts(): array
     {
         return [
+            'cleaning_required_at' => 'datetime',
+            'cleaning_completed_at' => 'datetime',
             'status' => FacilityStatus::class,
             'is_active' => 'boolean',
             'package_family' => \App\Enums\PackageFamily::class,
@@ -235,6 +241,23 @@ class Facility extends Model
         $this->loadMissing('facilityType');
 
         return $this->facilityType?->slug === \App\Enums\FacilityType::FunctionHall->value;
+    }
+
+    /**
+     * The resort's published catalog of a facility type.
+     *
+     * `is_active` and `is_listed` answer two different questions, and a guest
+     * catalog needs both: inactive means withdrawn from sale, unlisted means
+     * inventory-only — sold *inside* a package (the Private Function Hall
+     * belongs to Package I) but never offered as a card or a suggestion of its
+     * own. Querying on `is_active` alone is how it reached /halls.
+     *
+     * @param  Builder<Facility>  $query
+     * @return Builder<Facility>
+     */
+    public function scopeListed(Builder $query): Builder
+    {
+        return $query->where('is_active', true)->where('is_listed', true);
     }
 
     /**

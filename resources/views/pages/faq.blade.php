@@ -65,7 +65,7 @@
 
             <div class="mt-12">
                 <x-alert type="info">
-                    Still have questions? Feel free to <a href="{{ route('customer.inquiries.index') }}" class="font-medium underline hover:text-primary-dark">submit an inquiry</a> and our team will get back to you.
+                    Still have questions? Feel free to <a href="{{ config('resort.messenger_url') ?: config('resort.facebook_url') }}" target="_blank" rel="noopener noreferrer" class="font-medium underline hover:text-primary-dark">message us on Facebook</a>. Opens in a new tab; replies arrive there.
                 </x-alert>
             </div>
         </div>

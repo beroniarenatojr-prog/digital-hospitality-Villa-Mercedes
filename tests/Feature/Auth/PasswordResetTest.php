@@ -5,7 +5,11 @@ namespace Tests\Feature\Auth;
 use App\Models\User;
 use App\Notifications\Auth\GuestPasswordResetNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\SendQueuedNotifications;
+use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class PasswordResetTest extends TestCase
@@ -28,7 +32,7 @@ class PasswordResetTest extends TestCase
         $this->from('/forgot-password')
             ->post('/forgot-password', ['email' => $user->email])
             ->assertRedirect('/forgot-password')
-            ->assertSessionHas('status', 'We emailed a password reset link. Check your inbox and spam folder.');
+            ->assertSessionHas('status', 'If this email belongs to an account, check its inbox and spam folder for a password reset link.');
 
         Notification::assertSentTo($user, GuestPasswordResetNotification::class);
     }
@@ -48,6 +52,26 @@ class PasswordResetTest extends TestCase
 
             return true;
         });
+    }
+
+    public function test_unknown_email_receives_the_same_recovery_confirmation(): void
+    {
+        Notification::fake();
+        $this->post('/forgot-password', ['email' => 'unknown@example.com'])
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('status', 'If this email belongs to an account, check its inbox and spam folder for a password reset link.');
+        Notification::assertNothingSent();
+    }
+
+    public function test_expired_email_link_returns_guest_to_the_request_form(): void
+    {
+        $user = User::factory()->create();
+        $token = \Illuminate\Support\Facades\Password::createToken($user);
+        $this->travel(config('auth.passwords.users.expire') + 1)->minutes();
+        $this->get(route('password.reset', ['token' => $token, 'email' => $user->email]))
+            ->assertRedirect(route('password.request'))
+            ->assertSessionHasErrors('email');
+        $this->assertGuest();
     }
 
     public function test_password_can_be_reset_with_valid_token(): void
@@ -105,7 +129,9 @@ class PasswordResetTest extends TestCase
 
     public function test_reset_password_screen_prefills_email_from_query_string(): void
     {
-        $this->get('/reset-password/example-token?email=guest@example.com')
+        $user = User::factory()->create(['email' => 'guest@example.com']);
+        $token = \Illuminate\Support\Facades\Password::createToken($user);
+        $this->get('/reset-password/'.$token.'?email=guest@example.com')
             ->assertOk()
             ->assertSee('value="guest@example.com"', false);
     }
@@ -113,6 +139,7 @@ class PasswordResetTest extends TestCase
     public function test_local_log_mailer_shows_a_usable_reset_link(): void
     {
         config(['auth.passwords.users.reveal_link' => true]);
+        Queue::fake();
 
         $user = User::factory()->create();
 
@@ -121,11 +148,39 @@ class PasswordResetTest extends TestCase
 
         $response->assertRedirect('/forgot-password')
             ->assertSessionHas('password_reset_url')
-            ->assertSessionHas('status', 'We emailed a password reset link. Check your inbox and spam folder.');
+            ->assertSessionHas('status', 'If this email belongs to an account, check its inbox and spam folder for a password reset link.');
+
+        Queue::assertPushed(SendQueuedNotifications::class, 1);
 
         $this->get(session('password_reset_url'))
             ->assertOk()
             ->assertSee('Choose a new password')
             ->assertSee('value="'.$user->email.'"', false);
+    }
+
+    public function test_database_worker_sends_reset_mail_without_losing_local_preview_link(): void
+    {
+        config([
+            'auth.passwords.users.reveal_link' => true,
+            'queue.default' => 'database',
+        ]);
+
+        $user = User::factory()->create();
+        $this->post('/forgot-password', ['email' => $user->email])
+            ->assertSessionHas('password_reset_url');
+
+        $this->assertDatabaseCount('jobs', 1);
+        $sent = [];
+        Event::listen(NotificationSent::class, function (NotificationSent $event) use (&$sent): void {
+            $sent[] = $event;
+        });
+        $job = Queue::connection('database')->pop();
+        $this->assertNotNull($job);
+        $job->fire();
+        $job->delete();
+
+        $this->assertCount(1, $sent);
+        $this->assertSame('mail', $sent[0]->channel);
+        $this->get(session('password_reset_url'))->assertOk();
     }
 }

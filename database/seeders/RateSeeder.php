@@ -106,6 +106,13 @@ class RateSeeder extends Seeder
             $facility = Facility::query()->where('slug', Str::slug($name))->first();
 
             if ($facility) {
+                $extension = config('resort.stay.hall.extension_rates.'.$facility->slug);
+                if ($extension !== null) {
+                    Rate::query()->firstOrCreate(
+                        ['facility_id' => $facility->id, 'name' => 'Hall Extension'],
+                        ['type' => RateType::AdditionalCharge->value, 'amount' => $extension, 'unit' => 'per hour']
+                    );
+                }
                 Rate::query()->firstOrCreate(
                     [
                         'facility_id' => $facility->id,

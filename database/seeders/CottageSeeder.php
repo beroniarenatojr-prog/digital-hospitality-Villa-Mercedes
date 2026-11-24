@@ -22,7 +22,7 @@ class CottageSeeder extends Seeder
                 'name' => $name,
                 'description' => 'A guest-selectable cottage beside the public pool area. Pool entrance is paid separately at the entrance.',
                 'capacity' => null,
-                'max_capacity' => null,
+                'max_capacity' => 50,
                 'status' => FacilityStatus::Available->value,
                 'is_active' => true,
                 'sort_order' => $number,

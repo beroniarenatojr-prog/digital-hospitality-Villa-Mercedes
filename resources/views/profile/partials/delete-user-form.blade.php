@@ -5,7 +5,7 @@
         </h2>
 
         <p class="mt-1 text-sm text-text-muted">
-            {{ __('Account deletion is permanent. Accounts with reservation or inquiry history require assistance from the resort.') }}
+            {{ __('Account deletion is permanent. Accounts with reservation or other retained history require assistance from the resort.') }}
         </p>
     </header>
 
@@ -24,7 +24,7 @@
             </h2>
 
             <p class="mt-1 text-sm text-text-muted">
-                {{ __('Enter your password to permanently delete your account. If you have reservation or inquiry history, contact the resort for assistance.') }}
+                {{ __('Enter your password to permanently delete your account. If you have reservation or other retained history, contact the resort for assistance.') }}
             </p>
 
             <div class="mt-6">

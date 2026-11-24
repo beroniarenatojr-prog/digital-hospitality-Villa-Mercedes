@@ -15,7 +15,7 @@ class ReviewController extends Controller
 
     public function update(Request $request, GuestReview $review)
     {
-        $data = $request->validate(['action' => ['required', Rule::in(['publish', 'unpublish', 'private'])], 'reason' => ['nullable', 'string', 'max:500']]);
+        $data = $request->validate(['action' => ['required', Rule::in(['publish', 'unpublish'])], 'reason' => ['nullable', 'string', 'max:500']]);
         DB::transaction(function () use ($request, $review, $data) {
             $locked = GuestReview::whereKey($review->id)->lockForUpdate()->firstOrFail();
             if ($data['action'] === 'publish' && $locked->public_consent === false) {

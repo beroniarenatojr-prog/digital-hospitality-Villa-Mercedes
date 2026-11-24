@@ -7,6 +7,7 @@ use App\Enums\Role;
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Models\User;
+use App\Support\ResortTime;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -42,7 +43,7 @@ class FrontDeskCheckInTest extends TestCase
     {
         $this->actingAs($this->admin)
             ->patch(route('admin.reservations.check-in', $this->reservation))
-            ->assertSessionHas('success');
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, $this->reservation->guestName()) && str_contains($message, $this->reservation->facility->name));
 
         $reservation = $this->reservation->fresh();
 
@@ -76,14 +77,45 @@ class FrontDeskCheckInTest extends TestCase
         $this->reservation->update(['checked_in_at' => now()->subDay()]);
 
         $this->actingAs($this->admin)
+            ->get(route('admin.reservations.show', $this->reservation))
+            ->assertOk()
+            ->assertSee('Check out early')
+            ->assertSee('before the scheduled end');
+
+        $this->actingAs($this->admin)
             ->patch(route('admin.reservations.check-out', $this->reservation))
-            ->assertSessionHas('success');
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, $this->reservation->guestName()) && str_contains($message, $this->reservation->facility->name));
 
         $reservation = $this->reservation->fresh();
 
         $this->assertNotNull($reservation->checked_out_at);
         $this->assertFalse($reservation->isInHouse());
         $this->assertSame(ReservationStatus::Completed, $reservation->status);
+    }
+
+    public function test_opening_an_ended_in_house_stay_reconciles_automatic_checkout(): void
+    {
+        $this->reservation->update([
+            'check_in' => ResortTime::now()->subHours(6),
+            'check_out' => ResortTime::now()->subHour(),
+            'checked_in_at' => now()->subHours(6),
+            'checked_out_at' => null,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.reservations.show', $this->reservation))
+            ->assertOk()
+            ->assertDontSee('Check out early')
+            ->assertSee('Completed');
+
+        $reservation = $this->reservation->fresh();
+
+        $this->assertSame(ReservationStatus::Completed, $reservation->status);
+        $this->assertSame(
+            $reservation->occupancyEnd()->toDateTimeString(),
+            $reservation->checked_out_at->toDateTimeString(),
+        );
+        $this->assertFalse($reservation->isInHouse());
     }
 
     public function test_check_out_requires_a_prior_check_in(): void

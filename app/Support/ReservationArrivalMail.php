@@ -24,7 +24,13 @@ class ReservationArrivalMail
                 'earlyHours' => (int) $reservation->early_check_in_hours,
                 'lateHours' => (int) $reservation->late_check_out_hours,
                 'specialRequests' => $reservation->special_requests,
-                'totalPrice' => number_format((float) $reservation->total_price, 2),
+                // Symbol included, because an email body cannot render <x-amount>:
+                // this is the same string the guest sees on the page.
+                'totalPrice' => Money::of($reservation->total_price),
+                'policyVersion' => $reservation->policy_version,
+                'confirmedPolicy' => $reservation->policy_version === config('resort.policy.confirmed_version'),
+                'verifiedPaid' => Money::of($reservation->getVerifiedTotalPaid()),
+                'remainingBalance' => Money::of($reservation->getRemainingBalance()),
                 'status' => $reservation->status->label(),
                 'passUrl' => $reservation->arrivalPassUrl(),
                 'showPass' => $reservation->canShowArrivalPass(),

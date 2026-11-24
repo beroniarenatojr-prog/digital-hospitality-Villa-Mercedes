@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 use Tests\TestCase;
 
+/** Legacy service contracts remain supported for bookings accepted before the confirmed policy. */
 class ReservationServiceTest extends TestCase
 {
     use RefreshDatabase;
@@ -36,7 +37,11 @@ class ReservationServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->artisan('db:seed');
+        // These fixtures exercise pre-existing accepted terms. Current policy flows
+        // have separate quote/acceptance/refund coverage in ConfirmedBookingPracticesTest.
+        $this->travelTo(Carbon::parse('2026-05-01 00:00:00'));
+        config(['resort.policy.version' => '2026-09-v2']);
+        $this->seedReservationCatalog();
 
         $this->reservationService = app(ReservationService::class);
         $this->facility = Facility::where('slug', 'deluxe-room-26')->firstOrFail();
@@ -237,7 +242,7 @@ class ReservationServiceTest extends TestCase
         );
 
         // Starts exactly when previous ends
-        $checkIn2 = Carbon::parse('2026-06-12 12:00:00');
+        $checkIn2 = Carbon::parse('2026-06-12 14:00:00');
         $checkOut2 = Carbon::parse('2026-06-14 12:00:00');
 
         $reservation2 = $this->reservationService->createReservation(
@@ -246,7 +251,8 @@ class ReservationServiceTest extends TestCase
             $checkIn2,
             $checkOut2,
             ReservationSource::Online,
-            2
+            2,
+            ['early_check_in_hours' => 2]
         );
 
         $this->assertNotNull($reservation2->id);
@@ -257,7 +263,7 @@ class ReservationServiceTest extends TestCase
         $checkIn = Carbon::parse('2026-06-12 12:00:00');
         $checkOut = Carbon::parse('2026-06-10 14:00:00'); // Check out before check in
 
-        $this->expectException(InvalidAvailabilityPeriodException::class);
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
 
         $this->reservationService->createReservation(
             $this->facility,

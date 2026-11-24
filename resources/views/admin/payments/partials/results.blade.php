@@ -1,91 +1,75 @@
-<div class="hidden md:block">
-    <x-admin.table>
+@php
+    $hasFilters = request()->anyFilled(['search', 'status', 'method', 'facility_type', 'facility_id', 'date_from', 'date_until']);
+@endphp
+
+@if ($payments->isEmpty())
+    <x-admin.empty icon="payments" title="No payments found" description="Try another booking code or adjust the filters." />
+@else
+    <p class="mb-3 text-sm text-text-muted">{{ $payments->total() }} {{ \Illuminate\Support\Str::plural('booking', $payments->total()) }}{{ $hasFilters ? ' matching these filters' : ' with recorded payments' }} · Awaiting review first</p>
+    <x-admin.table sticky tabindex="0" role="region" aria-label="Booking payments" class="max-h-[70vh] focus-visible:outline-primary">
+        <caption class="sr-only">Payments grouped by booking. Amounts reflect the selected filters.</caption>
         <x-admin.table-head>
-            <x-admin.table-cell :isHeader="true">Reservation</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Guest</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Amount</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Method</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Submitted</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Status</x-admin.table-cell>
-            <x-admin.table-cell :isHeader="true">Actions</x-admin.table-cell>
+            <x-admin.table-cell isHeader>Booking and guest</x-admin.table-cell>
+            <x-admin.table-cell isHeader numeric>Verified</x-admin.table-cell>
+            <x-admin.table-cell isHeader numeric>Awaiting review</x-admin.table-cell>
+            <x-admin.table-cell isHeader>Payment methods</x-admin.table-cell>
+            <x-admin.table-cell isHeader>Latest payment</x-admin.table-cell>
+            <x-admin.table-cell isHeader><span class="sr-only">Actions</span></x-admin.table-cell>
         </x-admin.table-head>
         <x-admin.table-body>
-            @forelse($payments as $payment)
-                <x-admin.table-row class="{{ $payment->status === \App\Enums\PaymentStatus::Pending ? 'bg-amber-50/50' : '' }}">
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.reservations.show', $payment->reservation) }}" class="font-mono text-sm font-semibold text-primary hover:text-primary-dark">
-                            {{ $payment->reservation->reservation_code }}
-                        </a>
-                        <span class="block text-xs text-gray-500">{{ $payment->reservation->facility->name }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="font-medium text-gray-900">{{ $payment->reservation->guestName() }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="font-semibold text-gray-900">₱{{ number_format($payment->amount, 2) }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm text-gray-700">{{ $payment->method->label() }}</span>
-                        @if($payment->reference_number)
-                            <span class="block text-xs text-gray-400 font-mono">{{ $payment->reference_number }}</span>
+            @foreach ($payments as $bookingPayments)
+                @php
+                    $first = $bookingPayments->first();
+                    $reservation = $first->reservation;
+                    $group = $first->reservationGroup ?? $reservation?->reservationGroup;
+                    $pending = $bookingPayments->where('status', \App\Enums\PaymentStatus::Pending);
+                    $verified = $bookingPayments->where('status', \App\Enums\PaymentStatus::Verified)->sum('amount');
+                    $bookingCode = $group?->group_code ?? $reservation?->reservation_code ?? 'Booking unavailable';
+                    $guestName = $group?->guest_name ?? $reservation?->guestName() ?? 'Guest unavailable';
+                    $bookingUrl = $group ? route('admin.reservation-groups.show', $group).'#group-payments'
+                        : ($reservation ? route('admin.reservations.show', $reservation) : route('admin.payments.show', $first));
+                    $review = $pending->first();
+                @endphp
+                <x-admin.table-row class="{{ $review ? 'bg-warning-light/30' : '' }}">
+                    <th scope="row" class="px-4 py-4 text-left font-normal min-w-56">
+                        <a href="{{ $bookingUrl }}" class="font-semibold text-primary hover:underline">{{ $bookingCode }}</a>
+                        <p class="mt-1 text-sm text-text">{{ $guestName }}</p>
+                        @if($review)
+                            <p class="mt-1 text-xs font-semibold text-warning-dark">Awaiting verification</p>
                         @endif
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <span class="text-sm text-gray-700">{{ $payment->payment_date->format('M d, Y') }}</span>
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <x-badge :status="$payment->status->value" />
-                    </x-admin.table-cell>
-                    <x-admin.table-cell>
-                        <a href="{{ route('admin.payments.show', $payment) }}" class="text-primary hover:text-primary-dark text-sm font-medium">
-                            {{ $payment->status === \App\Enums\PaymentStatus::Pending ? 'Review' : 'View' }}
-                        </a>
+                    </th>
+                    <x-admin.table-cell numeric nowrap><x-amount :value="$verified" /></x-admin.table-cell>
+                    <x-admin.table-cell numeric nowrap><x-amount :value="$pending->sum('amount')" /></x-admin.table-cell>
+                    <x-admin.table-cell>{{ $bookingPayments->map(fn ($payment) => $payment->method?->label())->filter()->unique()->join(', ') }}</x-admin.table-cell>
+                    <x-admin.table-cell nowrap><x-admin.date-time :value="$bookingPayments->max('payment_date')" format="date" /></x-admin.table-cell>
+                    <x-admin.table-cell nowrap>
+                        <x-admin.button :variant="$review ? 'primary' : 'secondary'" size="sm" :href="$review ? route('admin.payments.show', $review) : $bookingUrl">
+                            {{ $review ? 'Review payment' : 'View booking payments' }}
+                        </x-admin.button>
+                        <x-content-panel class="mt-2">
+                            <x-slot:heading>Payment records</x-slot:heading>
+                            <ul class="mt-2 space-y-3">
+                                @foreach($bookingPayments as $payment)
+                                    <li class="text-xs">
+                                        <a href="{{ route('admin.payments.show', $payment) }}" class="inline-flex min-h-11 items-center gap-2 text-primary underline">
+                                            {{ $payment->method?->label() }} · <x-amount :value="$payment->amount" /> · {{ $payment->status->label() }}
+                                        </a>
+                                        @if($payment->reference_number)
+                                            <span class="block text-text-muted">{{ $payment->reference_number }}</span>
+                                        @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </x-content-panel>
                     </x-admin.table-cell>
                 </x-admin.table-row>
-            @empty
-                <x-admin.table-row>
-                    <x-admin.table-cell colspan="7" class="text-center py-8 text-gray-500">
-                        No payments found matching your criteria.
-                    </x-admin.table-cell>
-                </x-admin.table-row>
-            @endforelse
+            @endforeach
         </x-admin.table-body>
     </x-admin.table>
-</div>
-
-<div class="md:hidden space-y-4">
-    @forelse($payments as $payment)
-        <div class="bg-white rounded-lg shadow-sm border {{ $payment->status === \App\Enums\PaymentStatus::Pending ? 'border-amber-300' : 'border-gray-200' }} p-4">
-            <div class="flex items-start justify-between mb-2">
-                <div>
-                    <a href="{{ route('admin.payments.show', $payment) }}" class="font-mono text-sm font-semibold text-primary hover:text-primary-dark">
-                        {{ $payment->reservation->reservation_code }}
-                    </a>
-                    <span class="block text-xs text-gray-500">{{ $payment->reservation->facility->name }}</span>
-                </div>
-                <x-badge :status="$payment->status->value" />
-            </div>
-            <div class="text-sm text-gray-600 space-y-1 mt-3">
-                <p><span class="font-medium text-gray-900">{{ $payment->reservation->guestName() }}</span></p>
-                <p><span class="font-medium">Amount:</span> <span class="font-bold text-gray-900">₱{{ number_format($payment->amount, 2) }}</span></p>
-                <p><span class="font-medium">Method:</span> {{ $payment->method->label() }}
-                    @if($payment->reference_number)
-                        <span class="font-mono text-xs text-gray-400">({{ $payment->reference_number }})</span>
-                    @endif
-                </p>
-                <p><span class="font-medium">Submitted:</span> {{ $payment->payment_date->format('M d, Y') }}</p>
-            </div>
-            <div class="mt-4 pt-3 border-t border-gray-100">
-                <a href="{{ route('admin.payments.show', $payment) }}" class="w-full text-center block px-4 py-2 border border-primary rounded-md text-sm font-medium text-primary hover:bg-primary hover:text-white transition">
-                    {{ $payment->status === \App\Enums\PaymentStatus::Pending ? 'Review Payment' : 'View Details' }}
-                </a>
-            </div>
-        </div>
-    @empty
-        <p class="text-center text-gray-500 py-8">No payments found.</p>
-    @endforelse
-</div>
-
-<div class="mt-6">
-    {{ $payments->withQueryString()->links() }}
-</div>
+    @if($hasFilters)
+        <p class="mt-2 text-xs text-text-muted">Amounts include payments matching your filters. Open the booking for its full balance.</p>
+    @endif
+    @if ($payments->hasPages())
+        <div class="mt-6">{{ $payments->withQueryString()->links() }}</div>
+    @endif
+@endif

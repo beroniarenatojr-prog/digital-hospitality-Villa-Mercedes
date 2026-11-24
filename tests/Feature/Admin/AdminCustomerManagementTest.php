@@ -50,7 +50,7 @@ class AdminCustomerManagementTest extends TestCase
     {
         $response = $this->actingAs($this->admin)->get(route('admin.customers.index'));
         $response->assertStatus(200);
-        $response->assertSee('Customer Management');
+        $response->assertSee('Customers');
     }
 
     // --- Listing ---
@@ -117,7 +117,7 @@ class AdminCustomerManagementTest extends TestCase
     {
         $response = $this->actingAs($this->admin)->get(route('admin.customers.index', ['search' => 'nonexistent_customer_xyz_12345']));
         $response->assertStatus(200);
-        $response->assertSee('No customers found');
+        $response->assertSee('No customers match these filters');
     }
 
     // --- Details ---
@@ -133,7 +133,7 @@ class AdminCustomerManagementTest extends TestCase
     {
         $response = $this->actingAs($this->admin)->get(route('admin.customers.show', $this->customer->id));
         $response->assertStatus(200);
-        $response->assertSee('Customer Information');
+        $response->assertSee('Customer information');
         $response->assertSee($this->customer->name);
         $response->assertSee($this->customer->email);
         $response->assertSee($this->customer->phone);
@@ -141,15 +141,17 @@ class AdminCustomerManagementTest extends TestCase
 
     public function test_reservation_summary_renders(): void
     {
-        Reservation::factory()->create([
+        $reservation = Reservation::factory()->create([
             'user_id' => $this->customer->id,
             'status' => ReservationStatus::Approved->value,
         ]);
 
         $response = $this->actingAs($this->admin)->get(route('admin.customers.show', $this->customer->id));
         $response->assertStatus(200);
-        $response->assertSee('Reservation Summary');
-        $response->assertSee('Reservation History');
+        $response->assertSee('Reservation summary');
+        $response->assertSee('Reservation history');
+        $response->assertSee('Manage reservation');
+        $response->assertSee(route('admin.reservations.show', $reservation), false);
     }
 
     public function test_payment_summary_renders(): void
@@ -166,7 +168,7 @@ class AdminCustomerManagementTest extends TestCase
 
         $response = $this->actingAs($this->admin)->get(route('admin.customers.show', $this->customer->id));
         $response->assertStatus(200);
-        $response->assertSee('Payment Summary');
+        $response->assertSee('Payment summary');
         $response->assertSee('1,000.00');
     }
 

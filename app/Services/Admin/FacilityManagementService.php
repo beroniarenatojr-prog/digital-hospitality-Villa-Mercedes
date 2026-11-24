@@ -49,6 +49,7 @@ class FacilityManagementService
             $facility->name = $data['name'];
             $facility->slug = $data['slug'] ?? Str::slug($data['name']);
             $facility->description = $data['description'] ?? null;
+            $facility->exclusions = $data['exclusions'] ?? null;
             $facility->capacity = $data['capacity'] ?? $data['base_capacity'] ?? null;
             $facility->max_capacity = array_key_exists('max_capacity', $data) ? $data['max_capacity'] : $facility->capacity;
 
@@ -96,6 +97,9 @@ class FacilityManagementService
             }
             if (array_key_exists('description', $data)) {
                 $facility->description = $data['description'];
+            }
+            if (array_key_exists('exclusions', $data)) {
+                $facility->exclusions = filled($data['exclusions']) ? trim($data['exclusions']) : null;
             }
             if (array_key_exists('capacity', $data)) {
                 $facility->capacity = $data['capacity'];

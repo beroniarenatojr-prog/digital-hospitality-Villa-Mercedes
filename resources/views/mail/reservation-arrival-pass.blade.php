@@ -23,7 +23,14 @@ Early check-in: {{ $earlyHours }} hour(s)
 Late check-out: {{ $lateHours }} hour(s)  
 @endif
 Status: {{ $status }}  
-Total: ₱{{ $totalPrice }}
+Total: {{ $totalPrice }}  
+Verified paid: {{ $verifiedPaid ?? 'See booking record' }}  
+Remaining balance due at physical check-in: {{ $remainingBalance ?? 'See booking record' }}  
+Accepted policy: {{ $policyVersion ?? 'Historical saved terms' }}
+
+@if($confirmedPolicy ?? false)
+Before physical check-in, including no-show, verified payments qualify for full refund. Staff receive requests and notify the owner; the owner approves refunds; administrators record that approval and the funds returned. Request, approval, and return are separate stages. Rescheduling has no notice deadline before physical check-in, subject to staff checks and guest acceptance of revised quotes.
+@endif
 
 @if(filled($specialRequests))
 **Special requests**  
@@ -34,7 +41,7 @@ Staff can find your reservation with the last 6 characters of the code. You do n
 
 @if($showPass)
 <x-mail::button :url="$passUrl">
-Open arrival pass
+Open check in pass
 </x-mail::button>
 @endif
 

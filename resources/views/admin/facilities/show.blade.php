@@ -1,319 +1,314 @@
+@php
+    $statusMeanings = [
+        \App\Enums\FacilityStatus::Available->value => 'Operationally open. Booking availability is checked for the selected dates and times.',
+        \App\Enums\FacilityStatus::Unavailable->value => 'Closed to new reservations. Existing stays are unaffected.',
+        \App\Enums\FacilityStatus::Maintenance->value => 'Temporarily closed for repairs. Staff reopen it when the work is finished.',
+    ];
+
+    $currentComponentIds = $facility->packageComponents->pluck('component_facility_id')->all();
+    $componentOptions = \App\Models\Facility::query()
+        ->where('id', '!=', $facility->id)
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->get();
+@endphp
+
 <x-admin-layout>
-    <x-slot name="header">
-        {{ $facility->name }}
-    </x-slot>
+    <x-slot name="header">{{ $facility->name }}</x-slot>
 
-    <!-- Breadcrumb -->
-    <nav class="mb-6 text-sm text-gray-500">
-        <a href="{{ route('admin.facilities.index') }}" class="hover:text-primary">Facilities</a>
-        <span class="mx-2">/</span>
-        <span class="text-gray-900">{{ $facility->name }}</span>
-    </nav>
+    <x-admin.page-header
+        title="{{ $facility->name }}"
+        :breadcrumbs="[
+            ['label' => 'Facilities', 'url' => route('admin.facilities.index')],
+            ['label' => $facility->name],
+        ]"
+    >
+        <x-slot:actions>
+            <x-admin.button variant="secondary" :href="route('admin.facilities.edit', $facility)">Edit facility</x-admin.button>
+            <x-admin.button variant="secondary" :href="route('admin.rates.index', ['search' => $facility->name])">Its rates</x-admin.button>
+        </x-slot:actions>
+    </x-admin.page-header>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Main Info Column -->
-        <div class="lg:col-span-2 space-y-6">
-            <!-- Facility Info Card -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold text-gray-900">Facility Information</h2>
-                    <a href="{{ route('admin.facilities.edit', $facility) }}" class="text-sm font-medium text-primary hover:text-primary-dark">Edit</a>
-                </div>
-                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+    <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+        <div class="space-y-6 lg:col-span-2">
+            @if($facility->isRoom())
+                <x-admin.panel title="Room cleaning release">
+                    <p>{{ $facility->cleaning_required_at ? 'Awaiting cleaning — unavailable for new bookings.' : 'No pending cleaning hold. Reservations and operational status still apply.' }}</p>
+                    @if($facility->cleaning_required_at)
+                        <form method="POST" action="{{ route('admin.facilities.cleaning-complete', $facility) }}">@csrf @method('PATCH')
+                            <x-admin.button type="submit">Mark cleaning complete</x-admin.button>
+                        </form>
+                    @endif
+                </x-admin.panel>
+            @endif
+            <x-admin.panel title="Space details">
+                <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Name</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $facility->name }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Name</dt>
+                        <dd class="mt-1 text-sm text-text">{{ $facility->name }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Type</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $facility->facilityType->name }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Type</dt>
+                        <dd class="mt-1 text-sm text-text">{{ $facility->facilityType->name }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Slug</dt>
-                        <dd class="mt-1 text-sm text-gray-600 font-mono">{{ $facility->slug }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Public address</dt>
+                        <dd class="mt-1 font-mono text-sm text-text-muted">{{ $facility->slug }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Status</dt>
-                        <dd class="mt-1"><x-badge :status="$facility->status->value" /></dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Status</dt>
+                        <dd class="mt-1"><x-badge :status="$facility->status" /></dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Active</dt>
-                        <dd class="mt-1 text-sm">{{ $facility->is_active ? 'Yes' : 'No' }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Public listing</dt>
+                        <dd class="mt-1 text-sm text-text">{{ $facility->is_active ? 'Listed' : 'Hidden' }}</dd>
                     </div>
                     <div>
-                        <dt class="text-sm font-medium text-gray-500">Created</dt>
-                        <dd class="mt-1 text-sm text-gray-600">{{ $facility->created_at->format('M d, Y') }}</dd>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Added</dt>
+                        <dd class="mt-1"><x-admin.date-time :value="$facility->created_at" format="day" /></dd>
                     </div>
-                    @if($facility->description)
+
+                    @if ($facility->description)
                         <div class="sm:col-span-2">
-                            <dt class="text-sm font-medium text-gray-500">Description</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $facility->description }}</dd>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Description</dt>
+                            <dd class="mt-1 max-w-[70ch] text-sm text-text">{{ $facility->description }}</dd>
                         </div>
                     @endif
                 </dl>
-            </div>
+            </x-admin.panel>
 
-            <!-- Capacity Card -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Capacity</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div class="bg-gray-50 rounded-lg p-4">
-                        <p class="text-sm font-medium text-gray-500">Standard Capacity</p>
-                        <p class="text-3xl font-bold text-gray-900 mt-1">{{ $facility->capacity }}</p>
-                        <p class="text-xs text-gray-500 mt-1">Number of guests included in the base occupancy.</p>
+            <x-admin.panel
+                title="Capacity"
+                description="Standard capacity is what the base price covers; extra guests are charged up to the maximum."
+            >
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div class="rounded-lg bg-muted p-4">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Standard Capacity</p>
+                        <p class="mt-1 text-2xl font-semibold tabular-nums text-text">{{ $facility->capacity ?: 'No limit' }}</p>
+                        <p class="mt-1 text-xs text-text-muted">Number of guests included in the base occupancy.</p>
                     </div>
-                    <div class="bg-gray-50 rounded-lg p-4">
-                        <p class="text-sm font-medium text-gray-500">Maximum Capacity</p>
-                        <p class="text-3xl font-bold text-gray-900 mt-1">{{ $facility->effectiveMaxCapacity() }}</p>
-                        <p class="text-xs text-gray-500 mt-1">Absolute maximum number of guests allowed.</p>
+                    <div class="rounded-lg bg-muted p-4">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Maximum Capacity</p>
+                        <p class="mt-1 text-2xl font-semibold tabular-nums text-text">{{ $facility->effectiveMaxCapacity() ?: 'No limit' }}</p>
+                        <p class="mt-1 text-xs text-text-muted">Absolute maximum number of guests allowed.</p>
                     </div>
                 </div>
-            </div>
+            </x-admin.panel>
 
-            <!-- Amenities / Inclusions -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6" x-data="{ showAmenityForm: false }">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold text-gray-900">
-                        {{ $isPackage ? 'Amenities & Inclusions' : 'Amenities' }}
-                    </h2>
-                    <button @click="showAmenityForm = !showAmenityForm" class="text-sm font-medium text-primary hover:text-primary-dark">
-                        <span x-text="showAmenityForm ? 'Cancel' : 'Manage'"></span>
+            <x-admin.panel
+                :title="$isPackage ? 'Amenities & Inclusions' : 'Amenities'"
+                :badge="$facility->amenities->count()"
+                description="Descriptive features shown to guests. They do not reserve anything."
+                x-data="{ editing: false }"
+            >
+                <x-slot:actions>
+                    <button
+                        type="button"
+                        @click="editing = ! editing"
+                        class="rounded border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-text transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    >
+                        <span x-text="editing ? 'Close' : 'Choose amenities'">Choose amenities</span>
                     </button>
-                </div>
+                </x-slot:actions>
 
-                @if($facility->amenities->count() > 0)
-                    <div class="flex flex-wrap gap-2 mb-4">
-                        @foreach($facility->amenities as $amenity)
-                            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-primary-light text-primary">
-                                @if($amenity->icon)
-                                    <span class="mr-1">{{ $amenity->icon }}</span>
+                @if ($facility->amenities->isNotEmpty())
+                    <ul class="flex flex-wrap gap-2">
+                        @foreach ($facility->amenities as $amenity)
+                            <li class="inline-flex items-center gap-1 rounded-full bg-primary-light px-3 py-1 text-sm font-medium text-primary">
+                                @if ($amenity->icon)
+                                    <span aria-hidden="true">{{ $amenity->icon }}</span>
                                 @endif
                                 {{ $amenity->name }}
-                            </span>
+                            </li>
                         @endforeach
-                    </div>
+                    </ul>
                 @else
-                    <p class="text-sm text-gray-500 mb-4">No amenities assigned yet.</p>
+                    <p class="text-sm text-text-muted">No amenities assigned yet. Added amenities appear on the public facility page.</p>
                 @endif
 
-                <div x-show="showAmenityForm" x-transition style="display: none;">
-                    <form method="POST" action="{{ route('admin.facilities.amenities', $facility) }}">
+                <form x-show="editing" x-cloak method="POST" action="{{ route('admin.facilities.amenities', $facility) }}" class="mt-4 border-t border-border pt-4">
+                    @csrf
+                    <fieldset>
+                        <legend class="admin-label">Amenities this space offers</legend>
+                        <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            @foreach ($allAmenities as $amenity)
+                                <label class="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-sm hover:bg-muted">
+                                    <input type="checkbox" name="amenities[]" value="{{ $amenity->id }}"
+                                           @checked($facility->amenities->contains($amenity->id))
+                                           class="h-4 w-4 rounded border-border text-primary focus:ring-primary">
+                                    {{ $amenity->name }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </fieldset>
+                    <p class="admin-help">Unticking an amenity removes it from the public page the moment you save.</p>
+                    <div class="mt-4 flex justify-end">
+                        <x-admin.button type="submit">Save amenities</x-admin.button>
+                    </div>
+                </form>
+            </x-admin.panel>
+
+            <x-admin.panel title="Exclusions / Not included" description="Manage approved exclusions through Edit facility; check them against this space's inclusions before publishing.">
+                <p class="text-sm text-text-muted whitespace-pre-line">{{ $facility->exclusions ?: 'No exclusions published yet.' }}</p>
+            </x-admin.panel>
+
+            @if ($isPackage)
+                <x-admin.panel
+                    title="Bookable resource components"
+                    :badge="$facility->packageComponents->count()"
+                    description="The spaces this package actually consumes when a guest books it. This is different from amenities, which are descriptive."
+                    x-data="{ editing: false }"
+                >
+                    @if ($facility->packageComponents->isNotEmpty())
+                        <ul class="divide-y divide-border rounded-lg border border-border">
+                            @foreach ($facility->packageComponents as $component)
+                                <li class="flex items-center justify-between gap-3 px-4 py-3">
+                                    <span class="min-w-0">
+                                        <span class="block truncate text-sm font-medium text-text">{{ $component->componentFacility->name }}</span>
+                                        <span class="block truncate text-xs text-text-muted">{{ $component->componentFacility->facilityType->name ?? '' }}</span>
+                                    </span>
+                                    <x-badge :status="$component->componentFacility->status" />
+                                </li>
+                            @endforeach
+                        </ul>
+                    @else
+                        <p class="text-sm text-text-muted">No components assigned yet. Without components, this package consumes no inventory when it is booked.</p>
+                    @endif
+
+                    <x-slot:actions>
+                        <button
+                            type="button"
+                            @click="editing = ! editing"
+                            class="rounded border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-text transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                        >
+                            <span x-text="editing ? 'Close' : 'Choose components'">Choose components</span>
+                        </button>
+                    </x-slot:actions>
+
+                    <form x-show="editing" x-cloak method="POST" action="{{ route('admin.facilities.components', $facility) }}" class="mt-4 border-t border-border pt-4">
                         @csrf
-                        <div class="border-t border-gray-200 pt-4 space-y-3">
-                            <p class="text-sm text-gray-600">Select amenities to assign:</p>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                @foreach($allAmenities as $amenity)
-                                    <label class="flex items-center gap-2 text-sm cursor-pointer p-2 rounded hover:bg-gray-50">
-                                        <input type="checkbox" name="amenities[]" value="{{ $amenity->id }}"
-                                               {{ $facility->amenities->contains($amenity->id) ? 'checked' : '' }}
-                                               class="rounded border-gray-300 text-primary focus:ring-primary">
-                                        {{ $amenity->name }}
+                        <fieldset>
+                            <legend class="admin-label">Spaces included in this package</legend>
+                            <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                @foreach ($componentOptions as $option)
+                                    <label class="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-sm hover:bg-muted">
+                                        <input type="checkbox" name="components[]" value="{{ $option->id }}"
+                                               @checked(in_array($option->id, $currentComponentIds, true))
+                                               class="h-4 w-4 rounded border-border text-primary focus:ring-primary">
+                                        <span class="min-w-0">
+                                            {{ $option->name }}
+                                            <span class="text-xs text-text-muted">({{ $option->facilityType->name ?? 'Unknown type' }})</span>
+                                        </span>
                                     </label>
                                 @endforeach
                             </div>
-                            <div class="flex justify-end pt-2">
-                                <button type="submit" class="inline-flex items-center px-4 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition">
-                                    Save Amenities
-                                </button>
-                            </div>
+                        </fieldset>
+                        <p class="admin-help">Ticked spaces are held for the whole package reservation and cannot be double booked.</p>
+                        <div class="mt-4 flex justify-end">
+                            <x-admin.button type="submit">Save components</x-admin.button>
                         </div>
                     </form>
-                </div>
-            </div>
-
-            <!-- Package Components (only for packages) -->
-            @if($isPackage)
-                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6" x-data="{ showComponentForm: false }">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-lg font-semibold text-gray-900">Bookable Resource Components</h2>
-                        <button @click="showComponentForm = !showComponentForm" class="text-sm font-medium text-primary hover:text-primary-dark">
-                            <span x-text="showComponentForm ? 'Cancel' : 'Manage'"></span>
-                        </button>
-                    </div>
-                    <p class="text-xs text-gray-500 mb-4">
-                        These are the actual bookable facilities consumed by this package reservation.
-                        This is different from amenities/inclusions which are descriptive features.
-                    </p>
-
-                    @if($facility->packageComponents->count() > 0)
-                        <div class="space-y-2 mb-4">
-                            @foreach($facility->packageComponents as $pkgComponent)
-                                <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
-                                    <div>
-                                        <span class="text-sm font-medium text-gray-900">{{ $pkgComponent->componentFacility->name }}</span>
-                                        <span class="text-xs text-gray-500 ml-2">{{ $pkgComponent->componentFacility->facilityType->name ?? '' }}</span>
-                                    </div>
-                                    <x-badge :status="$pkgComponent->componentFacility->status->value" />
-                                </div>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-sm text-gray-500 mb-4">No bookable resource components assigned yet.</p>
-                    @endif
-
-                    <div x-show="showComponentForm" x-transition style="display: none;">
-                        <form method="POST" action="{{ route('admin.facilities.components', $facility) }}">
-                            @csrf
-                            <div class="border-t border-gray-200 pt-4 space-y-3">
-                                <p class="text-sm text-gray-600">Select facilities included in this package:</p>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    @php
-                                        $currentComponentIds = $facility->packageComponents->pluck('component_facility_id')->toArray();
-                                        $allComponentOptions = \App\Models\Facility::where('id', '!=', $facility->id)->where('is_active', true)->orderBy('name')->get();
-                                    @endphp
-                                    @foreach($allComponentOptions as $option)
-                                        <label class="flex items-center gap-2 text-sm cursor-pointer p-2 rounded hover:bg-gray-50">
-                                            <input type="checkbox" name="components[]" value="{{ $option->id }}"
-                                                   {{ in_array($option->id, $currentComponentIds) ? 'checked' : '' }}
-                                                   class="rounded border-gray-300 text-primary focus:ring-primary">
-                                            {{ $option->name }}
-                                            <span class="text-xs text-gray-400">({{ $option->facilityType->name ?? '' }})</span>
-                                        </label>
-                                    @endforeach
-                                </div>
-                                <div class="flex justify-end pt-2">
-                                    <button type="submit" class="inline-flex items-center px-4 py-2 bg-primary border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-primary-dark transition">
-                                        Save Components
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+                </x-admin.panel>
             @endif
 
-            <!-- Current Rates (read-only) -->
-            @if($facility->rates->count() > 0)
-                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Current Rates</h2>
-                    <x-admin.table>
+            @if ($facility->rates->isNotEmpty())
+                <x-admin.panel
+                    title="Current rates"
+                    :badge="$facility->rates->count()"
+                    :padding="false"
+                    description="Every price guests can be charged for this space."
+                >
+                    <x-slot:actions>
+                        <a href="{{ route('admin.rates.index', ['search' => $facility->name]) }}" class="rounded text-sm font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                            Open rate list
+                        </a>
+                    </x-slot:actions>
+
+                    <x-admin.table plain>
                         <x-admin.table-head>
-                            <x-admin.table-cell :isHeader="true">Name</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true">Rate</x-admin.table-cell>
                             <x-admin.table-cell :isHeader="true">Type</x-admin.table-cell>
-                            <x-admin.table-cell :isHeader="true">Amount</x-admin.table-cell>
+                            <x-admin.table-cell :isHeader="true" numeric>Amount</x-admin.table-cell>
                             <x-admin.table-cell :isHeader="true">Active</x-admin.table-cell>
                         </x-admin.table-head>
                         <x-admin.table-body>
-                            @foreach($facility->rates as $rate)
+                            @foreach ($facility->rates as $rate)
                                 <x-admin.table-row>
-                                    <x-admin.table-cell>{{ $rate->name }}</x-admin.table-cell>
-                                    <x-admin.table-cell>{{ $rate->type->value }}</x-admin.table-cell>
-                                    <x-admin.table-cell>₱{{ number_format($rate->amount, 2) }}</x-admin.table-cell>
-                                    <x-admin.table-cell>{{ $rate->is_active ? 'Yes' : 'No' }}</x-admin.table-cell>
+                                    <x-admin.table-cell>
+                                        <a href="{{ route('admin.rates.show', $rate) }}" class="rounded font-medium text-text hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                                            {{ $rate->name }}
+                                        </a>
+                                    </x-admin.table-cell>
+                                    <x-admin.table-cell nowrap>{{ $rate->type->label() }}</x-admin.table-cell>
+                                    <x-admin.table-cell numeric><x-amount :value="$rate->amount" /></x-admin.table-cell>
+                                    <x-admin.table-cell nowrap>{{ $rate->is_active ? 'Active' : 'Inactive' }}</x-admin.table-cell>
                                 </x-admin.table-row>
                             @endforeach
                         </x-admin.table-body>
                     </x-admin.table>
-                </div>
+                </x-admin.panel>
             @endif
 
-            <!-- Gallery Images (read-only) -->
-            @if($facility->galleryImages->count() > 0)
-                <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Gallery Images</h2>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        @foreach($facility->galleryImages as $image)
-                            <div class="relative aspect-video bg-gray-100 rounded-lg overflow-hidden">
-                                <img src="{{ $image->url() }}" alt="{{ $image->caption ?? $facility->name }}" class="object-cover w-full h-full">
-                                @if($image->caption)
-                                    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                                        <p class="text-white text-xs">{{ $image->caption }}</p>
-                                    </div>
+            @if ($facility->galleryImages->isNotEmpty())
+                <x-admin.panel
+                    title="Guest photos"
+                    :badge="$facility->galleryImages->count()"
+                    description="Shown to guests in this order. Captions are edited from the edit screen."
+                >
+                    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                        @foreach ($facility->galleryImages as $image)
+                            <figure class="overflow-hidden rounded-xl border border-border">
+                                <img src="{{ $image->url() }}" alt="{{ $image->caption ?: $facility->name }}" class="aspect-video w-full object-cover">
+                                @if ($image->caption)
+                                    <figcaption class="bg-muted/60 px-3 py-2 text-xs text-text">{{ $image->caption }}</figcaption>
                                 @endif
-                            </div>
+                            </figure>
                         @endforeach
                     </div>
-                </div>
+                </x-admin.panel>
             @endif
         </div>
 
-        <!-- Sidebar Actions Column -->
-        <div class="space-y-6">
-            <!-- Status Management -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6" x-data="{ showConfirm: false, selectedStatus: '' }">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Status Management</h2>
+        <div class="space-y-6 lg:sticky lg:top-24">
+            <x-admin.panel title="Status" description="Status controls whether new guests can book this space.">
+                <form method="POST" action="{{ route('admin.facilities.status', $facility) }}">
+                    @csrf
+                    @method('PATCH')
+
+                    <label for="status" class="admin-label">Set status to</label>
+                    <select name="status" id="status" class="admin-input mt-1" required aria-required="true">
+                        @foreach (\App\Enums\FacilityStatus::cases() as $status)
+                            <option value="{{ $status->value }}" @selected($status === $facility->status)>{{ $status->label() }}</option>
+                        @endforeach
+                    </select>
+
+                    <dl class="mt-3 space-y-2 text-xs text-text-muted">
+                        @foreach ($statusMeanings as $value => $meaning)
+                            <div>
+                                <dt class="font-semibold text-text">{{ \App\Enums\FacilityStatus::from($value)->label() }}</dt>
+                                <dd>{{ $meaning }}</dd>
+                            </div>
+                        @endforeach
+                    </dl>
+
+                    <x-admin.button type="submit" variant="secondary" class="mt-4 w-full">Update status</x-admin.button>
+                </form>
+            </x-admin.panel>
+
+            <x-admin.panel title="Actions" description="Archiving keeps every past reservation and rate; it only removes the space from the admin lists and the public site.">
                 <div class="space-y-2">
-                    @foreach(\App\Enums\FacilityStatus::cases() as $status)
-                        @if($status !== $facility->status)
-                            <button @click="selectedStatus = '{{ $status->value }}'; showConfirm = true"
-                                    class="w-full text-left px-3 py-2 rounded-md text-sm font-medium border
-                                    {{ $status === \App\Enums\FacilityStatus::Available ? 'border-success text-success hover:bg-success-light' : '' }}
-                                    {{ $status === \App\Enums\FacilityStatus::Unavailable ? 'border-danger text-danger hover:bg-danger-light' : '' }}
-                                    {{ $status === \App\Enums\FacilityStatus::Maintenance ? 'border-gray-400 text-gray-600 hover:bg-gray-50' : '' }}
-                                    transition">
-                                Set to {{ $status->label() }}
-                            </button>
-                        @endif
-                    @endforeach
-                </div>
+                    <x-admin.button variant="secondary" :href="route('admin.facilities.edit', $facility)" class="w-full">Edit facility</x-admin.button>
 
-                <!-- Confirmation Modal -->
-                <div x-show="showConfirm" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
-                    <div class="flex min-h-full items-center justify-center p-4">
-                        <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showConfirm = false"></div>
-                        <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-50">
-                            <h3 class="text-lg font-medium text-gray-900 mb-2">Confirm Status Change</h3>
-                            <p class="text-sm text-gray-500 mb-4">
-                                Are you sure you want to change the status of <strong>{{ $facility->name }}</strong>?
-                                This will affect future availability.
-                            </p>
-                            <form method="POST" action="{{ route('admin.facilities.status', $facility) }}">
-                                @csrf
-                                @method('PATCH')
-                                <input type="hidden" name="status" x-bind:value="selectedStatus">
-                                <div class="flex justify-end gap-3">
-                                    <button type="button" @click="showConfirm = false" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                        Cancel
-                                    </button>
-                                    <button type="submit" class="px-4 py-2 bg-primary border border-transparent rounded-md text-sm font-medium text-white hover:bg-primary-dark">
-                                        Confirm
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
+                    <x-admin.confirm-action
+                        :action="route('admin.facilities.destroy', $facility)"
+                        method="DELETE"
+                        label="Archive facility"
+                        title="Archive {{ $facility->name }}?"
+                        :consequence="'Guest pages, the booking flow, and this list stop offering '.$facility->name.'. Past reservations, rates, and photos are kept.'"
+                        confirm="Archive facility"
+                    />
                 </div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="bg-white shadow-sm rounded-lg border border-gray-200 p-6" x-data="{ showDeleteConfirm: false }">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Actions</h2>
-                <div class="space-y-2">
-                    <a href="{{ route('admin.facilities.edit', $facility) }}" class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
-                        Edit Facility
-                    </a>
-                    <button @click="showDeleteConfirm = true" class="w-full inline-flex items-center justify-center px-4 py-2 border border-danger rounded-md shadow-sm text-sm font-medium text-danger bg-white hover:bg-danger-light transition">
-                        Archive Facility
-                    </button>
-                </div>
-
-                <!-- Delete Confirmation Modal -->
-                <div x-show="showDeleteConfirm" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
-                    <div class="flex min-h-full items-center justify-center p-4">
-                        <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showDeleteConfirm = false"></div>
-                        <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-50">
-                            <h3 class="text-lg font-medium text-gray-900 mb-2">Archive Facility</h3>
-                            <p class="text-sm text-gray-500 mb-4">
-                                This will safely archive <strong>{{ $facility->name }}</strong>.
-                                Historical reservations will be preserved. This action can be reversed.
-                            </p>
-                            <form method="POST" action="{{ route('admin.facilities.destroy', $facility) }}">
-                                @csrf
-                                @method('DELETE')
-                                <div class="flex justify-end gap-3">
-                                    <button type="button" @click="showDeleteConfirm = false" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                        Cancel
-                                    </button>
-                                    <button type="submit" class="px-4 py-2 bg-danger border border-transparent rounded-md text-sm font-medium text-white hover:bg-red-700">
-                                        Archive
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </x-admin.panel>
         </div>
     </div>
 </x-admin-layout>
-

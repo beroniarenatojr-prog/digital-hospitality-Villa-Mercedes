@@ -22,14 +22,19 @@ class PaymentSubmittedNotification extends Notification implements ShouldQueue
 
     public function toArray(object $notifiable): array
     {
+        $code = $this->payment->reservation?->reservation_code
+            ?? $this->payment->reservationGroup?->group_code
+            ?? 'Unknown';
+
         return [
             'payment_id' => $this->payment->id,
             'reservation_id' => $this->payment->reservation_id,
-            'reservation_code' => $this->payment->reservation->reservation_code ?? 'Unknown',
+            'reservation_group_id' => $this->payment->reservation_group_id,
+            'reservation_code' => $code,
             'amount' => $this->payment->amount,
-            'method' => $this->payment->method->value,
-            'status' => $this->payment->status->value,
-            'message' => "A new payment of {$this->payment->amount} was submitted for reservation {$this->payment->reservation->reservation_code}.",
+            'method' => $this->payment->method?->value ?? 'manual',
+            'status' => $this->payment->status?->value ?? 'pending',
+            'message' => "A new payment of {$this->payment->amount} was submitted for booking {$code}.",
         ];
     }
 }

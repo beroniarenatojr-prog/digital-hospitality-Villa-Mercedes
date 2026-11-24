@@ -9,11 +9,12 @@ $alignmentClasses = match ($align) {
 
 $width = match ($width) {
     '48' => 'w-48',
+    '80' => 'w-80 max-w-[calc(100vw-2rem)]',
     default => $width,
 };
 @endphp
 
-<div class="relative" x-data="{ open: false }" @click.outside="open = false" @close.stop="open = false">
+<div class="relative" x-data="{ open: false }" @click.outside="open = false" @close.stop="open = false" @keydown.escape.stop="open = false; $el.querySelector('button')?.focus()">
     <div @click="open = ! open">
         {{ $trigger }}
     </div>

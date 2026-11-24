@@ -36,16 +36,24 @@ class ResortServicesTest extends TestCase
 
     public function test_resort_page_publishes_verified_pool_cottage_menu_and_fee_information(): void
     {
-        $this->get(route('resort.show'))
+        $response = $this->get(route('resort.show'))
             ->assertOk()
             ->assertSee('Adult Pool')
             ->assertSee('Kiddie Pool')
             ->assertSee('9:00 AM')
             ->assertSee('Children are not allowed to swim during this session.')
-            ->assertSee('Cottage reservation: ₱500 per session')
             ->assertSee('Ensaladang Talong')
             ->assertSee('0935 207 8289')
             ->assertSee('Catering, lights &amp; sounds', false);
+
+        // The fee is rendered by x-amount, which puts the peso sign in its own
+        // element and ends with the newline every template file ends with. Both
+        // are whitespace in HTML, so the sentence a guest reads is compared as
+        // text rather than as markup.
+        $this->assertStringContainsString(
+            'Cottage reservation: ₱500.00 per session',
+            preg_replace('/\s+/', ' ', strip_tags($response->getContent())) ?? '',
+        );
 
         $this->assertDatabaseCount('facilities', 12);
         $this->assertDatabaseHas('resort_fees', ['name' => 'Catering, lights & sounds', 'amount' => 2000]);
@@ -120,6 +128,9 @@ class ResortServicesTest extends TestCase
             'guest_name' => 'Cottage Guest',
             'guest_phone' => '09171234567',
             'guest_email' => 'cottage@example.com',
+            // The booking forms always post this: StoreReservationRequest requires
+            // the agreement, so a payload without it is not a booking at all.
+            'policies_accepted' => true,
         ])->assertRedirect();
 
         $this->assertDatabaseHas('reservations', [
@@ -138,11 +149,24 @@ class ResortServicesTest extends TestCase
             ->assertSee('Pool entrance is paid separately at the entrance.');
     }
 
+    /**
+     * A cottage is booked with contact details and nothing else: no guest
+     * signature, and no ID beyond the one the account already carries. The
+     * identity on the sheet is the account's, because the booking form renders
+     * those fields readonly — so the account below carries the details the
+     * guest would have typed, and the account's ID is deliberately absent to
+     * show a cottage does not ask for one.
+     */
     public function test_cottage_reservation_succeeds_with_contact_details_only(): void
     {
         Notification::fake();
         Mail::fake();
-        $user = User::factory()->create();
+        $user = User::factory()->create([
+            'name' => 'Day Cottage Guest',
+            'email' => 'day.cottage@example.com',
+            'phone' => '09171234567',
+            'valid_id_type' => null,
+        ]);
         $cottage = Facility::query()->where('slug', 'cottage-02')->firstOrFail();
         $session = SwimmingSession::query()->where('slug', 'day')->firstOrFail();
 
@@ -154,6 +178,7 @@ class ResortServicesTest extends TestCase
             'guest_name' => 'Day Cottage Guest',
             'guest_phone' => '09171234567',
             'guest_email' => 'day.cottage@example.com',
+            'policies_accepted' => true,
         ])->assertRedirect();
 
         $this->assertDatabaseHas('reservations', [

@@ -9,7 +9,6 @@ use App\Enums\ReservationStatus;
 use App\Enums\Role;
 use App\Exceptions\Customer\ReservationOwnershipException;
 use App\Exceptions\Customer\ReservationPolicyException;
-use App\Exceptions\Reservation\ReservationCancellationException;
 use App\Models\Facility;
 use App\Models\Reservation;
 use App\Models\User;
@@ -17,6 +16,7 @@ use App\Notifications\Reservation\ReservationWithdrawalRequestedNotification;
 use App\Services\AvailabilityService;
 use App\Services\PricingService;
 use App\Services\ReservationService;
+use App\Services\ReservationSchedule;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Notification;
@@ -47,30 +47,48 @@ class CustomerReservationService
      */
     public function reservationTabs(User $customer): array
     {
-        $now = now();
-        $counts = Reservation::query()
-            ->where('user_id', $customer->id)
-            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending_count', [ReservationStatus::Pending->value])
-            ->selectRaw('SUM(CASE WHEN status = ? AND check_in > ? THEN 1 ELSE 0 END) as upcoming_count', [ReservationStatus::Approved->value, $now])
-            ->selectRaw('SUM(CASE WHEN status = ? AND check_in <= ? AND check_out > ? THEN 1 ELSE 0 END) as current_count', [ReservationStatus::Approved->value, $now, $now])
-            ->selectRaw('SUM(CASE WHEN status = ? OR (status = ? AND check_out <= ?) THEN 1 ELSE 0 END) as completed_count', [ReservationStatus::Completed->value, ReservationStatus::Approved->value, $now])
-            ->selectRaw('SUM(CASE WHEN status IN (?, ?, ?, ?) THEN 1 ELSE 0 END) as cancelled_count', [
-                ReservationStatus::Expired->value,
-                ReservationStatus::Cancelled->value,
-                ReservationStatus::Rejected->value,
-                ReservationStatus::Rescheduled->value,
-            ])
-            ->first();
-
-        return [
-            ['key' => 'upcoming', 'label' => 'Upcoming', 'count' => (int) ($counts?->upcoming_count ?? 0)],
-            ['key' => 'pending', 'label' => config('payments.deposit_workflow') ? 'Action / review pending' : 'Awaiting approval', 'count' => (int) ($counts?->pending_count ?? 0)],
-            ['key' => 'current', 'label' => 'Current stay', 'count' => (int) ($counts?->current_count ?? 0)],
-            ['key' => 'completed', 'label' => 'Completed', 'count' => (int) ($counts?->completed_count ?? 0)],
-            ['key' => 'cancelled', 'label' => 'Cancelled / declined / expired', 'count' => (int) ($counts?->cancelled_count ?? 0)],
+        $counts = \Illuminate\Support\Facades\DB::query()
+            ->fromSub($this->bookingRecords($customer), 'bookings')
+            ->selectRaw('booking_rank, COUNT(*) as total')
+            ->groupBy('booking_rank')->pluck('total', 'booking_rank');
+        $tabs = [
+            ['key' => 'pending', 'label' => config('payments.deposit_workflow') ? 'Review pending' : 'Awaiting approval', 'count' => (int) ($counts[1] ?? 0)],
+            ['key' => 'upcoming', 'label' => 'Confirmed', 'count' => (int) ($counts[2] ?? 0)],
+            ['key' => 'current', 'label' => 'Current stay', 'count' => (int) ($counts[0] ?? 0)],
+            ['key' => 'completed', 'label' => 'Completed', 'count' => (int) ($counts[3] ?? 0)],
+            ['key' => 'cancelled', 'label' => 'Closed bookings', 'count' => (int) ($counts[4] ?? 0)],
         ];
+
+        // This last tab names the ways a booking ends without a stay. A guest who
+        // has never had one does not need a tab describing the possibility, so it
+        // stays out of sight until there is something in it. A guest who does have
+        // that history keeps every record of it — the resort can still cancel a
+        // booking from the back office, and this is where the guest sees that.
+        return array_values(array_filter(
+            $tabs,
+            fn (array $tab): bool => $tab['key'] !== 'cancelled' || $tab['count'] > 0
+        ));
     }
 
+    /** One record per booking, assigned to its most actionable service tab. */
+    private function bookingRecords(User $customer): \Illuminate\Database\Eloquent\Builder
+    {
+        return Reservation::query()->where('user_id', $customer->id)
+            ->selectRaw('MAX(reservations.id) as id')
+            ->selectRaw('MIN(CASE
+                WHEN status = ? AND check_in <= ? AND check_out > ? THEN 0
+                WHEN status = ? THEN 1
+                WHEN status = ? AND check_in > ? THEN 2
+                WHEN status = ? OR (status = ? AND check_out <= ?) THEN 3
+                ELSE 4 END) as booking_rank', [
+                ReservationStatus::Approved->value, now(), now(),
+                ReservationStatus::Pending->value,
+                ReservationStatus::Approved->value, now(),
+                ReservationStatus::Completed->value, ReservationStatus::Approved->value, now(),
+            ])
+            ->groupBy('reservation_group_id')
+            ->groupByRaw('CASE WHEN reservation_group_id IS NULL THEN reservations.id ELSE 0 END');
+    }
     public function resolveReservationTab(string $requested, array $tabs): string
     {
         $keys = array_column($tabs, 'key');
@@ -97,10 +115,15 @@ class CustomerReservationService
     {
         $tab = in_array($tab, Reservation::customerTabKeys(), true) ? $tab : 'upcoming';
 
+        $rank = ['current' => 0, 'pending' => 1, 'upcoming' => 2, 'completed' => 3, 'cancelled' => 4][$tab];
+        $ids = \Illuminate\Support\Facades\DB::query()
+            ->fromSub($this->bookingRecords($customer), 'bookings')
+            ->where('booking_rank', $rank)->select('id');
+
         return Reservation::where('user_id', $customer->id)
-            ->forCustomerTab($tab)
-            ->with(['facility', 'payments', 'swimmingSession'])
-            ->latest()
+            ->whereIn('id', $ids)
+            ->with(['facility', 'payments', 'swimmingSession', 'reservationGroup.reservations' => fn ($query) => $query->where('user_id', $customer->id)->with(['facility', 'payments'])])
+            ->latest()->orderByDesc('id')
             ->paginate(12)
             ->withQueryString();
     }
@@ -145,42 +168,15 @@ class CustomerReservationService
     }
 
     /**
-     * Cancel a reservation owned by the customer.
-     *
-     * Verifies ownership and the published free-cancellation window before
-     * delegating to ReservationService::cancel().
-     *
-     * @throws ReservationOwnershipException
-     * @throws ReservationPolicyException
-     * @throws ReservationCancellationException
-     */
-    public function cancelReservation(User $customer, Reservation $reservation, ?string $reason = null): void
-    {
-        $this->verifyOwnership($customer, $reservation);
-
-        $cutoffHours = $this->cancellationCutoffHours();
-
-        if (! $this->isWithinCutoff($reservation, $cutoffHours)) {
-            throw new ReservationPolicyException(
-                "Online cancellation closes {$cutoffHours} hours before check-in. Please contact the resort directly to cancel this reservation."
-            );
-        }
-
-        if ($reservation->status !== ReservationStatus::Approved) {
-            throw new ReservationCancellationException(
-                'This reservation cannot be cancelled online from its current status.'
-            );
-        }
-
-        $this->reservationService->cancel($reservation, $customer, $reason);
-    }
-
-    /**
      * Ask staff to withdraw a pending reservation. Status stays Pending until staff confirm.
      */
     public function requestCancellation(User $customer, Reservation $reservation, ?string $reason = null): void
     {
         $this->verifyOwnership($customer, $reservation);
+        if ($reservation->policy_version === config('resort.policy.confirmed_version')) {
+            app(\App\Services\BookingPracticeService::class)->requestCancellation($reservation, $customer, $reason ?: 'Guest requests cancellation.');
+            return;
+        }
 
         if (! $this->canRequestCancellation($reservation)) {
             if ($reservation->cancellation_requested_at !== null) {
@@ -194,7 +190,7 @@ class CustomerReservationService
             );
         }
 
-        $cutoffHours = $this->cancellationCutoffHours();
+        $cutoffHours = $this->withdrawalCutoffHours();
 
         if (! $this->isWithinCutoff($reservation, $cutoffHours)) {
             throw new ReservationPolicyException(
@@ -239,6 +235,13 @@ class CustomerReservationService
     ): Reservation {
         $this->verifyOwnership($customer, $reservation);
 
+        if ($reservation->policy_version === config('resort.policy.confirmed_version')) {
+            app(\App\Services\BookingPracticeService::class)->proposeChange($reservation, $customer, [
+                'facility_id' => $newFacility->id, 'check_in' => $newCheckIn->toDateTimeString(), 'check_out' => $newCheckOut->toDateTimeString(),
+                'guest_count' => $newGuestCount, ...$options,
+            ]);
+            return $reservation->refresh();
+        }
         $cutoffHours = $this->rescheduleCutoffHours();
 
         if ($reservation->swimming_session_id !== null || $newFacility->isCottage()) {
@@ -279,7 +282,9 @@ class CustomerReservationService
         int $lateCheckOutHours = 0,
         ?int $paxTier = null
     ): AvailabilityResult {
-        return $this->availabilityService->isAvailable(
+        app(ReservationSchedule::class)->validate($facility, $checkIn, $checkOut, $earlyCheckInHours, $lateCheckOutHours);
+
+        $result = $this->availabilityService->isAvailable(
             $facility,
             $checkIn,
             $checkOut,
@@ -289,6 +294,12 @@ class CustomerReservationService
             $lateCheckOutHours,
             paxTier: $paxTier
         );
+
+        if (! $result->isAvailable && $facility->isRoom() && $earlyCheckInHours > 0) {
+            return new AvailabilityResult(false, 'Early check-in is unavailable: '.$result->reason.' Try standard 2 PM check-in or another date.', $result->conflictingReservationId, $result->status());
+        }
+
+        return $result;
     }
 
     /**
@@ -305,6 +316,8 @@ class CustomerReservationService
         ?int $guestCount = null,
         ?int $paxTier = null
     ): PriceBreakdown {
+        app(ReservationSchedule::class)->validate($facility, $checkIn, $checkOut, $earlyCheckInHours, $lateCheckOutHours);
+
         return $this->pricingService->calculate(
             $facility,
             $checkIn,
@@ -317,20 +330,21 @@ class CustomerReservationService
     }
 
     /**
-     * Check if a reservation can be cancelled.
+     * Check if the guest may ask staff to withdraw this reservation.
+     *
+     * Pending only, and not already asked. Withdrawal never cancels anything,
+     * so a reservation the resort has already approved is refused here.
      */
-    public function canCancel(Reservation $reservation): bool
-    {
-        return $reservation->status === ReservationStatus::Approved
-            && (! $reservation->deposit_required || ($reservation->getVerifiedTotalPaid() <= 0 && $reservation->getPendingVerificationTotal() <= 0))
-            && $this->isWithinCutoff($reservation, $this->cancellationCutoffHours());
-    }
-
     public function canRequestCancellation(Reservation $reservation): bool
     {
+        if ($reservation->policy_version === config('resort.policy.confirmed_version')) {
+            $booking = app(\App\Services\BookingPracticeService::class)->target($reservation);
+            return ! $reservation->checked_in_at && ! isset($booking->booking_workflow['refund'])
+                && (! $reservation->reservation_group_id || ! $reservation->reservationGroup->reservations()->whereNotNull('checked_in_at')->exists());
+        }
         return $reservation->status === ReservationStatus::Pending
             && $reservation->cancellation_requested_at === null
-            && $this->isWithinCutoff($reservation, $this->cancellationCutoffHours());
+            && $this->isWithinCutoff($reservation, $this->withdrawalCutoffHours());
     }
 
     /**
@@ -338,15 +352,22 @@ class CustomerReservationService
      */
     public function canReschedule(Reservation $reservation): bool
     {
+        if ($reservation->policy_version === config('resort.policy.confirmed_version')) {
+            return ! $reservation->checked_in_at && in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)
+                && (! $reservation->reservation_group_id || ! $reservation->reservationGroup->reservations()->whereNotNull('checked_in_at')->exists());
+        }
         return $reservation->swimming_session_id === null
             && (! $reservation->deposit_required || ($reservation->getVerifiedTotalPaid() <= 0 && $reservation->getPendingVerificationTotal() <= 0))
             && in_array($reservation->status, [ReservationStatus::Pending, ReservationStatus::Approved], true)
             && $this->isWithinCutoff($reservation, $this->rescheduleCutoffHours());
     }
 
-    public function cancellationCutoffHours(): int
+    /**
+     * How long before check-in a guest may still ask staff to withdraw.
+     */
+    public function withdrawalCutoffHours(): int
     {
-        return (int) config('resort.policy.cancellation_cutoff_hours', 48);
+        return (int) config('resort.policy.withdrawal_cutoff_hours', 48);
     }
 
     public function rescheduleCutoffHours(): int

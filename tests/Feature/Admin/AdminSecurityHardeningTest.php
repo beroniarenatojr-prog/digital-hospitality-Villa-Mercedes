@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Enums\FacilityType;
 use App\Enums\PaymentStatus;
 use App\Enums\ReservationStatus;
 use App\Models\Facility;
@@ -176,23 +177,58 @@ class AdminSecurityHardeningTest extends TestCase
         $response->assertSessionHasErrors('reason');
     }
 
-    public function test_capacity_enforcement_blocks_over_capacity()
+    /**
+     * A party larger than the space holds cannot be filed, whatever the form asks
+     * for.
+     *
+     * The guarantee is about what can be recorded, not about which count the
+     * request carried: `syncGuestCount()` brings the party size down to the
+     * space's own limit on the way in — which is why oversubscribing is not a
+     * validation error — and the guest sheet's companion slots follow the same
+     * limit. So the claim to hold is that no reservation may exist for an
+     * over-capacity party. It is asserted for this customer rather than for the
+     * whole table: the seeded demo history legitimately holds larger parties in
+     * the bigger spaces, which is what made the old table-wide assertion fail.
+     */
+    public function test_capacity_enforcement_holds_a_party_within_the_space()
     {
         $this->actingAs($this->customer1);
 
-        $maxCapacity = $this->facility->max_capacity ?? $this->facility->capacity + 1;
-        $overCapacity = $maxCapacity + 5;
+        // A room sold on its own: a cottage or a hall would refuse this payload
+        // over its own schedule, which is not the rule being measured here.
+        $facility = Facility::query()
+            ->where('is_active', true)
+            ->whereHas('facilityType', fn ($query) => $query->where('slug', FacilityType::Room->value))
+            ->firstOrFail();
 
-        // Ensure this throws exception in service or is blocked
+        $overCapacity = (int) $facility->effectiveMaxCapacity() + 5;
+
         $response = $this->post(route('customer.reservations.store'), [
-            'facility_id' => $this->facility->id,
+            'facility_id' => $facility->id,
             'check_in' => now()->addDays(10)->toDateString(),
             'check_out' => now()->addDays(11)->toDateString(),
             'guestCount' => $overCapacity,
         ] + $this->guestInformationPayload());
 
-        $this->assertDatabaseMissing('reservations', [
-            'guest_count' => $overCapacity,
-        ]);
+        $this->assertLessThan(500, $response->getStatusCode(), 'The booking request failed instead of answering.');
+
+        // The party size is not why anything was refused — it was synced, not
+        // rejected — so a regression that started accepting oversized parties
+        // would have to show up in the rows below, not in this line.
+        $response->assertSessionDoesntHaveErrors('guestCount');
+
+        // Whatever this request filed is bounded by the space. Only those rows
+        // are judged: the fixture's own reservation is built by a factory that
+        // does not know about capacity, and the seeded demo history legitimately
+        // holds larger parties in the bigger spaces.
+        $filed = Reservation::query()
+            ->where('user_id', $this->customer1->id)
+            ->whereKeyNot($this->reservation->getKey())
+            ->get();
+
+        $this->assertTrue(
+            $filed->every(fn (Reservation $reservation) => $reservation->guest_count <= $facility->effectiveMaxCapacity()),
+            'A booking was filed for more guests than the space holds: '.$filed->pluck('guest_count', 'id')->toJson()
+        );
     }
 }

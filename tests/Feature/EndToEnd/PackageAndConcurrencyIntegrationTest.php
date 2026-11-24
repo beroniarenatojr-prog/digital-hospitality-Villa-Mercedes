@@ -32,13 +32,15 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
         $packageType = FacilityType::where('slug', 'resort_package')->first();
         $package = Facility::where('facility_type_id', $packageType->id)
             ->where('is_active', true)
+            ->where('stay_spans_midnight', true)
             ->whereHas('packageComponents.componentFacility', function ($query) {
                 $query->where('is_listed', true)->where('is_active', true);
             })
             ->first();
         
         // Find a resource that is part of the package
-        $component = $package->packageComponents()->first()->componentFacility;
+        $component = $package->packageComponents()->with('componentFacility.facilityType')->get()
+            ->first(fn ($part) => $part->componentFacility->isRoom())->componentFacility;
         $this->assertNotNull($component);
 
         \App\Models\Rate::create([
@@ -50,8 +52,9 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
             'is_active' => true,
         ]);
 
-        $checkIn = Carbon::now()->addDays(10)->format('Y-m-d');
-        $checkOut = Carbon::now()->addDays(12)->format('Y-m-d');
+        [$checkIn, $checkOut] = $package->occupancyWindowForDate(Carbon::now()->addDays(10));
+        $checkIn = $checkIn->toDateTimeString();
+        $checkOut = $checkOut->toDateTimeString();
 
         // 1. Customer A books the Package
         $responseA = $this->actingAs($customerA)->post(route('customer.reservations.store'), [
@@ -77,10 +80,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
             'guestCount' => 2,
         ]);
 
-        // The service layer throws InvalidReservationPeriodException or availability fails, 
-        // which the controller handles by returning 500 in test or redirect back with error if caught.
-        // Actually, CustomerReservationController doesn't have try-catch in store.
-        // We will assert that the database does not contain this reservation.
+        $responseB->assertSessionHas('error');
         $this->assertDatabaseMissing('reservations', [
             'user_id' => $customerB->id,
             'facility_id' => $component->id,
@@ -88,8 +88,9 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
         ]);
 
         // Reverse scenario
-        $checkIn2 = Carbon::now()->addDays(20)->format('Y-m-d');
-        $checkOut2 = Carbon::now()->addDays(22)->format('Y-m-d');
+        [$checkIn2, $checkOut2] = $package->occupancyWindowForDate(Carbon::now()->addDays(20));
+        $checkIn2 = $checkIn2->toDateTimeString();
+        $checkOut2 = $checkOut2->toDateTimeString();
 
         // Customer B books the Component
         $responseB2 = $this->actingAs($customerB)->post(route('customer.reservations.store'), [
@@ -114,6 +115,7 @@ class PackageAndConcurrencyIntegrationTest extends TestCase
             'check_out' => $checkOut2,
             'guestCount' => 2,
         ]);
+        $responseA2->assertSessionHas('error');
 
         $this->assertDatabaseMissing('reservations', [
             'user_id' => $customerA->id,

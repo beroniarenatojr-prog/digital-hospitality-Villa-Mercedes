@@ -48,7 +48,7 @@ class CustomerJourneyTest extends TestCase
         $this->verifyRegistrationEmail('john.e2e@example.com');
 
         $response = $this->post('/register', $this->registrationPayload('john.e2e@example.com', [
-            'name' => 'John E2E Customer',
+            'name' => 'John Customer',
         ]));
         $response->assertRedirect(route('customer.reservations.index'));
         $this->assertAuthenticated();
@@ -57,8 +57,8 @@ class CustomerJourneyTest extends TestCase
         $this->assertTrue($customer->hasRole('Customer'));
 
         // 3. Preview Booking Price
-        $checkIn = Carbon::now()->addDays(40)->format('Y-m-d');
-        $checkOut = Carbon::now()->addDays(42)->format('Y-m-d');
+        $checkIn = Carbon::now()->addDays(40)->setTime(14, 0)->format('Y-m-d H:i:s');
+        $checkOut = Carbon::now()->addDays(42)->setTime(12, 0)->format('Y-m-d H:i:s');
         $guestCount = 2;
 
         $response = $this->postJson(route('customer.booking.calculate', $facility), [
@@ -80,7 +80,7 @@ class CustomerJourneyTest extends TestCase
             'check_out' => $checkOut,
             'guestCount' => $guestCount,
         ] + $this->guestInformationPayload([
-            'guest_name' => 'John E2E Customer',
+            'guest_name' => 'John Customer',
             'guest_email' => 'john.e2e@example.com',
             'guest_phone' => '09171234567',
         ]));
@@ -88,7 +88,9 @@ class CustomerJourneyTest extends TestCase
         $reservation = Reservation::where('user_id', $customer->id)->first();
         $this->assertNotNull($reservation);
 
-        $response->assertRedirect(route('customer.reservations.show', $reservation));
+        // A submitted request is not a booking: the guest lands on My reservations,
+        // on the tab that holds it until the resort answers.
+        $response->assertRedirect(route('customer.reservations.index', ['tab' => 'pending']));
         $response->assertSessionHas('success');
 
         // Verify Reservation State
@@ -104,10 +106,9 @@ class CustomerJourneyTest extends TestCase
         $response->assertSee('Pending');
 
         $admin = User::whereHas('roles', fn ($q) => $q->where('name', 'Administrator'))->first();
-        $this->actingAs($admin)->patch(route('admin.reservations.approve', $reservation));
+        $this->actingAs($admin)->patch(route('admin.reservations.approve', $reservation))->assertSessionHas('error');
+        $this->assertEquals(ReservationStatus::Pending, $reservation->fresh()->status);
         $this->actingAs($customer);
-        $reservation->refresh();
-        $this->assertEquals(ReservationStatus::Approved, $reservation->status);
 
         // 6. Submit Payment
         $proof = UploadedFile::fake()->image('proof.jpg');
@@ -124,10 +125,13 @@ class CustomerJourneyTest extends TestCase
         $payment = Payment::where('reservation_id', $reservation->id)->first();
         $this->assertNotNull($payment);
 
-        $response->assertRedirect(route('customer.reservations.show', $reservation));
+        $response->assertRedirect(route('customer.reservations.index', ['tab' => 'pending']));
         $response->assertSessionHas('success');
 
         // Verify Payment State
+        $this->get($response->headers->get('Location'))->assertOk()
+            ->assertSee($reservation->reservation_code)->assertSee('Under review');
+        $this->assertSame(ReservationStatus::Pending, $reservation->fresh()->status);
         $this->assertEquals(PaymentStatus::Pending, $payment->status);
         $this->assertEquals($paymentAmount, $payment->amount);
 
@@ -158,6 +162,9 @@ class CustomerJourneyTest extends TestCase
         $response = $this->patch(route('admin.payments.verify', $payment));
         $response->assertRedirect();
         $response->assertSessionHas('success');
+
+        $this->patch(route('admin.reservations.approve', $reservation))->assertSessionHas('success');
+        $this->assertEquals(ReservationStatus::Approved, $reservation->fresh()->status);
 
         // 8. Re-evaluate customer dashboard balance
         $this->post('/logout');

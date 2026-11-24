@@ -32,6 +32,8 @@ class AuthenticationTest extends TestCase
         $response = $this->get('/login');
 
         $response->assertStatus(200);
+        // The tab still names itself from the route it is on.
+        $response->assertSee('<title>Sign in', false);
         $response->assertSee('Welcome back');
         $response->assertSee('Sign in to your account');
         $response->assertSee('Create one in a minute');

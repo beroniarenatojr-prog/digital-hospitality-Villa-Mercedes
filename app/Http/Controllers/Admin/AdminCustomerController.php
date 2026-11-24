@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Admin\CustomerManagementService;
 use App\Support\LiveFilter;
+use App\Support\ResortTime;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -71,7 +72,7 @@ class AdminCustomerController extends Controller
         $reservations = $customer->reservations;
         $stats = [
             'total_reservations' => $reservations->count(),
-            'upcoming' => $reservations->where('status', ReservationStatus::Approved)->where('check_in', '>', now())->count(),
+            'upcoming' => $reservations->where('status', ReservationStatus::Approved)->where('check_in', '>', ResortTime::now())->count(),
             'completed' => $reservations->where('status', ReservationStatus::Completed)->count(),
             'cancelled' => $reservations->whereIn('status', [ReservationStatus::Cancelled, ReservationStatus::Rejected])->count(),
         ];

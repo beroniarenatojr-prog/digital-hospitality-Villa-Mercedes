@@ -46,6 +46,9 @@ class AuthenticatedSessionController extends Controller
 
     /**
      * Destroy an authenticated session.
+     *
+     * This is the guest door. Staff sign out through `admin.logout`, which knows
+     * it is the back office without having to ask who was leaving.
      */
     public function destroy(Request $request): RedirectResponse
     {

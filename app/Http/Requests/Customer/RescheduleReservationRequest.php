@@ -17,9 +17,10 @@ class RescheduleReservationRequest extends FormRequest
             'facility_id' => ['required', 'integer', 'exists:facilities,id'],
             'check_in' => ['required', 'date', 'after:now'],
             'check_out' => ['required', 'date', 'after:check_in'],
+            'special_requests' => ['nullable', 'string', 'max:1000'],
             'guestCount' => ['required', 'integer', 'min:1'],
-            'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:' . config('resort.stay.max_additional_hours', 12)],
-            'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:' . config('resort.stay.max_additional_hours', 12)],
+            'early_check_in_hours' => ['nullable', 'integer', 'min:0', 'max:2'],
+            'late_check_out_hours' => ['nullable', 'integer', 'min:0', 'max:0'],
         ];
     }
 }

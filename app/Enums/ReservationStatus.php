@@ -26,6 +26,22 @@ enum ReservationStatus: string
     }
 
     /**
+     * The colour this state wears, so `x-badge` never has to guess it from the
+     * spelling of the label. Renaming a label must not silently repaint a state.
+     *
+     * @return 'success'|'warning'|'danger'|'info'|'neutral'|'muted'
+     */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Approved, self::Completed => 'success',
+            self::Pending => 'warning',
+            self::Rejected, self::Cancelled, self::Expired => 'danger',
+            self::Rescheduled => 'muted',
+        };
+    }
+
+    /**
      * @return list<string>
      */
     public static function values(): array

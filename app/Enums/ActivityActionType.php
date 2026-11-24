@@ -8,6 +8,8 @@ enum ActivityActionType: string
     case Update = 'update';
     case Delete = 'delete';
     case Approve = 'approve';
+    case SignIn = 'sign_in';
+    case SignOut = 'sign_out';
 
     public function label(): string
     {
@@ -16,6 +18,8 @@ enum ActivityActionType: string
             self::Update => 'Update',
             self::Delete => 'Delete',
             self::Approve => 'Approve',
+            self::SignIn => 'Sign in',
+            self::SignOut => 'Sign out',
         };
     }
 
@@ -54,6 +58,8 @@ enum ActivityActionType: string
                 'guest_review_moderated',
                 'deposit_top_up_requested',
                 'deposit_hold_expired',
+                'late_checkout_declined',
+                'room_hour_rates_reconciled',
             ],
             self::Delete => [
                 'facility_deleted',
@@ -62,6 +68,13 @@ enum ActivityActionType: string
             ],
             self::Approve => [
                 'payment_verified',
+                'late_checkout_approved',
+            ],
+            self::SignIn => [
+                'staff_signed_in',
+            ],
+            self::SignOut => [
+                'staff_signed_out',
             ],
         };
     }
@@ -69,11 +82,16 @@ enum ActivityActionType: string
     /**
      * Gateway or unattended events that still belong in the staff log.
      *
+     * A sign-out belongs here because it is the one staff action that can arrive
+     * after its own session has died: there is nobody left to attribute it to,
+     * and an unattributed entry is a truer record than a missing one — the desk
+     * changed hands at that minute either way.
+     *
      * @return list<string>
      */
     public static function systemEvents(): array
     {
-        return ['payment_verified', 'deposit_hold_expired'];
+        return ['payment_verified', 'deposit_hold_expired', 'staff_signed_out', 'room_hour_rates_reconciled'];
     }
 
     /**
@@ -101,7 +119,7 @@ enum ActivityActionType: string
 
     public static function isApproval(?string $event, ?string $description = null): bool
     {
-        if ($event === 'payment_verified') {
+        if (in_array($event, ['payment_verified', 'late_checkout_approved'], true)) {
             return true;
         }
 

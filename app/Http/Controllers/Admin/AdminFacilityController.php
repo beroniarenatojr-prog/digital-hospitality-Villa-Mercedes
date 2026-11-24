@@ -27,7 +27,11 @@ class AdminFacilityController extends Controller
 
     public function index(Request $request): View
     {
-        $query = Facility::with('facilityType', 'amenities');
+        $query = Facility::with([
+            'facilityType',
+            'amenities',
+            'galleryImages' => fn ($query) => $query->where('is_active', true),
+        ]);
 
         // Server-side type filter
         if ($request->filled('type')) {

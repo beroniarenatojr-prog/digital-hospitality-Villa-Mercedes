@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\GuestGender;
+use App\Enums\GuestIdType;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -30,6 +31,10 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'phone' => '0917'.fake()->unique()->numerify('#######'),
             'gender' => fake()->randomElement(GuestGender::cases()),
+            'address' => fake()->streetAddress().', '.fake()->city(),
+            'nationality' => 'Filipino',
+            'valid_id_type' => GuestIdType::PhilSys,
+            'company' => null,
             'email_verified_at' => now(),
             'profile_completed_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
@@ -52,6 +57,11 @@ class UserFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'profile_completed_at' => null,
             'phone' => null,
+            'address' => null,
+            'nationality' => null,
+            'valid_id_type' => null,
+            'company' => null,
+            'gender' => null,
             'name' => Str::before($attributes['email'] ?? 'guest@example.com', '@'),
         ]);
     }

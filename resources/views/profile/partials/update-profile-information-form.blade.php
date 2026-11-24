@@ -19,13 +19,13 @@
 
         <div>
             <x-input-label for="name" :value="__('Name')" />
-            <x-text-input id="name" name="name" type="text" class="mt-1 block w-full" :value="old('name', $user->name)" required autofocus autocomplete="name" />
+            <x-text-input id="name" name="name" type="text" class="mt-1 block w-full" :value="old('name', $user->name)" required autofocus autocomplete="name" maxlength="255" oninput="this.value = this.value.replace(/[^\p{L}\p{M} .'’\-]/gu, '')" />
             <x-input-error class="mt-2" :messages="$errors->get('name')" />
         </div>
 
         <div>
             <x-input-label for="phone" :value="__('Mobile number')" />
-            <x-text-input id="phone" name="phone" type="tel" class="mt-1 block w-full" :value="old('phone', $user->phone)" autocomplete="tel" placeholder="0917 123 4567" />
+            <x-text-input id="phone" name="phone" type="tel" class="mt-1 block w-full" :value="old('phone', $user->phone)" autocomplete="tel" inputmode="numeric" pattern="09[0-9]{9}" minlength="11" maxlength="11" placeholder="09171234567" title="Enter exactly 11 digits beginning with 09." oninput="this.value = this.value.replace(/\D/g, '').slice(0, 11)" />
             <x-input-error class="mt-2" :messages="$errors->get('phone')" />
         </div>
 
@@ -45,7 +45,7 @@
                     </p>
 
                     @if (session('status') === 'verification-link-sent')
-                        <p class="mt-2 font-medium text-sm text-green-600">
+                        <p class="mt-2 font-medium text-sm text-success">
                             {{ __('A new verification link has been sent to your email address.') }}
                         </p>
                     @endif
@@ -78,7 +78,7 @@
 
         <div>
             <x-input-label for="nationality" :value="__('Nationality')" />
-            <x-text-input id="nationality" name="nationality" type="text" class="mt-1 block w-full" :value="old('nationality', $user->nationality)" maxlength="100" />
+            <x-text-input id="nationality" name="nationality" type="text" class="mt-1 block w-full" :value="old('nationality', $user->nationality)" maxlength="100" placeholder="Filipino" oninput="this.value = this.value.replace(/[^\p{L}\p{M} .'’\-]/gu, '')" />
             <x-input-error class="mt-2" :messages="$errors->get('nationality')" />
         </div>
 

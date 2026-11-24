@@ -10,3 +10,5 @@ Artisan::command('inspire', function () {
 
 Schedule::command('otp:prune')->daily();
 Schedule::command('reservations:expire-unpaid')->everyMinute()->withoutOverlapping();
+Schedule::command('reservations:auto-check-out')->everyMinute()->withoutOverlapping();
+Schedule::command('reservations:send-checkout-reminders')->everyMinute()->withoutOverlapping();

@@ -1,7 +1,7 @@
 <x-customer-layout>
     @php
         $remaining = $reservation->getRemainingBalance();
-        $availableToSubmit = config('payments.deposit_workflow') ? $reservation->getDepositAvailableAmount() : $reservation->getAvailablePaymentAmount();
+        $availableToSubmit = config('payments.deposit_workflow') && $reservation->policy_version !== config('resort.policy.confirmed_version') ? $reservation->getDepositAvailableAmount() : $reservation->getAvailablePaymentAmount();
         $paymentState = $reservation->guestPaymentState();
         $canPay = $reservation->canAcceptGuestPayment();
         $pendingVerification = $reservation->getPendingVerificationTotal();
@@ -10,15 +10,19 @@
     <div class="py-12">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
 
-            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                <div>
-                    <h1 class="font-heading text-4xl md:text-5xl font-semibold text-text">Deposit &amp; payment history</h1>
-                    <p class="mt-2 text-text-muted">{{ $reservation->facility->name }} &middot; {{ $reservation->reservation_code }}</p>
-                </div>
-                <a href="{{ route('customer.reservations.show', $reservation) }}" class="text-sm text-primary font-medium hover:underline">
-                    &larr; Back to reservation
-                </a>
-            </div>
+            <x-customer.page-header
+                :breadcrumbs="[
+                    ['label' => 'My reservations', 'href' => route('customer.reservations.index')],
+                    ['label' => $reservation->reservation_code, 'href' => route('customer.reservations.show', $reservation)],
+                    ['label' => 'Payments'],
+                ]"
+                eyebrow="Secure payment"
+                title="Deposit & payment history"
+                :description="$reservation->facility->name"
+            />
+
+            <x-customer.reservation-tabs :reservation="$reservation" />
+            @include('customer.reservations.partials.booking-discussions', ['reservation' => $reservation])
 
             @if ($errors->any())
                 <x-alert type="danger" title="There were errors with your submission">
@@ -30,17 +34,20 @@
                 </x-alert>
             @endif
 
-            @if (session('error'))
-                <x-alert type="danger" title="{{ session('error') }}" />
-            @endif
-
-            @if (session('success'))
-                <x-alert type="success" title="{{ session('success') }}" />
-            @endif
-
+            {{--
+                One notice per event: the layout already prints the flash message
+                at the top of the page. This block used to print it a second time
+                with a different title, so a single failed submission produced two
+                alerts saying the same thing and a guest had to work out whether
+                they were two problems or one.
+            --}}
             @if($paymentState === \App\Enums\GuestPaymentState::AwaitingApproval)
-                <x-alert type="info" title="Waiting for resort approval">
-                    This request requires staff assistance. Review its status or contact the resort before transferring funds.
+                <x-alert type="info" :title="config('payments.deposit_workflow') ? 'Review pending' : 'Waiting for resort approval'">
+                    @if(config('payments.deposit_workflow'))
+                        Your request is with the resort for review and payment verification. We email you the moment staff review your submission.
+                    @else
+                        This request requires staff assistance. Review its status or contact the resort before transferring funds.
+                    @endif
                 </x-alert>
             @elseif($paymentState === \App\Enums\GuestPaymentState::ReceiptPending)
                 <x-alert type="info" title="Receipt awaiting verification">
@@ -60,26 +67,26 @@
                         <h2 class="font-heading text-2xl font-semibold text-text">{{ $reservation->reservation_code }}</h2>
                         <p class="mt-1 text-sm text-text-muted">{{ $reservation->facility->name }}</p>
                     </div>
-                    <x-badge :status="$reservation->status->label()" />
+                    <x-badge :status="$reservation->status" />
                 </div>
                 <div class="px-5 py-5 sm:p-6 bg-background">
                     <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
                         <div>
                             <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Total</dt>
-                            <dd class="mt-1 text-lg font-medium text-text">₱{{ number_format($reservation->total_price, 2) }}</dd>
+                            <dd class="mt-1 text-lg font-medium text-text"><x-amount :value="$reservation->total_price" /></dd>
                         </div>
                         <div>
                             <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Verified paid</dt>
-                            <dd class="mt-1 text-lg font-medium text-success">₱{{ number_format($reservation->getVerifiedTotalPaid(), 2) }}</dd>
+                            <dd class="mt-1 text-lg font-medium text-success"><x-amount :value="$reservation->getVerifiedTotalPaid()" /></dd>
                         </div>
                         <div>
                             <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Awaiting verification</dt>
-                            <dd class="mt-1 text-lg font-medium text-text">₱{{ number_format($pendingVerification, 2) }}</dd>
+                            <dd class="mt-1 text-lg font-medium text-text"><x-amount :value="$pendingVerification" /></dd>
                         </div>
                         <div>
                             <dt class="text-xs font-semibold uppercase tracking-wide text-text-muted">Remaining balance</dt>
                             @if($remaining > 0)
-                                <dd class="mt-1 font-heading text-3xl font-semibold text-primary">₱{{ number_format($remaining, 2) }}</dd>
+                                <dd class="mt-1 font-heading text-3xl font-semibold text-primary"><x-amount :value="$remaining" /></dd>
                             @else
                                 <dd class="mt-1 font-heading text-2xl font-semibold text-success">Fully paid</dd>
                             @endif
@@ -98,7 +105,7 @@
                         <div class="px-5 py-4 sm:px-6 border-b border-border">
                             <h2 class="font-heading text-2xl font-semibold text-text">Pay online</h2>
                             <p class="mt-1 text-sm text-text-muted">
-                                {{ $gatewayLabel }}. Confirmed instantly &mdash; no receipt to upload. You are only charged the amount you enter.
+                                {{ $gatewayLabel }}. Recorded as paid only after provider verification &mdash; no proof to upload. You are only charged the amount you enter.
                             </p>
                         </div>
                         <div class="px-5 py-5 sm:p-6">
@@ -185,25 +192,10 @@
                                         </select>
                                     </div>
 
-                                    <div>
-                                        <x-input-label for="reference_number" value="Reference number (optional)" />
-                                        <x-text-input type="text" name="reference_number" id="reference_number" value="{{ old('reference_number') }}" class="mt-1 block w-full" />
-                                        <p class="mt-2 text-xs text-text-muted">For GCash, Maya, or bank transfers.</p>
-                                    </div>
 
                                     <div>
                                         <x-input-label for="proof" value="Proof of payment" />
-                                        <label for="proof" class="mt-2 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-background px-4 py-8 text-center hover:border-primary/50">
-                                            <span class="w-12 h-12 grid place-items-center rounded-full bg-surface text-primary shadow-sm">
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15v3.5A1.5 1.5 0 005.5 20h13a1.5 1.5 0 001.5-1.5V15" /></svg>
-                                            </span>
-                                            <p class="mt-3 text-sm font-semibold text-text">Drop your receipt here, or browse files</p>
-                                            <p class="mt-1 text-xs text-text-muted">JPG, PNG, or PDF up to 5MB. Make the amount and reference readable.</p>
-                                        </label>
-                                        <input type="file" name="proof" id="proof" accept=".jpg,.jpeg,.png,.pdf" required class="sr-only">
-                                        <p class="mt-2 text-xs text-text-muted" id="proof_description">
-                                            Allowed formats: JPG, PNG, PDF up to 5MB.
-                                        </p>
+                                        <x-customer.payment-proof-input />
                                     </div>
 
                                     <x-primary-button type="submit" class="w-full justify-center !py-3" x-bind:disabled="isSubmitting">
@@ -236,10 +228,10 @@
                             <h2 class="font-heading text-2xl font-semibold text-text">Awaiting verification</h2>
                             <p class="mt-2 text-sm text-text-muted">Your proof is under review. Payment is only confirmed after staff verify the incoming funds.</p>
                         @elseif($paymentState === \App\Enums\GuestPaymentState::OnSiteBalance)
-                            <h2 class="font-heading text-2xl">Balance payable at arrival</h2>
-                            <p class="mt-2">Remaining balance payable at the resort upon arrival. Staff will record the payment in this history.</p>
+                            <h2 class="font-heading text-2xl">Balance payable at check in</h2>
+                            <p class="mt-2">Remaining balance payable at the resort upon check in. Staff will record the payment in this history.</p>
                         @elseif($canPay)
-                            <p>Use the QR deposit instructions above. The remaining balance is paid at arrival.</p>
+                            <p>Use the QR deposit instructions above. The remaining balance is paid at check in.</p>
                         @else
                             <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-success-light mb-4">
                                 <svg class="h-6 w-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -264,7 +256,7 @@
                             <x-empty-state icon="cash" title="No payments yet" description="You have not submitted any payments for this reservation." />
                         </div>
                     @else
-                        <div class="overflow-x-auto">
+                        <div class="payment-history">
                             <table class="min-w-full divide-y divide-border">
                                 <thead class="bg-background">
                                     <tr>
@@ -280,13 +272,13 @@
                                 <tbody class="bg-surface divide-y divide-border">
                                     @foreach($payments as $payment)
                                         <tr>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-text-muted">
+                                            <td data-label="Date" class="px-6 py-4 whitespace-nowrap text-sm text-text-muted">
                                                 {{ $payment->created_at->format('M d, Y h:i A') }}
                                             </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
-                                                ₱{{ number_format($payment->amount, 2) }}
+                                            <td data-label="Amount" class="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
+                                                <x-amount :value="$payment->amount" />
                                             </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-text-muted">
+                                            <td data-label="Method & reference" class="px-6 py-4 whitespace-nowrap text-sm text-text-muted">
                                                 <div class="font-medium text-text">{{ $payment->method->label() }}</div>
                                                 @if($payment->source === 'onsite')
                                                     <div class="text-xs">Recorded at resort by {{ $payment->verifiedBy?->name ?? 'staff' }}</div>
@@ -296,16 +288,16 @@
                                                     <div class="text-xs">Ref: {{ $payment->reference_number }}</div>
                                                 @endif
                                             </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <x-badge :status="$payment->status->label()" />
+                                            <td data-label="Status" class="px-6 py-4 whitespace-nowrap">
+                                                <x-badge :status="$payment->status" />
                                                 @if($payment->status === \App\Enums\PaymentStatus::Rejected && $payment->rejection_reason)
-                                                    <div class="mt-1 text-xs text-danger max-w-xs truncate" title="{{ $payment->rejection_reason }}">
+                                                    <div class="mt-1 text-xs text-danger max-w-xs whitespace-normal break-words" title="{{ $payment->rejection_reason }}">
                                                         {{ $payment->rejection_reason }}
                                                     </div>
                                                 @endif
                                                 @if($payment->status === \App\Enums\PaymentStatus::Pending)
                                                     <div class="mt-1 text-xs text-text-muted">
-                                                        Waiting for verification.
+                                                        Under review — not yet verified paid.
                                                     </div>
                                                 @endif
                                                 @if($payment->status === \App\Enums\PaymentStatus::Verified && $payment->verified_at)
@@ -314,7 +306,10 @@
                                                     </div>
                                                 @endif
                                             </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <td data-label="Receipt" class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                @if($payment->status === \App\Enums\PaymentStatus::Verified)
+                                                    <a href="{{ route('customer.payments.receipt', $payment) }}" class="block mb-2 text-primary hover:underline">Itemized payment receipt</a>
+                                                @endif
                                                 @if(! $payment->proof_path)
                                                     <span class="text-xs text-text-muted">No receipt attached</span>
                                                 @else

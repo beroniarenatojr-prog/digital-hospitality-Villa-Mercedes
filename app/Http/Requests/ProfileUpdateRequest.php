@@ -6,6 +6,7 @@ use App\Enums\GuestGender;
 use App\Enums\GuestIdType;
 use App\Models\User;
 use App\Rules\PhilippineMobileNumber;
+use App\Rules\PersonName;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -18,12 +19,12 @@ class ProfileUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:32', new PhilippineMobileNumber],
+            'name' => ['required', 'string', 'max:255', new PersonName],
+            'phone' => ['nullable', 'string', 'size:11', new PhilippineMobileNumber],
             'gender' => ['nullable', Rule::enum(GuestGender::class)],
             'date_of_birth' => ['nullable', 'date', 'before:today', 'after_or_equal:1900-01-01'],
             'address' => ['nullable', 'string', 'max:255'],
-            'nationality' => ['nullable', 'string', 'max:100'],
+            'nationality' => ['nullable', 'string', 'max:100', new PersonName],
             'valid_id_type' => ['nullable', Rule::enum(GuestIdType::class)],
             'company' => ['nullable', 'string', 'max:255'],
             'email' => [
@@ -51,6 +52,10 @@ class ProfileUpdateRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        if ($this->has('phone')) {
+            $this->merge(['phone' => PhilippineMobileNumber::normalize($this->input('phone'))]);
+        }
+
         foreach (['company', 'address', 'nationality', 'gender', 'valid_id_type', 'date_of_birth'] as $field) {
             if ($this->has($field) && ! filled($this->input($field))) {
                 $this->merge([$field => null]);

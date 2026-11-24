@@ -118,7 +118,11 @@ class AvailabilityService
         }
 
         if ($facility->status === FacilityStatus::Maintenance) {
-            return new AvailabilityResult(false, 'Facility is under maintenance.');
+            return new AvailabilityResult(false, 'Facility is under maintenance.', availabilityStatus: \App\Enums\ServiceAvailability::TemporarilyClosed);
+        }
+
+        if ($facility->isRoom() && $facility->cleaning_required_at !== null) {
+            return new AvailabilityResult(false, 'Room is awaiting cleaning. Staff must mark cleaning complete before it can be booked.');
         }
 
         // 3. Capacity Check
@@ -180,7 +184,8 @@ class AvailabilityService
                     return new AvailabilityResult(
                         false,
                         "Package component '{$componentFacility->name}' is not available: {$componentResult->reason}",
-                        $componentResult->conflictingReservationId
+                        $componentResult->conflictingReservationId,
+                        $componentResult->status()
                     );
                 }
             }
@@ -322,6 +327,8 @@ class AvailabilityService
             'id',
             'facility_id',
             'reservation_code',
+            'checked_in_at',
+            'checked_out_at',
             'check_in',
             'check_out',
             'early_check_in_hours',

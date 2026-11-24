@@ -3,7 +3,6 @@
 namespace Tests\Feature\Http;
 
 use App\Enums\Role;
-use App\Models\Inquiry;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -65,19 +64,4 @@ class CustomerBoundaryTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_customer_cannot_access_another_customers_inquiry()
-    {
-        $customer1 = User::factory()->create();
-        $customer1->assignRole(Role::Customer->value);
-
-        $customer2 = User::factory()->create();
-        $customer2->assignRole(Role::Customer->value);
-
-        $inquiry = Inquiry::factory()->create([
-            'user_id' => $customer1->id,
-        ]);
-
-        $response = $this->actingAs($customer2)->get(route('customer.inquiries.show', $inquiry));
-        $response->assertStatus(403);
-    }
 }

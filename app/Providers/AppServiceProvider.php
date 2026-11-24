@@ -39,6 +39,10 @@ class AppServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->bind('view.finder', fn ($app) => new \App\Support\CanonicalFileViewFinder(
+            $app['files'], $app['config']['view.paths'],
+        ));
+
         $this->app->bind(UserRepositoryInterface::class, UserRepository::class);
 
         $this->app->bind(PaymentGateway::class, function (): PaymentGateway {
@@ -80,6 +84,11 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by(
                 strtolower((string) $request->input('email')).'|'.$request->ip()
             );
+        });
+
+        RateLimiter::for('booking-calculate', function (Request $request) {
+            return Limit::perMinute((int) config('auth.booking_calculate.max_attempts', 20))
+                ->by('booking-calculate|'.($request->user()?->id ?? $request->ip()));
         });
 
         Event::listen(Login::class, function (Login $event): void {

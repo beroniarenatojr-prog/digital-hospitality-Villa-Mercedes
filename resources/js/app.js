@@ -1,12 +1,40 @@
-import './bootstrap';
 import Alpine from 'alpinejs';
 import collapse from '@alpinejs/collapse';
 import { enableAdminLiveFilters } from './admin-live-filters';
+import { enableAdminLivePanels } from './admin-live-panels';
+import {
+    isSoundEnabled,
+    setSoundEnabled,
+    isDesktopEnabled,
+    setDesktopEnabled,
+    playFrontDeskChime,
+} from './admin-alert-audio';
 import { enableReservationAuth } from './reservation-auth';
+import { pesos, pesosFromCents } from './money';
+import { reservationSchedule } from './reservation-schedule';
+import {
+    describeInputChanges,
+    inputsFrom,
+    priceChange,
+    priceTerms,
+    stayNights,
+} from './price-change';
 
 enableReservationAuth();
 
+// The money format is needed from inline Alpine expressions (x-text), which
+// cannot import a module, so it is exposed on the window next to Alpine itself.
+// The definition lives in one file; this is only how the templates reach it.
+window.pesos = pesos;
+window.pesosFromCents = pesosFromCents;
+
+// The same, for how a booking total moved and what it is made of: the booking
+// wizard needs it from inline Alpine expressions and from its own `x-for` loops,
+// which cannot import a module either.
+window.bookingPrice = { describeInputChanges, inputsFrom, priceChange, priceTerms, stayNights };
+
 Alpine.plugin(collapse);
+Alpine.data('reservationSchedule', reservationSchedule);
 window.Alpine = Alpine;
 
 const startAlpine = () => Alpine.start();
@@ -146,8 +174,26 @@ const loadDeferredFeaturedRooms = () => {
 enableIntentPrefetch();
 loadDeferredFeaturedRooms();
 enableAdminLiveFilters();
+enableAdminLivePanels();
 
 document.addEventListener('alpine:init', () => {
+    Alpine.data('adminAlertSettings', () => ({
+        sound: isSoundEnabled(),
+        desktop: isDesktopEnabled(),
+        supported: typeof window !== 'undefined' && 'Notification' in window,
+        toggleSound() {
+            this.sound = !this.sound;
+            setSoundEnabled(this.sound);
+            if (this.sound) {
+                playFrontDeskChime();
+            }
+        },
+        async toggleDesktop() {
+            const next = !this.desktop;
+            const granted = await setDesktopEnabled(next);
+            this.desktop = Boolean(granted);
+        },
+    }));
     Alpine.directive('reveal', (el, _directive, { cleanup }) => {
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
             el.classList.add('is-revealed');
@@ -175,12 +221,16 @@ document.addEventListener('alpine:init', () => {
     });
 
     Alpine.data('walkInReservation', (config = {}) => ({
-        walkIn: Boolean(config.open),
         facilities: Array.isArray(config.facilities) ? config.facilities : [],
         facilityId: String(config.facilityId || ''),
+        checkIn: String(config.checkIn || ''),
+        checkOut: String(config.checkOut || ''),
         guestCount: Number(config.guestCount || 1),
         otherGuestNames: Array.isArray(config.otherGuestNames) && config.otherGuestNames.length
-            ? config.otherGuestNames.map((name) => String(name ?? ''))
+            ? config.otherGuestNames.map((guest) => ({
+                name: typeof guest === 'string' ? String(guest ?? '') : String(guest?.name || ''),
+                valid_id: typeof guest === 'string' ? '' : String(guest?.valid_id || ''),
+            }))
             : [],
         selections: {
             room: '',
@@ -202,11 +252,23 @@ document.addEventListener('alpine:init', () => {
         },
 
         get includedCapacity() {
-            return Number(this.selectedFacility?.capacity || 1);
+            const capacity = this.selectedFacility?.capacity;
+
+            return capacity === null || capacity === undefined ? null : Number(capacity);
+        },
+
+        // Cottages and other open spaces carry no capacity at all, so unset must
+        // stay "unlimited" rather than fall back to 1 and clamp the guest count.
+        get hasCapacityLimit() {
+            return Boolean(this.selectedFacility?.has_capacity_limit);
         },
 
         get maxCapacity() {
-            return Number(this.selectedFacility?.max_capacity || this.includedCapacity || 1);
+            if (! this.hasCapacityLimit) {
+                return Number.POSITIVE_INFINITY;
+            }
+
+            return Number(this.selectedFacility.max_capacity ?? this.selectedFacility.capacity);
         },
 
         get maxCompanions() {
@@ -215,6 +277,51 @@ document.addEventListener('alpine:init', () => {
 
         get canAddOtherGuest() {
             return this.otherGuestNames.length < this.maxCompanions;
+        },
+
+        // The booking summary on the walk-in page reads from here, so the person
+        // filing the sheet sees the stay they are actually about to create.
+        get stayWindowLabel() {
+            const start = this.parseMoment(this.checkIn);
+            const end = this.parseMoment(this.checkOut);
+
+            if (! start) {
+                return 'Check-in not set yet';
+            }
+
+            if (! end) {
+                return `${this.formatMoment(start)} until check-out, which is not set yet`;
+            }
+
+            if (start.toDateString() === end.toDateString()) {
+                return `${this.formatMoment(start)} to ${this.formatTime(end)} (same day)`;
+            }
+
+            return `${this.formatMoment(start)} to ${this.formatMoment(end)}`;
+        },
+
+        parseMoment(value) {
+            if (! value) {
+                return null;
+            }
+
+            const parsed = new Date(value);
+
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        },
+
+        formatMoment(date) {
+            return date.toLocaleString('en-PH', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+            });
+        },
+
+        formatTime(date) {
+            return date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
         },
 
         syncSelectionsFromFacilityId() {
@@ -266,7 +373,7 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
-            this.otherGuestNames.push('');
+            this.otherGuestNames.push({ name: '', valid_id: '' });
             this.guestCount = Math.min(this.maxCapacity, Math.max(this.guestCount, this.otherGuestNames.length + 1));
         },
 

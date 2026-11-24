@@ -81,7 +81,15 @@ class PageController extends Controller
 
     public function about(): View
     {
-        return view('pages.about');
+        $faqs = $this->faqService->getActiveFaqs();
+        $reviews = GuestReview::query()
+            ->visibleOnPublicSite()
+            ->with(['user:id,name', 'reservation:id,check_in,checked_out_at,completed_at'])
+            ->orderByDesc('featured_on_home')
+            ->orderByDesc('published_at')
+            ->get();
+
+        return view('pages.about', compact('faqs', 'reviews'));
     }
 
     public function reviews(): View

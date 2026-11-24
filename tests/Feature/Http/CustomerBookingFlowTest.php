@@ -92,8 +92,8 @@ class CustomerBookingFlowTest extends TestCase
             ->assertOk()
             ->assertSee('How many attendees?')
             ->assertSee('Event start')
-            ->assertSee('Event end')
-            ->assertSee('Optional extra hours.');
+            ->assertSee('Event ends at')
+            ->assertSee('Four standard hours.');
     }
 
     public function test_authenticated_customer_can_access_booking_wizard()
@@ -140,8 +140,8 @@ class CustomerBookingFlowTest extends TestCase
         $this->actingAs($customer)
             ->post(route('customer.reservations.store'), [
                 'facility_id' => $room->id,
-                'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
-                'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
+                'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+                'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
                 'guestCount' => 1,
             ] + $this->guestInformationPayload([
                 'guest_name' => 'Juan Dela Cruz',
@@ -164,8 +164,8 @@ class CustomerBookingFlowTest extends TestCase
         $room = $this->createFacility(FacilityTypeEnum::Room->value, true, 2, 4);
 
         $dates = [
-            'check_in' => now()->addDays(5)->startOfDay()->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(6)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
         ];
 
         $included = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $dates + ['guestCount' => 2]);
@@ -184,8 +184,8 @@ class CustomerBookingFlowTest extends TestCase
         $room = $this->createFacility(FacilityTypeEnum::Room->value, true, 2, 4);
 
         $payload = [
-            'check_in' => now()->addDays(5)->startOfDay()->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(6)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 3,
         ];
 
@@ -204,14 +204,14 @@ class CustomerBookingFlowTest extends TestCase
         ]);
     }
 
-    public function test_preview_includes_early_check_in_and_late_check_out_charges(): void
+    public function test_preview_quotes_early_check_in_and_requires_staff_for_late_check_out(): void
     {
         $customer = User::factory()->create();
         $room = $this->createFacility(FacilityTypeEnum::Room->value, true, 2, 4);
 
         $payload = [
-            'check_in' => now()->addDays(5)->startOfDay()->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(6)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 2,
             'early_check_in_hours' => 2,
             'late_check_out_hours' => 1,
@@ -219,20 +219,23 @@ class CustomerBookingFlowTest extends TestCase
 
         $response = $this->actingAs($customer)->postJson(route('customer.booking.calculate', $room), $payload);
 
+        $response->assertUnprocessable()->assertJsonValidationErrors('late_check_out_hours');
+        $payload['late_check_out_hours'] = 0;
+        $response = $this->postJson(route('customer.booking.calculate', $room), $payload);
         $response->assertOk();
         $response->assertJson([
             'success' => true,
             'data' => [
                 'base_amount' => 500000,
                 'early_check_in_charge' => 40000,
-                'late_check_out_charge' => 30000,
+                'late_check_out_charge' => 0,
                 'extra_person_charge' => 0,
-                'total_amount' => 570000,
+                'total_amount' => 540000,
             ],
         ]);
     }
 
-    public function test_booking_wizard_shows_early_and_late_hour_fields(): void
+    public function test_booking_wizard_offers_early_requests_and_explains_staff_approved_late_departure(): void
     {
         $this->actingAs(User::factory()->create());
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
@@ -242,28 +245,31 @@ class CustomerBookingFlowTest extends TestCase
         $response->assertOk();
         // Assert on the fields themselves rather than their labels, so wording
         // can change without breaking this test.
-        $response->assertSee('id="early_check_in_hours"', false);
-        $response->assertSee('id="late_check_out_hours"', false);
+        $response->assertSee('Early check-in request');
+        $response->assertSee('2 hours early');
+        $response->assertSee('it requires staff approval');
+        $response->assertDontSee('id="late_check_out_hours"', false);
     }
 
     public function test_booking_wizard_prefills_dates_and_guests_from_query(): void
     {
         $this->actingAs(User::factory()->create());
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
+        $arrivalDate = now()->addDays(5)->toDateString();
+        $departureDate = now()->addDays(6)->toDateString();
 
         $response = $this->get(route('customer.booking.create', [
             'facility' => $room,
-            'check_in' => '2026-10-12',
-            'check_out' => '2026-10-13',
+            'check_in' => $arrivalDate,
+            'check_out' => $departureDate,
             'guests' => 3,
         ]));
 
         $response->assertOk();
-        $response->assertViewHas('prefill', function (array $prefill) {
+        $response->assertViewHas('prefill', function (array $prefill) use ($arrivalDate, $departureDate) {
             return $prefill['guest_count'] === 3
-                && $prefill['preset'] === 'overnight'
-                && $prefill['check_in'] === '2026-10-12 14:00'
-                && $prefill['check_out'] === '2026-10-13 12:00';
+                && $prefill['check_in'] === $arrivalDate.' 14:00'
+                && $prefill['check_out'] === $departureDate.' 12:00';
         });
     }
 
@@ -283,7 +289,7 @@ class CustomerBookingFlowTest extends TestCase
         $response->assertOk()
             ->assertViewHas('prefill', fn (array $prefill) => $prefill['availability_checked'] === true)
             ->assertSee('"continueAfterAvailability":true', false)
-            ->assertSee('this.$nextTick(() => this.checkAvailability())', false);
+            ->assertSee('this.$nextTick(() => this.refreshQuote())', false);
     }
 
     public function test_preview_endpoint_returns_error_for_over_capacity()
@@ -292,8 +298,8 @@ class CustomerBookingFlowTest extends TestCase
         $room = $this->createFacility(FacilityTypeEnum::Room->value, true, 2, 4);
 
         $payload = [
-            'check_in' => now()->addDays(5)->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(6)->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(5)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(6)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 5, // Exceeds max_capacity of 4
         ];
 
@@ -312,8 +318,8 @@ class CustomerBookingFlowTest extends TestCase
         $otherCustomer = User::factory()->create();
         $room = $this->createFacility(FacilityTypeEnum::Room->value);
 
-        $checkIn = now()->addDays(5)->startOfDay();
-        $checkOut = now()->addDays(6)->startOfDay();
+        $checkIn = now()->addDays(5)->setTime(14, 0);
+        $checkOut = now()->addDays(6)->setTime(12, 0);
 
         // Create an existing reservation
         Reservation::create([
@@ -355,11 +361,11 @@ class CustomerBookingFlowTest extends TestCase
 
         $payload = [
             'facility_id' => $room->id,
-            'check_in' => now()->addDays(10)->startOfDay()->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(11)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(10)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(11)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 2,
             'early_check_in_hours' => 1,
-            'late_check_out_hours' => 2,
+            'late_check_out_hours' => 0,
             // The frontend doesn't even send price/status, but if they tried to forge it:
             'total_price' => 1.00,
             'status' => 'approved',
@@ -374,14 +380,14 @@ class CustomerBookingFlowTest extends TestCase
 
         $this->assertNotNull($reservation);
         $this->assertEquals(1, $reservation->early_check_in_hours);
-        $this->assertEquals(2, $reservation->late_check_out_hours);
-        $this->assertEquals(5800, $reservation->total_price); // 5000 + 200 + 600
+        $this->assertEquals(0, $reservation->late_check_out_hours);
+        $this->assertEquals(5200, $reservation->total_price); // Saved base plus the selected early hour.
         $this->assertEquals('pending', $reservation->status->value); // Ignores forged status
         $this->assertEquals($customer->id, $reservation->user_id);
-        $this->assertEquals('Maria Santos', $reservation->guest_name);
-        $this->assertEquals('Ilagan, Isabela', $reservation->guest_place_of_origin);
-        $this->assertEquals('Filipino', $reservation->guest_nationality);
-        $this->assertEquals(\App\Enums\GuestIdType::PhilSys, $reservation->guest_valid_id);
+        $this->assertEquals($customer->name, $reservation->guest_name);
+        $this->assertEquals($customer->address, $reservation->guest_place_of_origin);
+        $this->assertEquals($customer->nationality, $reservation->guest_nationality);
+        $this->assertEquals($customer->valid_id_type, $reservation->guest_valid_id);
         $this->assertEquals('female', $reservation->guest_gender->value);
     }
 
@@ -393,8 +399,8 @@ class CustomerBookingFlowTest extends TestCase
 
         $payload = [
             'facility_id' => $room->id,
-            'check_in' => now()->addDays(10)->startOfDay()->format('Y-m-d\TH:i'),
-            'check_out' => now()->addDays(11)->startOfDay()->format('Y-m-d\TH:i'),
+            'check_in' => now()->addDays(10)->setTime(14, 0)->format('Y-m-d\TH:i'),
+            'check_out' => now()->addDays(11)->setTime(12, 0)->format('Y-m-d\TH:i'),
             'guestCount' => 2,
         ] + $this->guestInformationPayload();
 

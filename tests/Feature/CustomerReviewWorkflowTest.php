@@ -93,13 +93,16 @@ class CustomerReviewWorkflowTest extends TestCase
         $this->assertDatabaseCount('guest_reviews', 1);
         $review = GuestReview::firstOrFail();
         $this->get(route('reviews'))->assertDontSee('The room needed more cleaning.');
-        $this->actingAs($this->admin)->get(route('admin.reviews.index'))->assertOk()->assertSee('The room needed more cleaning.');
+        $this->actingAs($this->admin)->get(route('admin.reviews.index'))
+            ->assertOk()
+            ->assertSee('The room needed more cleaning.')
+            ->assertDontSee('Mark reviewed privately');
         $this->patch(route('admin.reviews.update', $review), ['action' => 'publish', 'rating' => 5, 'body' => 'Changed by admin'])->assertSessionHas('success');
         $this->assertSame(1, $review->fresh()->rating);
         $this->assertSame('The room needed more cleaning.', $review->fresh()->body);
         $this->get(route('reviews'))->assertOk()->assertSee('The room needed more cleaning.')->assertSee('Maria S.')->assertDontSee($this->reservation->reservation_code);
         $this->actingAs($this->customer)->post(route('customer.reviews.store', $this->reservation), ['rating' => 5, 'public_consent' => 1])->assertStatus(409);
-        $this->actingAs($this->admin)->patch(route('admin.reviews.update', $review), ['action' => 'private'])->assertRedirect()->assertSessionHasErrors("reason.{$review->id}");
+        $this->actingAs($this->admin)->patch(route('admin.reviews.update', $review), ['action' => 'private'])->assertRedirect()->assertSessionHasErrors('action');
         $this->assertTrue($review->fresh()->is_published);
         $this->patch(route('admin.reviews.update', $review), ['action' => 'unpublish', 'reason' => 'Customer requested privacy.'])->assertSessionHas('success');
         $this->get(route('reviews'))->assertDontSee('The room needed more cleaning.');
