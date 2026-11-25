@@ -15,10 +15,14 @@ use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use RuntimeException;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mailer\Transport\AbstractTransport;
 use Tests\TestCase;
 
 class RegistrationOtpTest extends TestCase
@@ -227,6 +231,58 @@ class RegistrationOtpTest extends TestCase
 
         $this->assertCount(1, $sent);
         $this->assertSame('mail', $sent[0]->channel);
+        $this->assertDatabaseCount('jobs', 0);
+    }
+
+    public function test_otp_is_delivered_during_the_request_when_configured_for_hosts_without_a_worker(): void
+    {
+        // Shared hosting (Hostinger) runs no queue worker, so a database-queued
+        // code would wait in the jobs table until someone ran queue:work.
+        config([
+            'queue.default' => 'database',
+            'otp.queue_connection' => 'sync',
+        ]);
+        $sent = [];
+        Event::listen(NotificationSent::class, function (NotificationSent $event) use (&$sent): void {
+            $sent[] = $event;
+        });
+
+        $this->post(route('register.otp.send'), ['email' => 'instant@example.com'])
+            ->assertSessionHas('status', RegistrationOtpService::ELIGIBLE_STATUS);
+
+        $this->assertCount(1, $sent);
+        $this->assertSame('mail', $sent[0]->channel);
+        $this->assertInstanceOf(RegistrationOtpNotification::class, $sent[0]->notification);
+        $this->assertDatabaseCount('jobs', 0);
+    }
+
+    public function test_immediate_otp_delivery_failure_reports_an_error_and_keeps_no_challenge(): void
+    {
+        Mail::extend('broken', fn () => new class extends AbstractTransport
+        {
+            protected function doSend(SentMessage $message): void
+            {
+                throw new TransportException('SMTP unavailable');
+            }
+
+            public function __toString(): string
+            {
+                return 'broken';
+            }
+        });
+        config([
+            'mail.mailers.broken' => ['transport' => 'broken'],
+            'mail.default' => 'broken',
+            'queue.default' => 'database',
+            'otp.queue_connection' => 'sync',
+        ]);
+
+        $this->from(route('register'))
+            ->post(route('register.otp.send'), ['email' => 'smtpdown@example.com'])
+            ->assertSessionHasErrors('email')
+            ->assertSessionMissing('status');
+
+        $this->assertDatabaseMissing('email_otp_verifications', ['email' => 'smtpdown@example.com']);
         $this->assertDatabaseCount('jobs', 0);
     }
 

@@ -24,7 +24,9 @@ class RegistrationOtpNotification extends Notification implements ShouldQueue, S
     public function __construct(
         public readonly string $code,
         public readonly int $expireMinutes,
-    ) {}
+    ) {
+        $this->onConnection(config('otp.queue_connection'));
+    }
 
     /**
      * @return list<string>

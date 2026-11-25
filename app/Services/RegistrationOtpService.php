@@ -94,7 +94,7 @@ class RegistrationOtpService
             report($e);
 
             throw ValidationException::withMessages([
-                'email' => 'We could not queue the verification email. Please try again shortly.',
+                'email' => 'We could not send the verification email. Please try again shortly.',
             ]);
         }
 

@@ -22,4 +22,9 @@ return [
 
     'verified_session_minutes' => (int) env('OTP_VERIFIED_SESSION_MINUTES', 30),
 
+    // Queue connection for the registration code email; null uses the default
+    // queue. Hosts with no queue worker (shared hosting) set this to "sync" so
+    // the code is sent during the request instead of waiting in the jobs table.
+    'queue_connection' => env('OTP_QUEUE_CONNECTION'),
+
 ];
