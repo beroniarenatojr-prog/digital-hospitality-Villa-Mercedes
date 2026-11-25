@@ -20,7 +20,7 @@
 
         <div>
             <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-2 w-full" type="email" name="email" :value="old('email')" :aria-invalid="$errors->has('email') ? 'true' : null" :aria-describedby="$errors->has('email') ? 'email-error' : null" required autofocus autocomplete="username" spellcheck="false" placeholder="you@email.com" />
+            <x-text-input id="email" class="block mt-2 w-full" type="email" name="email" :value="old('email')" :aria-invalid="$errors->has('email') ? 'true' : null" :aria-describedby="$errors->has('email') ? 'email-error' : null" required autofocus autocomplete="username" spellcheck="false" enterkeyhint="go" placeholder="you@email.com" />
             <x-input-error id="email-error" :messages="$errors->get('email')" class="mt-2" />
         </div>
 

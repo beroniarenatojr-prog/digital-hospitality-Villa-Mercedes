@@ -19,10 +19,10 @@ class GuestPasswordResetNotification extends ResetPassword implements ShouldQueu
         return (new MailMessage)
             ->subject('Reset your '.config('resort.short_name').' password')
             ->greeting('Hello '.$notifiable->name.',')
-            ->line('We received a request to reset the password for your '.config('resort.short_name').' account.')
+            ->line('Use the button below to choose a new password for your '.config('resort.short_name').' account.')
             ->action('Choose a new password', $url)
             ->line("This link expires in {$minutes} minutes.")
-            ->line('If you did not ask for this, you can ignore this email.')
-            ->salutation('See you at the resort,'.PHP_EOL.config('resort.short_name'));
+            ->line('If you did not request a reset, you can ignore this email. Your password stays the same.')
+            ->salutation(config('resort.short_name'));
     }
 }

@@ -44,7 +44,7 @@
     <x-auth-session-status class="mb-6" :status="session('status')" />
     <x-reservation-selection />
 
-    <form method="POST" action="{{ route('login') }}" class="space-y-5" x-data="{ isSubmitting: false, show: false }" @submit="isSubmitting = true">
+    <form method="POST" action="{{ route('login') }}" class="space-y-5" x-data="{ isSubmitting: false }" @submit="isSubmitting = true">
         @csrf
 
         <div>
@@ -53,7 +53,7 @@
                 <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-text-muted">
                     <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path stroke-linecap="round" stroke-linejoin="round" d="m4 7 8 6 8-6" /></svg>
                 </span>
-                <x-text-input id="email" class="block w-full rounded-xl ps-11" type="email" name="email" :value="old('email')" :aria-invalid="$errors->has('email') ? 'true' : null" :aria-describedby="$errors->has('email') ? 'email-error' : null" required :autofocus="! $errors->has('password') || $errors->has('email')" autocomplete="username" placeholder="you@email.com" />
+                <x-text-input id="email" class="block w-full rounded-xl ps-11" type="email" name="email" :value="old('email')" :aria-invalid="$errors->has('email') ? 'true' : null" :aria-describedby="$errors->has('email') ? 'email-error' : null" required :autofocus="! $errors->has('password') || $errors->has('email')" autocomplete="username" spellcheck="false" enterkeyhint="next" placeholder="you@email.com" />
             </div>
             <x-input-error id="email-error" :messages="$errors->get('email')" class="mt-2" />
         </div>

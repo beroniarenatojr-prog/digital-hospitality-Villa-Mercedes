@@ -9,11 +9,11 @@
 
         <div>
             <x-input-label for="password" :value="__('Password')" />
-            <x-text-input id="password" class="block mt-2 w-full"
-                            type="password"
-                            name="password"
-                            required autocomplete="current-password" />
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
+            <x-password-input id="password" name="password"
+                :aria-invalid="$errors->has('password') ? 'true' : null"
+                :aria-describedby="$errors->has('password') ? 'password-error' : null"
+                required autocomplete="current-password" enterkeyhint="go" />
+            <x-input-error id="password-error" :messages="$errors->get('password')" class="mt-2" />
         </div>
 
         <x-primary-button class="w-full">
