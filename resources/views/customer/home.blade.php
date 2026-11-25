@@ -18,9 +18,9 @@
                     @foreach($services as $index => $service)
                         @php
                             $fallbackImage = match ($service['type']) {
-                                'room' => asset('images/rooms & cottage.jpg'),
-                                'cottage' => asset('images/rooms & cottage.jpg'),
-                                'resort_package' => asset('images/resort pakage.jpg'),
+                                'room' => asset('images/rooms-and-cottages.jpg'),
+                                'cottage' => asset('images/rooms-and-cottages.jpg'),
+                                'resort_package' => asset('images/resort-package.jpg'),
                                 'function_hall' => asset('images/event-hosting.jpg'),
                             };
                             $serviceUrl = route('customer.grouped-booking.workspace', ['type' => $service['type']]);

@@ -60,11 +60,11 @@
         };
         $listingHero = match ($listingType) {
             'cottages' => [
-                'src' => asset('images/rooms & cottage.jpg'),
+                'src' => asset('images/rooms-and-cottages.jpg'),
                 'alt' => 'Wooden guest cottages at Villa Mercedes with peaked roofs along a garden path',
             ],
             default => [
-                'src' => asset('images/resort pakage.jpg'),
+                'src' => asset('images/resort-package.jpg'),
                 'alt' => 'Evening pool deck at Villa Mercedes with lounge chairs, rattan seating, and lit umbrellas',
             ],
         };

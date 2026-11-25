@@ -61,7 +61,7 @@
             <div class="grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
                 <a href="{{ route('rooms') }}" class="group relative min-h-[28rem] overflow-hidden rounded-2xl bg-primary text-white" x-reveal>
                     <img
-                        src="{{ asset('images/rooms & cottage.jpg') }}"
+                        src="{{ asset('images/rooms-and-cottages.jpg') }}"
                         alt="Wooden guest cottages at Villa Mercedes with peaked roofs along a garden path"
                         loading="lazy"
                         decoding="async"
@@ -95,7 +95,7 @@
 
                     <a href="{{ route('packages') }}" class="group grid grid-cols-[6.75rem_minmax(0,1fr)] gap-4 border-t border-border py-4 sm:grid-cols-[8rem_minmax(0,1fr)] lg:grid-cols-[7.5rem_minmax(0,1fr)]" x-reveal style="--reveal-delay: 200ms">
                         <img
-                            src="{{ asset('images/resort pakage.jpg') }}"
+                            src="{{ asset('images/resort-package.jpg') }}"
                             alt="Pool and grounds at Villa Mercedes with a slide, rock waterfall, and poolside pavilion"
                             loading="lazy"
                             decoding="async"

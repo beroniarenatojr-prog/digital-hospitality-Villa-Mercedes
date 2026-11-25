@@ -94,11 +94,11 @@ class PublicBrowsingTest extends TestCase
         // earlier "I want a package when I need rooms and grounds together" copy
         // was written in the guest's voice on a page that is not theirs.
         $response->assertSee('Day-use, night-use, and overnight bundles for rooms and grounds.');
-        $response->assertSee('images/rooms &amp; cottage.jpg', false);
+        $response->assertSee('images/rooms-and-cottages.jpg', false);
         $response->assertSee('Wooden guest cottages at Villa Mercedes', false);
         $response->assertSee('images/event-hosting.jpg', false);
         $response->assertSee('Banquet hall at Villa Mercedes', false);
-        $response->assertSee('images/resort pakage.jpg', false);
+        $response->assertSee('images/resort-package.jpg', false);
         $response->assertSee('Pool and grounds at Villa Mercedes', false);
         $response->assertSee('Our hours');
         $response->assertSee('How to reserve your stay');
@@ -263,7 +263,7 @@ class PublicBrowsingTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee($activeRoom->name);
-        $response->assertSee('images/resort pakage.jpg', false);
+        $response->assertSee('images/resort-package.jpg', false);
         $response->assertSee('listing-hero', false);
         $response->assertSee('Choose the space that fits your plans.');
         $response->assertSee('Room categories and individual units, four function halls, and curated packages — each listed with its photos, included guests, and extra-person charges.');
@@ -289,7 +289,7 @@ class PublicBrowsingTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee($activeHall->name);
-        $response->assertSee('images/resort pakage.jpg', false);
+        $response->assertSee('images/resort-package.jpg', false);
         $response->assertDontSee('id="availability-space"', false);
         $response->assertDontSee('Included with every stay');
         $response->assertDontSee('NO EXTRA CHARGE');
@@ -357,7 +357,7 @@ class PublicBrowsingTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee($activePackage->name);
-        $response->assertSee('images/resort pakage.jpg', false);
+        $response->assertSee('images/resort-package.jpg', false);
         $response->assertDontSee('id="availability-space"', false);
     }
 
