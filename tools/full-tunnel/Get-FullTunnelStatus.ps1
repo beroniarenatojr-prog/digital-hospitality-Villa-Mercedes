@@ -10,8 +10,10 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
 }
 
 $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
-Write-Host "Public URL:   $($status.PublicUrl)" -ForegroundColor Green
-Write-Host "Admin URL:    $($status.AdminUrl)" -ForegroundColor Cyan
+Write-Host 'Guest site' -ForegroundColor Green
+Write-Host $status.PublicUrl
+Write-Host 'Admin portal' -ForegroundColor Cyan
+Write-Host $status.AdminUrl
 Write-Host "Local URL:    $($status.LocalUrl)" -ForegroundColor White
 Write-Host "Started At:   $($status.StartedAt)" -ForegroundColor Gray
 
